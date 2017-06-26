@@ -1,0 +1,9 @@
+{
+	"n_targets": 95021,
+	"n_bootstraps": 0,
+	"n_processed": 91031373,
+	"kallisto_version": "0.43.0",
+	"index_version": 10,
+	"start_time": "Wed Mar  8 15:17:10 2017",
+	"call": "./kallisto quant -i Mus_musculus.GRCm38.75.cdna.all_ncrna_ERCC92.kallisto -o enrique_data/2015-04-29/7_9981_CTTGTA_kallisto_ncrna_ERCC92 --plaintext -t 2 enrique_data/2015-04-29/7_9981_CTTGTA_read1.fastq.gz enrique_data/2015-04-29/7_9981_CTTGTA_read2.fastq.gz"
+}
