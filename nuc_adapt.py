@@ -11,6 +11,7 @@ VERSION = '1.0.0'
 DESCRIPTION = 'Adapt the sequence of a genome build using variants called from population Hi-C, or other related data'
 
 DEFAULT_VCF = 'hic_comb_vars.vcf'
+DEFAULT_QUAL = 30
 PICARD    = '/home/tjs23/apps/picard.jar'
 FREEBAYES = 'freebayes'
 VCFUNIQ   = '/home/tjs23/apps/freebayes/vcflib/bin/vcfuniq'
@@ -33,7 +34,7 @@ def freebayes_genotype_job(region, genome_fasta_path, bam_paths):
   return out_vcf_path
   
 
-def call_genotype_freebayes(bam_file_paths, genome_fasta_path, out_vcf_path, num_cpu):
+def call_genotype_freebayes(bam_file_paths, genome_fasta_path, out_vcf_path, min_qual, num_cpu):
   # FreeBayes pipeline
   
   temp_file_path = util.get_temp_path(out_vcf_path)
@@ -41,7 +42,7 @@ def call_genotype_freebayes(bam_file_paths, genome_fasta_path, out_vcf_path, num
   # Make regions for parallelisation, splitting all chromos according to number of CPUs
   
   chromo_sizes = util.get_bam_chromo_sizes(bam_file_paths[0])
-      
+  
   regions = []
   region_fmt = '%s:%d-%d'
   
@@ -60,9 +61,9 @@ def call_genotype_freebayes(bam_file_paths, genome_fasta_path, out_vcf_path, num
   
   # Call haplotype for all strains at once, split into parallel regions
   
+  
   common_args = [genome_fasta_path, bam_file_paths]
-  region_vcf_paths = util.parallel_split_job(freebayes_genotype_job, regions, common_args,
-                                             num_cpu, collect_output=True)
+  region_vcf_paths = util.parallel_split_job(freebayes_genotype_job, regions, common_args, num_cpu=num_cpu)
   
   # Combine the regions which were run in parallel
   
@@ -94,7 +95,8 @@ def call_genotype_freebayes(bam_file_paths, genome_fasta_path, out_vcf_path, num
   return out_vcf_path
 
 
-def _make_test_files(fasta_path='adapt_test.fasta', vcf_path='adapt_test.vcf', min_len=200, max_len=1000, n_chromos=3, n_contigs=3):
+def _make_test_files(fasta_path='adapt_test.fasta', vcf_path='adapt_test.vcf',
+                     min_len=200, max_len=1000, n_chromos=3, n_contigs=3):
   
   # Make a random FASTA file with 3 chromos and 3 contigs per chromo
     
@@ -118,11 +120,10 @@ def _make_test_files(fasta_path='adapt_test.fasta', vcf_path='adapt_test.vcf', m
       
       while k < sl-3:
         if seq[k:k+3] == 'GGG':
-          var_dict[contig].append([k, 'GGG', 'tttt'])
-        
+          var_dict[contig].append([k, 'GGG', 'g'])
           k += 3 
         
-        elif random.random() < 0.005:
+        elif random.random() < 0.025:
           var_dict[contig].append([k, seq[k], 'gcat'[random.randint(0,3)]])
           k += 2
         
@@ -143,13 +144,13 @@ def _make_test_files(fasta_path='adapt_test.fasta', vcf_path='adapt_test.vcf', m
         file_obj.write(line)
         v += 1
         
-  vcf_adapt_fasta(fasta_path, vcf_path,'adapt_test_fixed.fasta')
+  vcf_adapt_fasta(fasta_path, vcf_path, 'adapt_test_fixed.fasta')
   
   # Create pseudo VCF where all the GGG ->> TTT and CG -> GC etc
   # Check output with meld
   
 
-def vcf_adapt_fasta(fasta_in_path, vcf_path, fasta_out_path):
+def vcf_adapt_fasta(fasta_in_path, vcf_path, fasta_out_path, min_qual=DEFAULT_QUAL):
   
   msg = 'Reading VCF file %s' % vcf_path
   util.info(msg)
@@ -166,6 +167,10 @@ def vcf_adapt_fasta(fasta_in_path, vcf_path, fasta_out_path):
         
       else:
         contig, pos, v_id, ref, alt, qual, filt, info = line.split()[:8]
+        
+        if float(qual) < min_qual:
+          continue
+        
         pos = int(pos)
         vcf_dict[contig].append((pos, list(ref), list(alt)))
         n_var += 1
@@ -181,7 +186,7 @@ def vcf_adapt_fasta(fasta_in_path, vcf_path, fasta_out_path):
   util.info(msg)
   
   with util.open_file(fasta_in_path) as file_obj:
-    inp_seqs = util.read_fasta(file_obj) # Chromo/contig_names muct match
+    inp_seqs = util.read_fasta(file_obj) # Chromo/contig_names must match
     inp_seqs.reverse() 
     out_seqs = []
     
@@ -200,7 +205,8 @@ def vcf_adapt_fasta(fasta_in_path, vcf_path, fasta_out_path):
     util.write_fasta(fasta_out_path, out_seqs)
       
       
-def nuc_adapt(genome_fasta_path, hic_bam_paths, vcf_path, fasta_out_path=None, num_cpu=util.MAX_CORES):
+def nuc_adapt(genome_fasta_path, hic_bam_paths, vcf_path, fasta_out_path=None,
+              min_qual=DEFAULT_QUAL, num_cpu=util.MAX_CORES):
   # In future maybe do the clipping and genome mapping - get this code from NucProcess
   # Mapped reads should initially have been clipped at Hi-C ligation junction (separate ends)
   
@@ -213,43 +219,76 @@ def nuc_adapt(genome_fasta_path, hic_bam_paths, vcf_path, fasta_out_path=None, n
   for bam_file_path in hic_bam_paths:
     util.info('Cleaning and deduplicating %s' % bam_file_path)
   
-    file_root, file_ext = os.path.splitext(bam_file_path)
+    file_root, file_ext = os.path.splitext(os.path.abspath(bam_file_path))
     
-    temp_bam_path = '%s_temp%s' % (file_root, file_ext)  
+    clean_bam_path = '%s_temp%s' % (file_root, file_ext)  
+    sort_bam_path = '%s_sort%s' % (file_root, file_ext)  
     mdwm_bam_path = '%s_mdwm%s' % (file_root, file_ext) 
+    metrics_file_path= '%s_metrics.txt' % (file_root,) 
      
-    cmd_args = ['samtools','view','-b','-f','3','-F','4','-q','1', bam_file_path]
+    cmd_args = ['samtools', 'view', '-b',
+                '-@', str(num_cpu),
+                '-f','3',
+                '-F', '4',
+                '-q','1', bam_file_path]
+                
     # -f, 3 means include paired and mapped reads (first two bits of SAM format FLAG)
     # -F, 4 means exclude unmapped read (third bit of SAM format FLAG)
     # -q filters MAPQ: MAPping Quality. It equals -10log10 Pr{mapping position is wrong}, rounded to the nearest integer.
-    util.call(cmd_args, stdout=open(temp_bam_path, 'wb'))
-
-    cwd = os.getcwd()
-    os.chdir('/') # Picard picky about relative paths
     
-    # Mark pair-end (position) read duplicates which are uverwhelmingly repeat amplicons
-    # best sequences are kept
-    cmd_args = ['java', '-d64', '-Xmx4g', # 4 gigabyte heap size, for GATK, Picard etc.
-                '-jar', PICARD,
-                'MarkDuplicatesWithMateCigar',
-                'I=%s' % temp_bam_path,
-                'O=%s' % mdwm_bam_path]
+    if not os.path.exists(clean_bam_path):
+      util.call(cmd_args, stdout=open(clean_bam_path, 'wb'))
+
+    cmd_args = ['samtools', 'sort',
+                '-O', 'bam',
+                '-@', str(num_cpu),
+                '-o', sort_bam_path, clean_bam_path]
+    
+    if not os.path.exists(sort_bam_path):
+      util.call(cmd_args)
+    
+    
+    """
+    if  not os.path.exists(mdwm_bam_path):
+      cwd = os.getcwd()
+      os.chdir('/') # Picard picky about relative paths
  
-    util.call(cmd_args)
-    os.chdir(cwd)
-    os.unlink(temp_bam_path)
-    mdwm_bam_paths.append(mdwm_bam_path)    
+      # Mark pair-end (position) read duplicates which are overwhelmingly repeat amplicons
+      # best sequences are kept
+      cmd_args = ['java', '-d64', '-Xmx4g', # 4 gigabyte heap size, for GATK, Picard etc.
+                  '-jar', PICARD,
+                  'MarkDuplicatesWithMateCigar',
+                  'I=%s' % sort_bam_path,
+                  'O=%s' % mdwm_bam_path,
+                  'M=%s' % metrics_file_path]
+ 
+      util.call(cmd_args)
+      os.chdir(cwd)
+      
+    """
+    
+    #os.unlink(temp_bam_path)
+    #os.unlink(sort_bam_path)
+    #mdwm_bam_paths.append(mdwm_bam_path)    
+    mdwm_bam_paths.append(sort_bam_path)    
   
-  call_genotype_freebayes(mdwm_bam_paths, genome_fasta_path, num_cpu, vcf_path)
+  if not os.path.exists(vcf_path):
+    call_genotype_freebayes(mdwm_bam_paths, genome_fasta_path, vcf_path, min_qual, num_cpu)
   
-  vcf_adapt_fasta(genome_fasta_path, vcf_path, fasta_out_path)
+  vcf_adapt_fasta(genome_fasta_path, vcf_path, fasta_out_path, min_qual)
   
-  util.info('Adapted genome sequence written to %s' % vcf_path)
+  util.info('Adapted genome sequence written to %s' % fasta_out_path)
   util.info('%s done!' % PROG_NAME)
-  
+
+# Dedup : 8,473,901 variations
+# NDD: 8,473,901
 
 if __name__ == '__main__':
-
+  
+  #_make_test_files()
+  #import sys
+  #sys.exit()
+  
   from argparse import ArgumentParser
   
   epilog = 'For further help email tjs23@cam.ac.uk or wb104@cam.ac.uk'
@@ -257,16 +296,21 @@ if __name__ == '__main__':
                             epilog=epilog, prefix_chars='-', add_help=True)
 
   arg_parse.add_argument('bams', nargs='+', metavar='BAM_FILES',
-                         help='One or more input BAM files cobtained from mapping properly clipped Hi-C sequence reads to the reference genome build which is to be adapted')
+                         help='One or more input BAM files obtained from mapping properly clipped Hi-C'
+                              ' sequence reads to the reference genome build which is to be adapted')
 
-  arg_parse.add_argument('-g', nargs=1, metavar='GENOME_FASTA_FILE',
+  arg_parse.add_argument('-g', metavar='GENOME_FASTA_FILE',
                          help='Genome sequence as a single FASTA file, i.e. containing all chromosomes/contigs')
+
+  arg_parse.add_argument('-q', metavar='MIN_QUALITY', type=int, default=DEFAULT_QUAL,
+                         help='Minimum Phred scale quality score for selecting variations')
 
   arg_parse.add_argument('-v',  metavar='VCF_FILE', default=DEFAULT_VCF,
                          help='Optional output file path for VCF file containing combined variants called in input data. Default %s' % DEFAULT_VCF)
 
   arg_parse.add_argument('-o',  metavar='OUTPUT_FASTA_FILE',
-                         help='Optional output file path for FASTA file containing adapted genome sequence. Unless specified the output FASTA will be the input tagged with "_adapted"')  
+                         help='Optional output file path for FASTA file containing adapted genome sequence. ' \
+                              'Unless specified the output FASTA will be the input tagged with "_adapted"')  
  
   arg_parse.add_argument('-cpu', metavar='NUM_CORES', default=util.MAX_CORES, type=int,
                          help='Number of parallel CPU cores to use for variant calling. Default: All available (%d)' % util.MAX_CORES) 
@@ -275,8 +319,9 @@ if __name__ == '__main__':
   
   hic_bam_paths     = args['bams']
   genome_fasta_path = args['g']
+  min_qual          = args['q']
   vcf_out_path      = args['v']
   fasta_out_path    = args['o']
   num_cpu           = args['cpu'] or None # May not be zero
   
-  nuc_adapt(genome_fasta_path, hic_bam_paths, vcf_out_path, fasta_out_path, num_cpu)
+  nuc_adapt(genome_fasta_path, hic_bam_paths, vcf_out_path, fasta_out_path, min_qual, num_cpu)
