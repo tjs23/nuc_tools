@@ -206,7 +206,7 @@ def vcf_adapt_fasta(fasta_in_path, vcf_path, fasta_out_path, min_qual=DEFAULT_QU
       
       
 def nuc_adapt(genome_fasta_path, hic_bam_paths, vcf_path, fasta_out_path=None,
-              min_qual=DEFAULT_QUAL, num_cpu=util.MAX_CORES):
+              min_qual=DEFAULT_QUAL, num_cpu=util.parallel.MAX_CORES):
   # In future maybe do the clipping and genome mapping - get this code from NucProcess
   # Mapped reads should initially have been clipped at Hi-C ligation junction (separate ends)
   
@@ -280,22 +280,23 @@ def nuc_adapt(genome_fasta_path, hic_bam_paths, vcf_path, fasta_out_path=None,
   util.info('Adapted genome sequence written to %s' % fasta_out_path)
   util.info('%s done!' % PROG_NAME)
 
+
 # Dedup : 8,473,901 variations
 # NDD: 8,473,901
 
-if __name__ == '__main__':
+def main(argv=None):
   
-  #_make_test_files()
-  #import sys
-  #sys.exit()
   
   from argparse import ArgumentParser
+
+  if argv is None:
+    argv = sys.argv[1:]
   
   epilog = 'For further help email tjs23@cam.ac.uk or wb104@cam.ac.uk'
-  arg_parse = ArgumentParser(prog=PROG_NAME, description=DESCRIPTION,
+  arg_parse = ArgumentParser(prog='nuc_tools adapt', description=DESCRIPTION,
                             epilog=epilog, prefix_chars='-', add_help=True)
-
-  arg_parse.add_argument('bams', nargs='+', metavar='BAM_FILES',
+  
+  arg_parse.add_argument('bams', nargs='+', metavar='BAM_FILE',
                          help='One or more input BAM files obtained from mapping properly clipped Hi-C'
                               ' sequence reads to the reference genome build which is to be adapted')
 
@@ -312,10 +313,10 @@ if __name__ == '__main__':
                          help='Optional output file path for FASTA file containing adapted genome sequence. ' \
                               'Unless specified the output FASTA will be the input tagged with "_adapted"')  
  
-  arg_parse.add_argument('-cpu', metavar='NUM_CORES', default=util.MAX_CORES, type=int,
-                         help='Number of parallel CPU cores to use for variant calling. Default: All available (%d)' % util.MAX_CORES) 
-  
-  args = vars(arg_parse.parse_args())
+  arg_parse.add_argument('-cpu', metavar='NUM_CORES', default=util.parallel.MAX_CORES, type=int,
+                         help='Number of parallel CPU cores to use for variant calling. Default: All available (%d)' % util.parallel.MAX_CORES) 
+
+  args = vars(arg_parse.parse_args(argv))
   
   hic_bam_paths     = args['bams']
   genome_fasta_path = args['g']
@@ -325,3 +326,11 @@ if __name__ == '__main__':
   num_cpu           = args['cpu'] or None # May not be zero
   
   nuc_adapt(genome_fasta_path, hic_bam_paths, vcf_out_path, fasta_out_path, min_qual, num_cpu)
+    
+if __name__ == '__main__':
+  
+  #_make_test_files()
+  #import sys
+  #sys.exit()
+  
+  main()

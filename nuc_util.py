@@ -1,5 +1,4 @@
-import random
-import string
+import random, sys, string
 #import uuid
 
 
@@ -10,6 +9,9 @@ LOGGING          = False # Global file logging flag
 #TEMP_ID          = '%s' % uuid.uuid4()
 #LOG_FILE_PATH    = 'nuc-tools-out-%s.log' % TEMP_ID
 LOG_FILE_OBJ     = None # Created when needed
+
+import nuc_parallel as parallel
+import nuc_io as io
 
 
 # #   Srcreen reporting  # # 
