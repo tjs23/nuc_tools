@@ -1,11 +1,12 @@
 import sys
 import nuc_adapt
+import nuc_ab_kmeans
 
 PROG_NAME = 'nuc_tools'
 VERSION = '0.0.1'
 DESCRIPTION = 'Informatics tools for geneome structure and Hi-C analysis'
 EPILOG = 'For further help email tjs23@cam.ac.uk or wb104@cam.ac.uk'
-TOOLS = {'adapt': nuc_adapt}
+TOOLS = {'adapt': nuc_adapt, 'ab_kmeans': nuc_ab_kmeans}
 
 def main(argv=None):
   from argparse import ArgumentParser
