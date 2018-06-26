@@ -2,12 +2,16 @@ import fnmatch
 import gzip
 import os
 import re
+import subprocess
+
+from io import BufferedReader, BufferedWriter
 
 import nuc_util
 
 # #   Globals  # #
 
 FILENAME_SPLIT   = re.compile('[_\.]')
+FILE_BUFFER_SIZE = 2**16
 
 
 # #   Path naming  # #
@@ -136,7 +140,7 @@ def locate_exe(file_name):
 def uncompress_file(file_name):
 
   if file_name.endswith('.gz'):
-    in_file_obj = gzip.open(file_name, 'rb')
+    in_file_obj = open_file(file_name)
  
     file_name = file_name[:-3]
     out_file_obj = open(file_name, 'w')
@@ -169,39 +173,61 @@ def compress_file(file_path):
   return out_file_path
 
     
-def open_file(file_path, mode=None, gzip_exts=('.gz','.gzip')):
+def open_file(file_path, mode=None, buffer_size=FILE_BUFFER_SIZE, gzip_exts=('.gz','.gzip')):
   """
   GZIP agnostic file opening
   """
   
   if os.path.splitext(file_path)[1].lower() in gzip_exts:
-    file_obj = gzip.open(file_path, mode or 'rt')
+    if mode and 'w' in mode:
+      file_obj = BufferedWriter(gzip.open(file_path, mode), buffer_size)
+    else:
+      try:
+        file_obj = subprocess.Popen(['zcat', file_path], stdout=subprocess.PIPE).stdout
+      except OSError: 
+        file_obj = BufferedReader(gzip.open(file_path, mode or 'rt'), buffer_size)
+ 
   else:
-    file_obj = open(file_path, mode or 'rU')
+    file_obj = open(file_path, mode or 'rU', buffer_size)
   
   return file_obj
  
  
 def check_regular_file(file_path):
+  
+  msg = invalid_file(file_path)
+  
+  if msg:
+    return False, msg
+  
+  return True, ''
+
+
+def check_invalid_file(file_path):
 
   msg = ''
   
   if not os.path.exists(file_path):
     msg = 'File "%s" does not exist'
-    return False, msg % file_path
+    return msg % file_path
   
   if not os.path.isfile(file_path):
     msg = 'Location "%s" is not a regular file'
-    return False, msg % file_path
+    return msg % file_path
   
   if os.stat(file_path).st_size == 0:
     msg = 'File "%s" is of zero size '
-    return False, msg % file_path
+    return msg % file_path
     
   if not os.access(file_path, os.R_OK):
     msg = 'File "%s" is not readable'
-    return False, msg % file_path
+    return msg % file_path
+
+
+def is_same_file(file_path_a, file_path_b):
   
-  return True, msg
-
-
+  file_path_a = os.path.abspath(file_path_a)
+  file_path_b = os.path.abspath(file_path_b)
+  
+  return file_path_a == file_path_b
+  
