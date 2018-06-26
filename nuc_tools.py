@@ -1,16 +1,18 @@
-import sys
-import nuc_adapt
-import nuc_ab_kmeans
+import sys, importlib
+from core import nuc_util as util
+from core import nuc_io as io
+from core import nuc_parallel as parallel
 
 PROG_NAME = 'nuc_tools'
 VERSION = '0.0.1'
-DESCRIPTION = 'Informatics tools for geneome structure and Hi-C analysis'
+DESCRIPTION = 'Informatics tools for genome structure and Hi-C analysis'
 EPILOG = 'For further help email tjs23@cam.ac.uk or wb104@cam.ac.uk'
-TOOLS = {'adapt': nuc_adapt, 'ab_kmeans': nuc_ab_kmeans}
+TOOLS = {'adapt': 'tools.nuc_adapt',
+         'ab_kmeans': 'tools.nuc_ab_kmeans',
+         'ncc_filter': 'tools.ncc_filter'}
 
 def main(argv=None):
   from argparse import ArgumentParser
-  import nuc_util as util
 
   if argv is None:
     argv = sys.argv[1:]
@@ -19,6 +21,9 @@ def main(argv=None):
   sub_commands = ', '.join(tools)
   
   if not argv or argv[0] not in TOOLS:
+    
+    msg = 'AVAILABLE TOOLS: %s' % ' '.join(sorted(TOOLS))
+    print(msg)
 
     arg_parse = ArgumentParser(prog='nuc_tools', description=DESCRIPTION,
                               epilog=EPILOG, add_help=True)
@@ -31,7 +36,8 @@ def main(argv=None):
  
     args = vars(arg_parse.parse_args(argv))
     
-  module = TOOLS[argv[0]]  
+  module_name = TOOLS[argv[0]]
+  module = importlib.import_module(module_name)
   module.main(argv[1:])
   
 

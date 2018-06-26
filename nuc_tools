@@ -1,0 +1,7 @@
+#!/bin/sh
+
+export NUC_TOOLS_DIR="$(cd $(dirname "$0"); pwd)"
+export PYTHONPATH="${PYTHONPATH}:.:${NUC_TOOLS_DIR}"
+
+#python -m nuc_processing.NucProcess $*
+python nuc_tools.py $*

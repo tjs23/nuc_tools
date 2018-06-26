@@ -3,14 +3,14 @@ import numpy as np
 # #   Globals  # #
 
 #NCC_FORMAT       = '%s %d %d %d %d %s %s %d %d %d %d %s %d %d %d\n'
-
+# See https://github.com/tjs23/nuc_processing/wiki/NCC-data-format
 
 # #   Nuc Formats  # # 
 
 def load_ncc_file(file_path):
   """Load chromosome and contact data from NCC format file, as output from NucProcess"""
   
-  import nuc_io as io
+  from core import nuc_io as io
   
   with io.open_file(file_path) as file_obj:
   
@@ -22,7 +22,9 @@ def load_ncc_file(file_path):
     chromosomes = set()
  
     for line in file_obj:
-      chr_a, f_start_a, f_end_a, start_a, end_a, strand_a, chr_b, f_start_b, f_end_b, start_b, end_b, strand_b, ambig_group, pair_id, swap_pair = line.split()
+      chr_a, start_a, end_a, f_start_a, f_end_a, strand_a, \
+        chr_b, start_b, end_b, f_start_b, f_end_b, strand_b, \
+        ambig_group, pair_id, swap_pair = line.split()
  
       if strand_a == '+':
         pos_a = int(f_start_a)
@@ -79,6 +81,7 @@ def load_ncc_file(file_path):
   chromosomes = sorted(chromosomes)      
         
   return chromosomes, chromo_limits, contact_dict
+
 
 def getContactMatrix(contact_dict, chrA, chrB, regionA, regionB, binSize=int(1e6)):
   """Gets a full matrix of contacts from sparse contacts""" 

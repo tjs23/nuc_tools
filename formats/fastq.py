@@ -1,8 +1,7 @@
 import os
 
-import nuc_io
-import nuc_util
-
+from core import nuc_io
+from core import nuc_util
 
 # #   Globals  # #
 

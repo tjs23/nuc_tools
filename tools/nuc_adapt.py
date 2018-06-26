@@ -2,7 +2,6 @@ import os, glob, random, re
 import numpy as np
 import subprocess
 import multiprocessing
-import nuc_util as util
 
 from collections import defaultdict
 
@@ -206,9 +205,14 @@ def vcf_adapt_fasta(fasta_in_path, vcf_path, fasta_out_path, min_qual=DEFAULT_QU
       
       
 def nuc_adapt(genome_fasta_path, hic_bam_paths, vcf_path, fasta_out_path=None,
-              min_qual=DEFAULT_QUAL, num_cpu=util.parallel.MAX_CORES):
+              min_qual=DEFAULT_QUAL, num_cpu=None):
   # In future maybe do the clipping and genome mapping - get this code from NucProcess
   # Mapped reads should initially have been clipped at Hi-C ligation junction (separate ends)
+  
+  from nuc_tools import util, core, parallel
+  
+  if not num_cpu:
+    num_cpu = parallel.MAX_CORES
   
   if not fasta_out_path:
     file_root, file_ext = os.path.splitext(genome_fasta_path)
@@ -285,8 +289,8 @@ def nuc_adapt(genome_fasta_path, hic_bam_paths, vcf_path, fasta_out_path=None,
 # NDD: 8,473,901
 
 def main(argv=None):
-  
-  
+    
+  from nuc_tools import util
   from argparse import ArgumentParser
 
   if argv is None:
@@ -328,6 +332,7 @@ def main(argv=None):
   nuc_adapt(genome_fasta_path, hic_bam_paths, vcf_out_path, fasta_out_path, min_qual, num_cpu)
     
 if __name__ == '__main__':
+
   
   #_make_test_files()
   #import sys

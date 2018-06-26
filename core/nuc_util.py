@@ -13,7 +13,6 @@ LOG_FILE_OBJ     = None # Created when needed
 import nuc_parallel as parallel
 import nuc_io as io
 
-
 # #   Srcreen reporting  # # 
 
 def report(msg):

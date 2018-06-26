@@ -1,18 +1,41 @@
+import sys, os
 import numpy as np
 
-import cyt_ab_kmeans
-import cyt_ncc
 
-import nuc_bed
-import nuc_ncc
-import nuc_3d
-import nuc_util
+from formats import bed, ncc, n3d
+from core import nuc_util
 
 PROG_NAME = 'nuc_ab_means'
 VERSION = '1.0.0'
 DESCRIPTION = 'Calculate the A/B regions from population Hi-C data'
 
 DEFAULT_BIN_SIZE = 500000
+
+def test_imports():
+    
+  try:
+    import cyt_ab_kmeans
+    
+  except ImportError as err:
+    try:
+      import cython
+    except ImportError as err:
+      nuc_util.critical('Critical Python module "cython" is not installed or accessible')
+
+    try:
+      from distutils.core import run_setup
+    except ImportError as err:
+      nuc_util.critical('Critical Python module "distutils" is not installed or accessible')
+  
+    from distutils.core import run_setup
+    nuc_util.warn('Utility C/Cython code not compiled. Attempting to compile now...')    
+    
+    setup_script = os.path.join(os.path.dirname(__file__), 'setup_cython.py')
+    run_setup(setup_script, ['build_ext', '--inplace'])  
+
+  import cyt_ab_kmeans
+  #import cyt_ncc
+
 
 def calcContactVoidRegions(pop_contacts_path, binSize=int(5e5), close_cis=int(1e6), clip_factor=2.0):
   
@@ -96,11 +119,11 @@ def calcContactVoidRegions(pop_contacts_path, binSize=int(5e5), close_cis=int(1e
 def make_ab_compartment_tracks(pop_contacts_path, active_marks_track=None, binSize=int(2.5e5)):
   """Calculate A/B compartment regions from population Hi-C contacts"""
       
-  chromosomes, chromo_limits, contact_dict = nuc_ncc.load_ncc_file(pop_contacts_path)
+  chromosomes, chromo_limits, contact_dict = ncc.load_ncc_file(pop_contacts_path)
   if active_marks_track is None:
     marks_regions = marks_values = None
   else:
-    marks_regions, marks_values, label_dict = nuc_bed.load_bed_data_track(active_marks_track)
+    marks_regions, marks_values, label_dict = bed.load_bed_data_track(active_marks_track)
     
   regionDictA = {}
   regionDictB = {}
@@ -121,7 +144,7 @@ def make_ab_compartment_tracks(pop_contacts_path, active_marks_track=None, binSi
     startPoint, endPoint = limits
     
     # Get observed contacts matrix, remove digonal and scale
-    obs = nuc_ncc.getContactMatrix(contact_dict, chromo, chromo, limits, limits, binSize).astype(float)
+    obs = ncc.getContactMatrix(contact_dict, chromo, chromo, limits, limits, binSize).astype(float)
     obs -= np.diag(np.diag(obs)) # Repeating diag() makes 1D into 2D
     obs /= obs.sum()
     n = len(obs)
@@ -247,10 +270,10 @@ def save_ab_tracks_bed(region_dict_a, region_dict_b, output_prefix):
     value_dict_b[chromo] = y_vals
 
   file_name = '%s_A.bed' % output_prefix
-  nuc_bed.save_bed_data_track(file_name, region_dict_a, value_dict_a)
+  bed.save_bed_data_track(file_name, region_dict_a, value_dict_a)
 
   file_name = '%s_B.bed' % output_prefix
-  nuc_bed.save_bed_data_track(file_name, region_dict_b, value_dict_b)
+  bed.save_bed_data_track(file_name, region_dict_b, value_dict_b)
 
 def main(argv=None):
   
@@ -293,6 +316,8 @@ def main(argv=None):
   a_regions, b_regions, v_regions, chromo_limits = make_ab_compartment_tracks(pop_contacts_path, active_marks_track, bin_size)
 
   save_ab_tracks_bed(a_regions, b_regions, output_prefix)
+
+test_imports()
   
 if __name__ == '__main__':
     

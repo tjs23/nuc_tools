@@ -1,6 +1,6 @@
 import numpy as np
 from collections import defaultdict
-from nuc_io import open_file
+from core.nuc_io import open_file
 
 def load_bed_data_track(file_path):
 
