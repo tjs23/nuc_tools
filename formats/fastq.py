@@ -10,7 +10,7 @@ FASTQ_READ_CHUNK = 1048576
 
 # #  FASTQ  format  # #
 
-def check_fastq_file(file_path):
+def check_format(file_path):
   
   file_obj = nuc_io.open_file(file_path)
     
@@ -25,7 +25,7 @@ def check_fastq_file(file_path):
   return True, ''
   
   
-def get_fastq_qual_scheme(file_path):
+def get_qual_scheme(file_path):
   """
   Guess the quality scoring scheme for a FASTQ file
   """
@@ -72,7 +72,7 @@ def get_fastq_qual_scheme(file_path):
   return scheme
 
 
-def pair_fastq_files(fastq_paths, pair_tags=('r_1','r_2'), err_msg='Could not pair FASTQ read files.'):
+def pair_files(fastq_paths, pair_tags=('r_1','r_2'), err_msg='Could not pair FASTQ read files.'):
   
   if len(fastq_paths) != len(set(fastq_paths)):
     msg = '%s Repeat file path present.'
