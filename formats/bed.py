@@ -11,6 +11,10 @@ def load_bed_data_track(file_path):
   
   with open_file(file_path) as file_obj:
     line = file_obj.readline()
+    
+    while line.startswith('browser') or line.startswith('track'):
+      line = file_obj.readline()
+
     file_obj.seek(0)
     n_fields = len(line.split())
     have_anno = n_fields > 3
@@ -26,8 +30,8 @@ def load_bed_data_track(file_path):
       start = int(data[1])
       end = int(data[2])
      
-      #if chromo.lower()[:3] == 'chr':
-      #  chromo = chromo[3:]
+      if chromo.lower()[:3] == 'chr':
+        chromo = chromo[3:]
            
       if have_anno:
         label = data[3]
