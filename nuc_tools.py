@@ -3,6 +3,8 @@ from core import nuc_util as util
 from core import nuc_io as io
 from core import nuc_parallel as parallel
 
+import formats
+
 PROG_NAME = 'nuc_tools'
 VERSION = '0.0.1'
 DESCRIPTION = 'Informatics tools for genome structure and Hi-C analysis'

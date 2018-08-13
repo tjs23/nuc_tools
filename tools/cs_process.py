@@ -261,7 +261,7 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
     qual_scheme = formats.fastq.get_qual_scheme(fastq_paths[0])  
   
   if not num_cpu:
-    num_cpu = papallel.MAX_CORES
+    num_cpu = parallel.MAX_CORES
   
   common_args = [align_exe, '-D', '20', '-R', '3', '-N', '0',  '-L', '20',  '-i', 'S,1,0.5', # similar to very-sensitive
                  '-x', genome_index, # '-k', '2',
@@ -546,8 +546,8 @@ def main(argv=None):
   args = vars(arg_parse.parse_args(argv))
   
   for arg in args:
-    if arg.startswith('-s') and arg[2:].isdigit():
-      f_arg = '-f' + arg[2:]
+    if arg.startswith('s') and arg[1:].isdigit():
+      f_arg = 'f' + arg[1:]
       
       if f_arg not in args:
         util.critical('%s naming option specified but not corresponding FASTQ files %s' % (arg, f_arg))
@@ -555,9 +555,9 @@ def main(argv=None):
   fastq_inputs = []
 
   for arg in args:
-    if arg.startswith('-f') and arg[2:].isdigit():
-      i = int(arg[2:])
-      s_arg = '-s' + arg[2:]
+    if arg.startswith('f') and arg[1:].isdigit():
+      i = int(arg[1:])
+      s_arg = 's' + arg[1:]
       
       if s_arg in args:
         sample_name = args[s_arg]
