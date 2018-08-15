@@ -30,7 +30,7 @@ DEFAULT_MAX_SEP = 500
 
 def _check_index_file(file_path, sub_files=('.1', '.2', '.3', '.4', '.rev.1', '.rev.2')):
 
-  from nuc_tools import util
+  from nuc_tools import io, util
   
   msg = ''
   is_ok = True
@@ -200,12 +200,17 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
   else:
     outdir = '' # CWD default    
   
+  sample_names = list(sample_names) # can be a tuple but need to modify below
+
   # How is the library size (c.f. discordants) accounted for...
   
   # Check FASTQ files and corresponding sample names
   for i, fastq_paths in enumerate(fastq_path_groups):
     for file_path in fastq_paths:
-      io.check_regular_file(file_path, critical=True)
+      #io.check_regular_file(file_path, critical=True)
+      io.check_regular_file(file_path)
+      #from formats import fastq
+      from formats import fastq
       formats.fastq.check_format(file_path)  
     
     if not sample_names[i]:
@@ -236,7 +241,8 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
     util.critical(msg % align_exe)
 
   else:
-    io.check_regular_file(align_exe, critical=True)      
+    #io.check_regular_file(align_exe, critical=True)      
+    io.check_regular_file(align_exe)
   
   # Check samtools
   samtools_exe = io.locate_exe('samtools')
@@ -245,7 +251,7 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
     util.critical(msg)  
   
   # Check macs2
-  macs2_exe  = io.locate_exe('smacs2')
+  macs2_exe  = io.locate_exe('macs2')
   if not macs2_exe:
     msg = 'Macs2 executable could not be found'
     util.critical(msg)  
@@ -555,7 +561,7 @@ def main(argv=None):
   fastq_inputs = []
 
   for arg in args:
-    if arg.startswith('f') and arg[1:].isdigit():
+    if arg.startswith('f') and arg[1:].isdigit() and args[arg]:
       i = int(arg[1:])
       s_arg = 's' + arg[1:]
       

@@ -6,7 +6,7 @@ import subprocess
 
 from io import BufferedReader, BufferedWriter
 
-import nuc_util
+import core.nuc_util as util
 
 # #   Globals  # #
 
@@ -21,7 +21,7 @@ def get_temp_path(file_path):
   
   path_root, file_ext = os.path.splitext(file_path)
   
-  return '%s_temp_%s%s' % (path_root, nuc_util.get_rand_string(8), file_ext)
+  return '%s_temp_%s%s' % (path_root, util.get_rand_string(8), file_ext)
 
   
 def get_file_ext(file_path):
@@ -42,12 +42,12 @@ def get_safe_file_path(path_name, file_name=None):
     file_path = path_name
  
   if os.path.exists(file_path):
-    nuc_util.warn("%s already exists and won't be overwritten..." % file_path)
+    util.warn("%s already exists and won't be overwritten..." % file_path)
     
     path_root, file_ext = os.path.splitext(file_path)
-    file_path = '%s_%s%s' % (path_root, nuc_util.get_rand_string(8), file_ext)
+    file_path = '%s_%s%s' % (path_root, util.get_rand_string(8), file_ext)
     
-    nuc_util.info('Results will be saved in %s' % file_path)
+    util.info('Results will be saved in %s' % file_path)
   
   return file_path
   
@@ -195,7 +195,7 @@ def open_file(file_path, mode=None, buffer_size=FILE_BUFFER_SIZE, gzip_exts=('.g
  
 def check_regular_file(file_path):
   
-  msg = invalid_file(file_path)
+  msg = check_invalid_file(file_path)
   
   if msg:
     return False, msg
@@ -205,8 +205,6 @@ def check_regular_file(file_path):
 
 def check_invalid_file(file_path):
 
-  msg = ''
-  
   if not os.path.exists(file_path):
     msg = 'File "%s" does not exist'
     return msg % file_path
@@ -223,6 +221,7 @@ def check_invalid_file(file_path):
     msg = 'File "%s" is not readable'
     return msg % file_path
 
+  return ''
 
 def is_same_file(file_path_a, file_path_b):
   
