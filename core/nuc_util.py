@@ -12,7 +12,6 @@ LOG_FILE_PATH    = 'nuc-tools-out-%s.log' % TEMP_ID
 LOG_FILE_OBJ     = None # Created when needed
 
 import nuc_parallel as parallel
-import nuc_io as io
 
 # #   Srcreen reporting  # # 
 
