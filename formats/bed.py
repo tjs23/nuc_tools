@@ -30,8 +30,8 @@ def load_bed_data_track(file_path):
       start = int(data[1])
       end = int(data[2])
      
-      if chromo.lower()[:3] == 'chr':
-        chromo = chromo[3:]
+      #if chromo.lower()[:3] == 'chr':
+      #  chromo = chromo[3:]
            
       if have_anno:
         label = data[3]

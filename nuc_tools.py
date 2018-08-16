@@ -4,6 +4,7 @@ from core import nuc_io as io
 from core import nuc_parallel as parallel
 
 import formats
+import tools
 
 PROG_NAME = 'nuc_tools'
 VERSION = '0.0.1'

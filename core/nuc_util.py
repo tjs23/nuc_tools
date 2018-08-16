@@ -11,7 +11,7 @@ TEMP_ID          = '%s' % uuid.uuid4()
 LOG_FILE_PATH    = 'nuc-tools-out-%s.log' % TEMP_ID
 LOG_FILE_OBJ     = None # Created when needed
 
-import nuc_parallel as parallel
+import core.nuc_parallel as parallel
 
 # #   Srcreen reporting  # # 
 

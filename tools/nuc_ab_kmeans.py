@@ -14,7 +14,7 @@ DEFAULT_BIN_SIZE = 500000
 def test_imports():
     
   try:
-    import cyt_ab_kmeans
+    import tools.cyt_ab_kmeans
     
   except ImportError as err:
     try:
@@ -39,7 +39,7 @@ def test_imports():
 
 def calcContactVoidRegions(pop_contacts_path, binSize=int(5e5), close_cis=int(1e6), clip_factor=2.0):
   
-  chromosomes, chromo_limits, contact_dict = nuc_ncc.load_ncc_file(pop_contacts_path)
+  chromosomes, chromo_limits, contact_dict = ncc.load_ncc_file(pop_contacts_path)
 
   regionDict = {}
   
@@ -55,7 +55,7 @@ def calcContactVoidRegions(pop_contacts_path, binSize=int(5e5), close_cis=int(1e
       continue
     
     # Scaled, observed contact matrix, without diagonal
-    obs = nuc_ncc.getContactMatrix(contact_dict, chrA, chrA, limits, limits, binSize).astype(float)
+    obs = ncc.getContactMatrix(contact_dict, chrA, chrA, limits, limits, binSize).astype(float)
     obs -= np.diag(np.diag(obs))
     
     obs_sum = obs.sum()
@@ -119,6 +119,8 @@ def calcContactVoidRegions(pop_contacts_path, binSize=int(5e5), close_cis=int(1e
 def make_ab_compartment_tracks(pop_contacts_path, active_marks_track=None, binSize=int(2.5e5)):
   """Calculate A/B compartment regions from population Hi-C contacts"""
       
+  import tools.cyt_ab_kmeans as cyt_ab_kmeans
+  
   chromosomes, chromo_limits, contact_dict = ncc.load_ncc_file(pop_contacts_path)
   if active_marks_track is None:
     marks_regions = marks_values = None
@@ -131,7 +133,6 @@ def make_ab_compartment_tracks(pop_contacts_path, active_marks_track=None, binSi
   void_track_regions = calcContactVoidRegions(pop_contacts_path, binSize*4)
 
   for chromo in chromosomes:
-
     if chromo not in marks_regions:
       continue
     
