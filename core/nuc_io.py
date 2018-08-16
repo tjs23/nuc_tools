@@ -23,7 +23,24 @@ def get_temp_path(file_path):
   
   return '%s_temp_%s%s' % (path_root, util.get_rand_string(8), file_ext)
 
-  
+
+def tag_file_name(file_path, tag, file_ext=None):
+
+  dir_path, file_name = os.path.split(file_path)
+
+  if file_name.endswith('.gz'):
+    file_root, file_ext_old = os.path.splitext(file_name[:-3])
+    file_name = '%s_%s%s.gz' % (file_root, tag, (file_ext or file_ext_old))
+
+  else:
+    file_root, file_ext_old = os.path.splitext(file_name)
+    file_name = '%s_%s%s' % (file_root, tag, (file_ext or file_ext_old))
+
+  file_path = os.path.join(dir_name, dir_path)
+
+  return file_path 
+   
+   
 def get_file_ext(file_path):
   
   file_root, file_ext = os.path.splitext(file_path)
