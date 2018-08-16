@@ -1,16 +1,18 @@
-import random, sys, string
-#import uuid
+import random, sys, string, subprocess
+import uuid
 import numpy as np
 
 # #   Globals  # #
 
 QUIET            = False # Global verbosity flag
 LOGGING          = False # Global file logging flag
-#TEMP_ID          = '%s' % uuid.uuid4()
-#LOG_FILE_PATH    = 'nuc-tools-out-%s.log' % TEMP_ID
+TEMP_ID          = '%s' % uuid.uuid4()
+
+LOG_FILE_PATH    = 'nuc-tools-out-%s.log' % TEMP_ID
 LOG_FILE_OBJ     = None # Created when needed
 
-import core.nuc_parallel as parallel
+import nuc_parallel as parallel
+import nuc_io as io
 
 # #   Srcreen reporting  # # 
 
@@ -42,6 +44,50 @@ def critical(msg, prefix='FAILURE'):
 def info(msg, prefix='INFO'):
 
   report('%s: %s' % (prefix, msg))
+
+
+# #  Run  # # 
+     
+def call(cmd_args, stdin=None, stdout=None, stderr=None, verbose=True, wait=True, path=None, shell=False):
+  """
+  Wrapper for external calls to log and report commands,
+  open stdin, stderr and stdout etc.
+  """
+  
+  if verbose:
+    info(' '.join(cmd_args))
+  
+  if path:
+    env = dict(os.environ)
+    prev = env.get('PATH', '')
+    
+    if path not in prev.split(':'):
+      env['PATH'] = prev + ':' + path
+  
+  else:
+    env = None # Current environment variables 
+  
+  if shell:
+    cmd_args = ' '.join(cmd_args)
+    
+  if stdin and isinstance(stdin, str):
+    stdin = open(stdin)
+
+  if stdout and isinstance(stdout, str):
+    stdout = open(stdout, 'w')
+
+  if stderr and isinstance(stderr, str):
+    stderr = open(stderr, 'a')
+  
+  if stderr is None and LOGGING:
+    logging()
+    stderr = LOG_FILE_OBJ
+  
+  if wait:
+    subprocess.call(cmd_args, stdin=stdin, stdout=stdout, stderr=stderr, env=env, shell=shell)
+      
+  else:
+    subprocess.Popen(cmd_args, stdin=stdin, stdout=stdout, stderr=stderr, env=env, shell=shell)
 
 
 # #  Strings  # #
