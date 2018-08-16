@@ -59,7 +59,7 @@ def load_n3d_coords(file_path):
   
   """  
   
-  import nuc_io as io
+  import core.nuc_io as io
 
   seq_pos_dict = {}
   coords_dict = {}  
@@ -81,8 +81,8 @@ def load_n3d_coords(file_path):
       elif n_items == 3:
         chromo, n_coords, n_models = data
         
-        if chromo.lower()[:3] == 'chr':
-          chromo = chromo[3:]
+        #if chromo.lower()[:3] == 'chr':
+        #  chromo = chromo[3:]
         
         n_coords = int(n_coords)
         n_models = int(n_models)

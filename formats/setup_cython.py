@@ -12,7 +12,6 @@ from numpy import get_include as numpy_get_include
 numpy_includes = numpy_get_include()
 
 ext_modules = [ 
-  Extension("cyt_ab_kmeans", ["cyt_ab_kmeans.pyx"], libraries=["m"], include_dirs=[numpy_includes]),
   Extension("cyt_ncc", ["cyt_ncc.pyx"], libraries=["m"], include_dirs=[numpy_includes])
   ]
 

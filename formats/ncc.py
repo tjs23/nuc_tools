@@ -86,7 +86,7 @@ def load_ncc_file(file_path):
 def getContactMatrix(contact_dict, chrA, chrB, regionA, regionB, binSize=int(1e6)):
   """Gets a full matrix of contacts from sparse contacts""" 
   
-  import cyt_ncc
+  import formats.cyt_ncc
 
   is_cis = chrA == chrB
     
@@ -124,7 +124,7 @@ def getContactMatrix(contact_dict, chrA, chrB, regionA, regionB, binSize=int(1e6
         transpose = True
       
       # Below is additive because both A:B and B:A contacts could be stored
-      cyt_ncc.binContacts(cData, matrix, start1, start2,
+      formats.cyt_ncc.binContacts(cData, matrix, start1, start2,
                   binSize, is_cis, transpose)
   
   return matrix
