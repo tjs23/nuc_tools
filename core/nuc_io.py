@@ -36,7 +36,7 @@ def tag_file_name(file_path, tag, file_ext=None):
     file_root, file_ext_old = os.path.splitext(file_name)
     file_name = '%s_%s%s' % (file_root, tag, (file_ext or file_ext_old))
 
-  file_path = os.path.join(dir_name, dir_path)
+  file_path = os.path.join(dir_path, file_name)
 
   return file_path 
    
