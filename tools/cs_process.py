@@ -205,12 +205,11 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
   # How is the library size (c.f. discordants) accounted for...
   
   # Check FASTQ files and corresponding sample names
+  from formats import fastq
   for i, fastq_paths in enumerate(fastq_path_groups):
     for file_path in fastq_paths:
       #io.check_regular_file(file_path, critical=True)
       io.check_regular_file(file_path)
-      #from formats import fastq
-      from formats import fastq
       formats.fastq.check_format(file_path)  
     
     if not sample_names[i]:
@@ -384,6 +383,7 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
    
     cmd_args = [samtools_exe, 'index', clean_bam_file_path]
     
+    from formats import sam
     chromo_sizes = formats.sam.get_bam_chromo_sizes(clean_bam_file_path)
     
     contigs, sizes = zip(*chromo_sizes)
