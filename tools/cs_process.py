@@ -382,6 +382,7 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
     util.info('Indexing BAM file')
    
     cmd_args = [samtools_exe, 'index', clean_bam_file_path]
+    util.call(cmd_args)
     
     from formats import sam
     chromo_sizes = formats.sam.get_bam_chromo_sizes(clean_bam_file_path)
@@ -392,7 +393,9 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
     
     # MACS2
     
-    peak_out_dir = os.path.join(os.path.dirname(fastq_1), 'macs2_peaks_%d_%s' % (idx, util.TEMP_ID))    
+    # TBD: idx is not set, what should it be??
+    #peak_out_dir = os.path.join(os.path.dirname(fastq_1), 'macs2_peaks_%d_%s' % (idx, util.TEMP_ID))    
+    peak_out_dir = os.path.join(os.path.dirname(fastq_1), 'macs2_peaks_%s' % util.TEMP_ID)
     io.makedirs(peak_out_dir, exist_ok=True)
     
     broad_name = sample_name + '_b'
@@ -401,16 +404,17 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
     common_args = [macs2_exe, 'callpeak',
                    '-t', clean_bam_file_path,
                    '-f', 'BAM',
-                   '-g', genome_size]
+                   '-g', 'mm']
+                   #'-g', genome_size] # TBD: what was this about?
                    
     if control_bam_path:
       common_args += ['-c', control_bam_path]
     
-    cms_args = control_bam_path + ['-n', broad_name, '-B', '-q', '0.05', '--broad', '--outdir', peak_out_dir]
+    cmd_args = common_args + ['-n', broad_name, '-B', '-q', '0.05', '--broad', '--outdir', peak_out_dir]
     util.info('Calling broad peaks')
     util.call(cmd_args)    
     
-    cms_args =  control_bam_path + ['-n', narrow_name, '-B', '-q', '0.1', '--outdir', peak_out_dir]
+    cmd_args =  common_args + ['-n', narrow_name, '-B', '-q', '0.1', '--outdir', peak_out_dir]
     util.info('Calling narrow peaks')
     util.call(cmd_args)
 
