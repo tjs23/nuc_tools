@@ -60,7 +60,7 @@ def clip_reads(in_fastq_file, out_fastq_file, qual_scheme, min_qual=DEFAULT_MIN_
   """
   from nuc_tools import util, io
   
-  util.info('Clipping FASTQ file %s' % in_fastq_file)
+  util.info('Clipping FASTQ file %s, producing %s' % (in_fastq_file, out_fastq_file))
   
   adapt_seqs = adapt_seqs or []
   
@@ -87,7 +87,7 @@ def clip_reads(in_fastq_file, out_fastq_file, qual_scheme, min_qual=DEFAULT_MIN_
       line3 = readline()
       line4 = readline()[:-1]
       
-      # Qulitiy clip
+      # Quality clip
       q = 0
       while line2 and line2[-1] == 'N':
         q = 1
@@ -313,10 +313,19 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
 
     util.info("Converting SAM file output into sorted BAM")
   
-    cmd_args = [samtools_exe, 'sort', '-O', 'bam', # '-@', str(num_cpu), # option only avail in newer samtools
-                '-o', control_bam_path,  control_sam_path] 
+    # on hydra (at least) samtools sort does not allow -O so need to first convert to BAM and then sort
+    #cmd_args = [samtools_exe, 'sort', '-O', 'bam', # '-@', str(num_cpu), # option only avail in newer samtools
+    #            '-o', control_bam_path,  control_sam_path] 
+    control_bam_tmp_path = control_bam_path[:-4] + '_tmp.bam'
+    cmd_args = [samtools_exe, 'view', '-S', '-b',
+                '-o', control_bam_tmp_path,  control_sam_path] 
+    util.call(cmd_args)
+    cmd_args = [samtools_exe, 'sort',
+                control_bam_tmp_path, control_bam_path[:-4]]
+    util.call(cmd_args)
+    ##os.unlink(control_bam_tmp_path)
     
-    os.unlink(control_sam_path)    
+    ##os.unlink(control_sam_path)    
                  
   elif control_bam_path:
     io.check_regular_file(control_bam_path, critical=True)     
@@ -359,12 +368,19 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
     
     util.info("Converting SAM file output into sorted BAM")
   
-    cmd_args = [samtools_exe, 'sort', '-O', 'bam', 
-                '-o', bam_file_path_temp,  sam_file_path_temp]
-              
+    # on hydra (at least) samtools sort does not allow -O so need to first convert to BAM and then sort
+    #cmd_args = [samtools_exe, 'sort', # '-O', 'bam', # option only avail in newer samtools
+    #            '-o', bam_file_path_temp,  sam_file_path_temp]
+    bam_file_tmp_path = bam_file_path_temp[:-4] + '_tmp.bam'
+    cmd_args = [samtools_exe, 'view', '-S', '-b',
+                '-o', bam_file_tmp_path,  sam_file_path_temp] 
     util.call(cmd_args)
+    cmd_args = [samtools_exe, 'sort',
+                bam_file_tmp_path, bam_file_path_temp[:-4]] 
+    util.call(cmd_args)
+    ##os.unlink(bam_file_tmp_path)
     
-    os.unlink(sam_file_path_temp)
+    ##os.unlink(sam_file_path_temp)
     
     util.info('Removing unmapped and low quality read alignments')
  
@@ -377,7 +393,7 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
     with open(clean_bam_file_path, 'wb') as file_obj:
       util.call(cmd_args, stdout=file_obj)
    
-    os.unlink(bam_file_path_temp)
+    ##os.unlink(bam_file_path_temp)
     
     util.info('Indexing BAM file')
    
@@ -540,7 +556,7 @@ def main(argv=None):
   default_ad_seq = ADAPTER_SEQS[DEFAULT_ADAPTER]
   ad_prests = ', '.join(['%s:%s' % (k, v) for k, v in ADAPTER_SEQS.items()])
   
-  arg_parse.add_argument('-ad', '--adapter-seq', nargs='*',  default=default_ad_seq,
+  arg_parse.add_argument('-ad', '--adapter-seq', nargs='*',  default=[default_ad_seq],
                          metavar='ADAPTER_SEQ', dest='ad',
                          help='Adapter sequences to truncate reads at (or blank for none). E.g. %s. ' \
                          'Default: %s (%s)' % (ad_prests, ADAPTER_SEQS[DEFAULT_ADAPTER], DEFAULT_ADAPTER))                         
