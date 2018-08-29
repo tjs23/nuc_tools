@@ -183,7 +183,7 @@ def read_chromo_names(file_path):
   
   
 def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None, control_fastq_paths=None,
-                     control_bam_path=None, chromo_names_path=None, align_exe=None,
+                     control_name=None, control_bam_path=None, chromo_names_path=None, align_exe=None,
                      qual_scheme=None, min_qual=DEFAULT_MIN_QUAL, max_sep=DEFAULT_MAX_SEP,
                      adapt_seqs=None, num_cpu=None, keep_macs=False, full_out=False):
 
@@ -200,6 +200,17 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
   else:
     outdir = '' # CWD default    
   
+  if control_fastq_paths and control_bam_path:
+    util.critical('cannot set both control_fastq_paths and control_bam_path')
+    
+  if not control_fastq_paths and not control_bam_path:
+    util.critical('must set one of control_fastq_paths and control_bam_path')
+
+  if not control_name:
+    path = control_fastq_paths[0] if control_fastq_paths else control_bam_path
+    file_root =  os.path.splitext(os.path.basename(path))[0]
+    control_name = 'C%s' % file_root
+
   sample_names = list(sample_names) # can be a tuple but need to modify below
 
   # How is the library size (c.f. discordants) accounted for...
@@ -265,6 +276,9 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
   else:
     qual_scheme = formats.fastq.get_qual_scheme(fastq_paths[0])  
   
+  if control_bam_path:
+    io.check_regular_file(control_bam_path)
+    
   if not num_cpu:
     num_cpu = parallel.MAX_CORES
   
@@ -275,7 +289,7 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
                  '-X', str(max_sep)]  
   
   if control_fastq_paths:
-    path_root = os.path.join(outdir, 'input_control')
+    path_root = os.path.join(outdir, control_name)
     
     if not control_bam_path:
       control_bam_path = path_root + '.bam'
@@ -479,7 +493,7 @@ def main(argv=None):
                               ' May be single end or paired end. Accepts wildcards' \
                               ' that match one or two files. Paired end data is assumed if two file paths are specified.')
                               
-  arg_parse.add_argument('-s1', nargs=1, metavar='NAME',
+  arg_parse.add_argument('-s1', metavar='NAME',
                          help='Optional sample name (e.g. indicating the ChIPed protein) to label output files' \
                               ' for the first (-f1) ChIP data. For example "-s1 SAMPLE_A" will generate SAMPLE_A_broad.bed, SAMPLE_A_narrow.bed etc.')
 
@@ -489,7 +503,7 @@ def main(argv=None):
                               ' that match one or two files. Paired end data is assumed if two file paths are specified.' \
                               ' NOTE: an arbitrary number of input FASTQ groups may be specified with further numbered options -f3, -f4 etc..')
  
-  arg_parse.add_argument('-s2', nargs=1, metavar='NAME',
+  arg_parse.add_argument('-s2', metavar='NAME',
                          help='Optional sample name (e.g. indicating ChIPed protein) to label output files' \
                               ' for the second (-f2) ChIP data. NOTE: further FASTQ groups specified with -f3, -f4, ...' \
                               ' can be labelled with similarly numbered -s3, -s4 options etc.')
@@ -499,6 +513,10 @@ def main(argv=None):
                               ' May be single end or paired end. Accepts wildcards' \
                               ' that match one or two files. Paired end data is assumed if two file paths are specified.' \
                               ' Pre-mapped reads may be specified instead using the -cb option.')
+
+  arg_parse.add_argument('-cs', metavar='NAME',
+                         help='Optional sample name (e.g. indicating the ChIPed protein) to label output files' \
+                              ' for the control (-c) ChIP data. For example "-cs CNTRL" will generate CNTRL.bam etc.')
 
   arg_parse.add_argument('-cb', '--control-bam', default=None, metavar='BAM_FILE', dest='cb',
                          help='Optional file path for the control sample BAM format alignments' \
@@ -591,6 +609,7 @@ def main(argv=None):
   genome_index = args['g']
   out_dir = args['o']
   control_fastqs = args['c']
+  control_name = args['cs']
   control_bam = args['cb']
   chromo_names = args['cn']
   qual_scheme = args['q']
@@ -605,7 +624,7 @@ def main(argv=None):
    
   chip_seq_process(fastq_path_groups, sample_names,
                    genome_index, out_dir, control_fastqs,
-                   control_bam, chromo_names, align_exe,
+                   control_name, control_bam, chromo_names, align_exe,
                    qual_scheme, min_qual, max_sep,
                    adapt_seqs, num_cpu, keep_macs, full_out)
    
