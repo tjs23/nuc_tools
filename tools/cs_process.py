@@ -320,7 +320,9 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
     os.unlink(control_sam_path)    
                  
   elif control_bam_path:
-    io.check_regular_file(control_bam_path, critical=True)     
+    #io.check_regular_file(control_bam_path, critical=True)     
+    io.check_regular_file(control_bam_path)
+    fastq_1 = control_bam_path[:-4] + '.fq' # need this only to ascertain directory for peaks output
   
   
   g = 0
@@ -498,7 +500,7 @@ def main(argv=None):
                               ' that match one or two files. Paired end data is assumed if two file paths are specified.' \
                               ' Pre-mapped reads may be specified instead using the -cb option.')
 
-  arg_parse.add_argument('-cb', '--control-bam', nargs=1, default=None, metavar='BAM_FILE', dest='cb',
+  arg_parse.add_argument('-cb', '--control-bam', default=None, metavar='BAM_FILE', dest='cb',
                          help='Optional file path for the control sample BAM format alignments' \
                               ' (i.e sample input without antibody) to compare with ChIP reads. ' \
                               ' If control FASTQ files are specified (-c) this file will be created (and potentially overwritten).' \
