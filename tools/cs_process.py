@@ -216,12 +216,15 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
   # How is the library size (c.f. discordants) accounted for...
   
   # Check FASTQ files and corresponding sample names
+  treatment_fastq_1 = None
   from formats import fastq
   for i, fastq_paths in enumerate(fastq_path_groups):
     for file_path in fastq_paths:
       #io.check_regular_file(file_path, critical=True)
       io.check_regular_file(file_path)
       formats.fastq.check_format(file_path)  
+      if not treatment_fastq_1:
+        treatment_fastq_1 = file_path
     
     if not sample_names[i]:
       file_root =  os.path.splitext(os.path.basename(fastq_paths[0]))[0]
@@ -336,7 +339,7 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
   elif control_bam_path:
     #io.check_regular_file(control_bam_path, critical=True)     
     io.check_regular_file(control_bam_path)
-    fastq_1 = control_bam_path[:-4] + '.fq' # need this only to ascertain directory for peaks output
+    #fastq_1 = control_bam_path[:-4] + '.fq'
   
   
   g = 0
@@ -416,7 +419,8 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
     
     # TBD: idx is not set, what should it be??
     #peak_out_dir = os.path.join(os.path.dirname(fastq_1), 'macs2_peaks_%d_%s' % (idx, util.TEMP_ID))    
-    peak_out_dir = os.path.join(os.path.dirname(fastq_1), 'macs2_peaks_%s' % util.TEMP_ID)
+    #peak_out_dir = os.path.join(os.path.dirname(fastq_1), 'macs2_peaks_%s' % util.TEMP_ID)
+    peak_out_dir = os.path.join(os.path.dirname(treatment_fastq_1), 'macs2_peaks_%s' % util.TEMP_ID)
     io.makedirs(peak_out_dir, exist_ok=True)
     
     broad_name = sample_name + '_b'
@@ -435,7 +439,7 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
     util.info('Calling broad peaks')
     util.call(cmd_args)    
     
-    cmd_args =  common_args + ['-n', narrow_name, '-B', '-q', '0.1', '--outdir', peak_out_dir]
+    cmd_args =  common_args + ['-n', narrow_name, '-B', '-q', '0.01', '--outdir', peak_out_dir]
     util.info('Calling narrow peaks')
     util.call(cmd_args)
 
@@ -443,8 +447,10 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
   
     broad_bed_in = os.path.join(peak_out_dir,'%s_peaks.broadPeak' % broad_name)
     narrow_bed_in = os.path.join(peak_out_dir,'%s_peaks.narrowPeak' % narrow_name)
-    broad_bed_out = io.tag_file_name(fastq_1, '_broad', '.bed')
-    narrow_bed_out = io.tag_file_name(fastq_1, '_narrow', '.bed')
+    #broad_bed_out = io.tag_file_name(fastq_1, 'broad', '.bed')
+    #narrow_bed_out = io.tag_file_name(fastq_1, 'narrow', '.bed')
+    broad_bed_out = io.tag_file_name(treatment_fastq_1, 'broad', '.bed')
+    narrow_bed_out = io.tag_file_name(treatment_fastq_1, 'narrow', '.bed')
       
     for bed_in, bed_out in ((broad_bed_in, broad_bed_out),
                             (narrow_bed_in, narrow_bed_out)):
@@ -470,7 +476,7 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
       util.info('Written BED file %s' % bed_out)
       
     if not keep_macs:
-      util.info('Cleanup MACS2 files')
+      util.info('Cleanup MACS2 files, removing %s' % peak_out_dir)
       shutil.rmtree(peak_out_dir)
   
   # Ad sample/file_tag names
