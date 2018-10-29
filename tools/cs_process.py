@@ -198,7 +198,7 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
       util.critical('Output directory %s does not exist' % out_dir)
   
   else:
-    outdir = '' # CWD default    
+    out_dir = '' # CWD default    
   
   if control_fastq_paths and control_bam_path:
     util.critical('cannot set both control_fastq_paths and control_bam_path')
@@ -292,7 +292,7 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
                  '-X', str(max_sep)]  
   
   if control_fastq_paths:
-    path_root = os.path.join(outdir, control_name)
+    path_root = os.path.join(out_dir, control_name)
     
     if not control_bam_path:
       control_bam_path = path_root + '.bam'
@@ -344,7 +344,7 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
   
   g = 0
   for sample_name, fastq_paths in zip(sample_names, fastq_path_groups):
-    path_root = os.path.join(outdir, sample_name)
+    path_root = os.path.join(out_dir, sample_name)
     
     g += 1
     nfq = len(fastq_paths)
