@@ -54,20 +54,20 @@ def get_qual_scheme(file_path):
   max_qual = max(quals)
   
   if min_qual < 33:
-    scheme = 'integer-quals'
+    scheme = 'integer'
   
   elif (max_qual < 75) and (min_qual < 59): # Sanger, Illumina 1.8+
-    scheme = 'phred33-quals'
+    scheme = 'phred33'
   
   elif (max_qual > 74): 
     if min_qual < 64:
-      scheme = 'solexa-quals'
+      scheme = 'solexa'
     else:
-      scheme = 'phred64-quals'
+      scheme = 'phred64'
   
   else:
     warn('FASTQ quality scheme could not be determined. Assuming Phred+33 (Illumina 1.8+)')
-    scheme = 'phred33-quals'
+    scheme = 'phred33'
 
   return scheme
 
