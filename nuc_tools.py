@@ -13,6 +13,7 @@ EPILOG = 'For further help email tjs23@cam.ac.uk or wb104@cam.ac.uk'
 TOOLS = {'adapt': 'tools.nuc_adapt',
          'ab_kmeans': 'tools.nuc_ab_kmeans',
          'ncc_filter': 'tools.ncc_filter',
+         'ncc_bin': 'tools.ncc_bin',
          'cs_process': 'tools.cs_process'}
 
 def main(argv=None):
