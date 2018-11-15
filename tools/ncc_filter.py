@@ -3,10 +3,10 @@ from collections import defaultdict
 
 PROG_NAME = 'ncc_filter'
 VERSION = '1.0.0'
-DESCRIPTION = 'Filter NCC format Hi-C contactct files'
+DESCRIPTION = 'Filter NCC format Hi-C contact files'
 
 def filter_ncc(ncc_in, ncc_out, keep_cis, keep_cis_near, keep_cis_far, keep_trans,
-               keep_ambig, keep_unambig, keep_homolog, keep_nonhomolog, keep_chromos):
+               keep_ambig, keep_unambig, keep_homolog, keep_nonhomolog, keep_chromos, bp_range):
 
   from nuc_tools import util, io
 
@@ -27,6 +27,9 @@ def filter_ncc(ncc_in, ncc_out, keep_cis, keep_cis_near, keep_cis_far, keep_tran
   
   if keep_chromos:
     keep_chromos = set(keep_chromos)
+  
+  if bp_range:
+    bp_min, bp_max = sorted(bp_range)
   
   with io.open_file(ncc_in) as in_file_obj:
     for line in in_file_obj:
@@ -60,19 +63,26 @@ def filter_ncc(ncc_in, ncc_out, keep_cis, keep_cis_near, keep_cis_far, keep_tran
       if keep_ambig and ags_in[ambig_group] < 2:
         continue
 
+      if strand_a == '+':
+        pos_a = int(f_start_a)
+      else:
+        pos_a = int(f_end_a)
+
+      if strand_b == '+':
+        pos_b = int(f_start_b)
+      else:
+        pos_b = int(f_end_b)
+        
+      if bp_range:
+        if not (bp_min <= pos_a <= bp_max):
+          continue
+
+        if not (bp_min <= pos_b <= bp_max):
+          continue
+        
       if chr_a == chr_b:
 
         if keep_cis_near or keep_cis_far:
-          if strand_a == '+':
-            pos_a = int(f_start_a)
-          else:
-            pos_a = int(f_end_a)
- 
-          if strand_b == '+':
-            pos_b = int(f_start_b)
-          else:
-            pos_b = int(f_end_b)
-
           delta = abs(pos_a-pos_b)
           
           if keep_cis_near and delta <= keep_cis_near:
@@ -169,6 +179,9 @@ def main(argv=None):
   arg_parse.add_argument('-chromo', '--keep-chromosomes', nargs='+',  dest='chromo',
                          help='Include only contacts between/within the specified chromosomes')
 
+  arg_parse.add_argument('-bp', '--basepair-range', type=int, metavar='BASEPAIR', nargs=2,  dest='bp',
+                         help='Include only contacts within the specified raneg of basepair positions (considering all selected chromosomes)')
+
   args = vars(arg_parse.parse_args(argv))
   
   
@@ -192,7 +205,8 @@ def main(argv=None):
   keep_homolog     = args['hc'] 
   keep_nonhomolog  = args['nh'] 
   keep_chromos     = args['chromo']
-
+  bp_range         = args['bp']
+  
   if keep_ambig and keep_unambig:
     util.warning('Having both -a and -u options does nothing')
     keep_ambig = None
@@ -226,7 +240,7 @@ def main(argv=None):
     keep_trans = True
   
   filter_ncc(ncc_in, ncc_out, keep_cis, keep_cis_near, keep_cis_far, keep_trans,
-             keep_ambig, keep_unambig, keep_homolog, keep_nonhomolog, keep_chromos)
+             keep_ambig, keep_unambig, keep_homolog, keep_nonhomolog, keep_chromos, bp_range)
   
 if __name__ == '__main__':
 
