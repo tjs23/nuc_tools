@@ -1,4 +1,5 @@
 import re
+import numpy as np
 
 FASTA_SEQ_LINE = re.compile('(\S{59})(\S)')
 
@@ -22,8 +23,19 @@ def write_fasta(file_path, named_seqs):
     for name, seq in named_seqs:
       write('%s\n' % fasta_item(name, seq) )
   
+"""
+def compact_dna_seq(seq):
+
+  #seq = seq.upper()
+  #seq = seq.replace('T','B').replace('G','D') # ATCG -> ABCD
   
-def read_fasta(path_or_io, as_dict=True, full_heads=False, max_seqs=None):
+  seq_array = np.fromstring(seq, np.uint8)
+  
+  return seq_array
+"""
+
+def read_fasta(path_or_io, as_dict=True, full_heads=False,
+               max_seqs=None, as_array=False):
 
   named_seqs = []
   append = named_seqs.append
@@ -46,7 +58,12 @@ def read_fasta(path_or_io, as_dict=True, full_heads=False, max_seqs=None):
  
     if line[0] == '>':
       if name:
-        append((name, join(seq)))
+        seq = join(seq)
+      
+        if as_array:
+          seq = np.fromstring(seq, np.uint8)
+        
+        append((name, seq))
         
         if max_seqs and len(named_seqs) == max_seqs:
           name = None
@@ -62,7 +79,11 @@ def read_fasta(path_or_io, as_dict=True, full_heads=False, max_seqs=None):
       seq.append(line)
 
   if name:
-    append((name, join(seq)))
+    seq = join(seq)
+    if as_array:
+      seq = np.fromstring(seq, np.uint8)
+      
+    append((name, seq))    
   
   if close_file:
     io_stream.close()
