@@ -89,6 +89,7 @@ def bin_ncc(ncc_in, out_file=None, bin_size=DEFAULT_BIN_SIZE, format=DEFAULT_FOR
         
         if key in contacts:
           a, b = contacts[key].shape
+          p, q = a, b
           
           if (a <= bin_a) or (b <= bin_b):
             while a <= bin_a:
@@ -97,7 +98,7 @@ def bin_ncc(ncc_in, out_file=None, bin_size=DEFAULT_BIN_SIZE, format=DEFAULT_FOR
             while b <= bin_b:
               b += bin_step
             
-            contacts[key].resize((a, b))
+            contacts[key] = np.pad(contacts[key], [(0,a-p), (0,b-q)], 'constant')
          
         else:
           a, b = bin_step, bin_step
