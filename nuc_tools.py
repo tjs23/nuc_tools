@@ -13,6 +13,7 @@ EPILOG = 'For further help email tjs23@cam.ac.uk or wb104@cam.ac.uk'
 TOOLS = {'adapt': 'tools.nuc_adapt',
          'ab_kmeans': 'tools.nuc_ab_kmeans',
          'contact_map': 'tools.contact_map',
+         'contact_compare': 'tools.contact_compare',
          'ncc_filter': 'tools.ncc_filter',
          'ncc_bin': 'tools.ncc_bin',
          'cs_process': 'tools.cs_process'}
