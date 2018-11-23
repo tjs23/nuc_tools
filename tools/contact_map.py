@@ -11,35 +11,40 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 PROG_NAME = 'contact_map'
 VERSION = '1.0.0'
-DESCRIPTION = 'Chromatin contact (NCC format) Hi-C contact map PDF display module'
+DESCRIPTION = 'Chromatin contact (NCC or NPZ format) Hi-C contact map PDF display module'
 DEFAULT_CIS_BIN_KB = 250
 DEFAULT_TRANS_BIN_KB = 500
 DEFAULT_MAIN_BIN_KB = 1000
 
-def _downsample_matrix(in_array, new_shape):
+def _downsample_matrix(in_array, new_shape, as_mean=False):
     
+  p, q = in_array.shape
+  n, m = new_shape
+  
+  if (p,q) == (n,m):
+    return in_array
+  
+  if p % n == 0:
+    pad_a = 0
+  else:
+    pad_a = n * int(1+p//n) - p
+
+  if q % m == 0:
+    pad_b = 0
+  else:
+    pad_b = m * int(1+q//m) - q 
+  
+  if pad_a or pad_b:
+    in_array = np.pad(in_array, [(0,pad_a), (0,pad_b)], 'constant')
     p, q = in_array.shape
-    n, m = new_shape
-    
-    if p % n == 0:
-      pad_a = 0
-    else:
-      pad_a = n * int(1+p//n) - p
-
-    if q % m == 0:
-      pad_b = 0
-    else:
-      pad_b = m * int(1+q//m) - q 
-    
-    if pad_a or pad_b:
-      in_array = np.pad(in_array, [(0,pad_a), (0,pad_b)], 'constant')
-      p, q = in_array.shape
-        
-    shape = (n, p // n,
-             m, q // m)
-    
+      
+  shape = (n, p // n,
+           m, q // m)
+  
+  if as_mean:
+    return in_array.reshape(shape).mean(-1).mean(1)
+  else:
     return in_array.reshape(shape).sum(-1).sum(1)
-
 
 def _get_chromo_offsets(bin_size, chromos, chromo_limits):
   
@@ -82,7 +87,10 @@ def get_contact_arrays_matrix(contacts, bin_size, chromos, chromo_limits):
       if contact_matrix is None:
         continue
         
-      count = int(contact_matrix.sum())
+      count = contact_matrix.sum()
+      
+      if count == 0.0:
+        continue
       
       bp_a, bin_a, size_a = chromo_offsets[chr_a]
       bp_b, bin_b, size_b = chromo_offsets[chr_b]
@@ -90,8 +98,9 @@ def get_contact_arrays_matrix(contacts, bin_size, chromos, chromo_limits):
       sub_mat = _downsample_matrix(contact_matrix, (size_a, size_b))
       
       matrix[bin_a:bin_a+size_a,bin_b:bin_b+size_b,0] += sub_mat
-      
       matrix[bin_b:bin_b+size_b,bin_a:bin_a+size_a,0] += sub_mat.T
+      
+      count = int(count)
       
       if chr_a != chr_b:
         if ('.' in chr_a) and ('.' in chr_b) and (chr_a.split('.')[0] == chr_b.split('.')[0]):
@@ -104,7 +113,7 @@ def get_contact_arrays_matrix(contacts, bin_size, chromos, chromo_limits):
       
       n_cont += count 
   
-  return (n_cont, n_cis, n_trans, n_homolog, n_ambig), matrix, label_pos
+  return (n_cont, n_cis, n_trans, n_homolog, n_ambig), matrix, label_pos, chromo_offsets
 
 
 def _limits_to_shape(limits_a, limits_b, bin_size):
@@ -119,7 +128,6 @@ def _limits_to_shape(limits_a, limits_b, bin_size):
 
 
 def get_single_array_matrix(contact_matrix, limits_a, limits_b, is_cis, orig_bin_size, bin_size):
-
   
   if bin_size == orig_bin_size:
     if is_cis:
@@ -135,7 +143,7 @@ def get_single_array_matrix(contact_matrix, limits_a, limits_b, is_cis, orig_bin
   else:
     n, m = _limits_to_shape(limits_a, limits_b, bin_size)
     matrix = _downsample_matrix(contact_matrix, (n, m)).astype(float)
-     
+ 
     if is_cis:
       matrix += matrix.T
   
@@ -215,7 +223,7 @@ def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
   n_cis = len(cis_groups)
   n_cont = len(groups)
 
-  return (n_cont, n_cis, n_trans, n_homolog, n_ambig), matrix, label_pos
+  return (n_cont, n_cis, n_trans, n_homolog, n_ambig), matrix, label_pos, chromo_offsets
   
                 
 def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500.0,
@@ -262,18 +270,25 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
     chr_names = ', '.join(sorted(chromo_limits))
     
     filtered = {}
+    found = set()
     for chromo, lims in chromo_limits.items():
-       if chromo in show_chromos:
-         filtered[chromo] = lims
-       
-       elif chromo.lower().startswith('chr') and (chromo[3:] in show_chromos):
-         filtered[chromo] = lims
+      if chromo in show_chromos:
+        filtered[chromo] = lims
+        found.add(chromo)
+        
+      elif chromo.lower().startswith('chr') and (chromo[3:] in show_chromos):
+        filtered[chromo] = lims
+        found.add(chromo[3:])
+    
+    unknown = sorted(set(show_chromos) - found)
          
     chromo_limits = filtered
   
     if not chromo_limits:
       util.critical('Chromosome selection doesn\'t match any in the contact file. Available: {}'.format(chr_names))
-  
+    elif unknown:
+      util.warn('Some selected chromosomes don\'t match the contact file: {}'.format(', '.join(unknown)))
+    
   if bin_size:
     bin_size = int(bin_size * 1e3)
      
@@ -339,20 +354,24 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
     chromo_labels.append(chromo)
 
   if file_bin_size:
-    count_list, full_matrix, label_pos = get_contact_arrays_matrix(contacts, bin_size, chromos, chromo_limits)
+    count_list, full_matrix, label_pos, offsets = get_contact_arrays_matrix(contacts, bin_size, chromos, chromo_limits)
     n_cont, n_cis, n_trans, n_homolog, n_ambig = count_list
     
   else:
-    count_list, full_matrix, label_pos = get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits)
+    count_list, full_matrix, label_pos, offsets = get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits)
     n_cont, n_cis, n_trans, n_homolog, n_ambig = count_list
-
+  
+  is_z_score = full_matrix.min() < 0
   n = len(full_matrix)
   util.info('Full contact map size %d x %d' % (n, n))
   
   f_cis = 100.0 * n_cis / float(n_cont or 1)
   f_trans = 100.0 * n_trans / float(n_cont or 1)
   
-  if n_homolog:
+  if is_z_score:
+    stats_text1 = ''
+  
+  elif n_homolog:
     f_homolog = 100.0 * n_homolog / float(n_cont or 1)  
     stats_text1 = 'Contacts:{:,d} cis:{:,d} ({:.1f}%) trans:{:,d} ({:.1f}%) homolog:{:,d} ({:.1f}%)'
     stats_text1 = stats_text1.format(n_cont, n_cis, f_cis, n_trans, f_trans, n_homolog, f_homolog)
@@ -364,34 +383,55 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
   if black_bg:
     cmap = LinearSegmentedColormap.from_list(name='B', colors=['#000000', '#BB0000', '#DD8000', '#FFFF00', '#FFFF80','#FFFFFF'], N=255)    
     cmap.set_bad(color='#404040')
+    cmap2 = LinearSegmentedColormap.from_list(name='B', colors=['00FFFF', '#0000FF', '#000000', '#FF0000', '#FFFF00'], N=255)    
+    cmap2.set_bad(color='#404040')
   else:
     cmap = LinearSegmentedColormap.from_list(name='W', colors=['#FFFFFF', '#0080FF' ,'#FF0000','#000000'], N=255)
     cmap.set_bad(color='#B0B0B0')
+    cmap2 = LinearSegmentedColormap.from_list(name='W', colors=['#0000B0', '#0080FF', '#FFFFFF', '#FF0000', '#800000'], N=255)
+    cmap2.set_bad(color='#B0B0B0')
  
   fig, ax = plt.subplots()
   
-  cax = ax.matshow(full_matrix[:,:,0], interpolation=None, norm=LogNorm(vmin=1), cmap=cmap, origin='upper')
-  
-  ax.xaxis.set_ticks(label_pos)
-  ax.yaxis.set_ticks(label_pos)
-  ax.set_xticklabels(chromo_labels)
-  ax.set_yticklabels(chromo_labels)
+  if is_z_score:
+    v = max(-full_matrix.min(), full_matrix.max())
+    cax = ax.matshow(full_matrix[:,:,0], interpolation='none', vmin=-v, vmax=v, cmap=cmap2, origin='upper')
+    metric = 'Z-score sum '
+  else:
+    cax = ax.matshow(full_matrix[:,:,0], interpolation='none', norm=LogNorm(vmin=1), cmap=cmap, origin='upper')
+    metric = 'Count'
+ 
   ax.xaxis.tick_bottom()
   ax.xaxis.set_tick_params(direction='out')
   ax.yaxis.set_tick_params(direction='out')
+  ax.xaxis.set_ticks(label_pos)
+  ax.yaxis.set_ticks(label_pos)
+  ax.set_xticklabels(chromo_labels, fontsize=9, rotation=90.0)
+  ax.set_yticklabels(chromo_labels, fontsize=9)
   ax.set_title(os.path.basename(in_path))
   ax.text(0, -int(1 + 0.01 * n), stats_text1, fontsize=11)  
+  ax.text(0.01, 0.01, 'nuc_tools.contact_map', color='#B0B0B0', fontsize=8, transform=fig.transFigure)  
   ax.set_xlabel('Chromosome')
   ax.set_ylabel('Chromosome')
-  cbar = plt.colorbar(cax)
-  cbar.set_label('Count (%.2f Mb bins)' % (bin_size/1e6), fontsize=11)
+  
+  grid = [offsets[c][1] for c in chromos[1:]]
+    
+  if grid:
+    ax.hlines(grid, 0, n, color='#BBBBBB', alpha=0.5, linewidth=0.1)
+    ax.vlines(grid, 0, n, color='#BBBBBB', alpha=0.5, linewidth=0.1)
+  
+  cbar = plt.colorbar(cax, shrink=0.3)
+  cbar.ax.tick_params(labelsize=8)
+  cbar.set_label('%s (%.2f Mb bins)' % (metric, bin_size/1e6), fontsize=11)
+  
+  dpi= int(float(n)/(fig.get_size_inches()[1]*ax.get_position().size[1]))
   
   if screen_gfx:
     pdf = None
     plt.show()
   else:
     pdf = PdfPages(out_path)   
-    pdf.savefig()
+    pdf.savefig() # dpi=dpi)
   
   plt.close()
   
@@ -399,73 +439,98 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
   
   if separate_cis or separate_trans:
   
-    for i, chr_a in enumerate(chromos):
-      for chr_b in chromos[i:]:
-        
-        is_cis = chr_a == chr_b
-        
-        if is_cis and not separate_cis:
-          continue
-          
-        elif (not is_cis) and not separate_trans:
-          continue
-          
-        pair = tuple(sorted([chr_a, chr_b]))
-        limits_a = chromo_limits[pair[0]]
-        limits_b = chromo_limits[pair[1]]
-        
-        pair_bin_size = bin_size2 if is_cis else bin_size3
-                
-        if file_bin_size:
-          matrix = get_single_array_matrix(contacts[pair], limits_a, limits_b, is_cis, file_bin_size, pair_bin_size)
-        else:
-          matrix = get_single_list_matrix(contacts[pair], limits_a, limits_b, pair_bin_size)
-        
-        a, b = matrix.shape
-        fa = int(limits_a[0]/pair_bin_size)
-        fb = int(limits_b[0]/pair_bin_size)
-        
-        # Could consider not showing blank segments
-        
-        xp_max = 10 ** int(ceil(np.log10(a)))  
-        xlabel_pos = np.arange(0, a, xp_max/10.0) # Pixels/bins
-        xlabels = ['%.1f' % (x*pair_bin_size/1e6) for x in xlabel_pos]
+    pairs = []
+    if separate_cis:
+      for chr_a in chromos:
+        pairs.append((chr_a, chr_a))
+    
+    if separate_trans:
+      for i, chr_a in enumerate(chromos[:-1]):
+        for chr_b in chromos[i+1:]:
+          pairs.append((chr_a, chr_b))
+    
+    for chr_a, chr_b in pairs:
+      is_cis = chr_a == chr_b
+      pair = tuple(sorted([chr_a, chr_b]))
+      limits_a = chromo_limits[pair[0]]
+      limits_b = chromo_limits[pair[1]]
+      
+      pair_bin_size = bin_size2 if is_cis else bin_size3
+              
+      if file_bin_size:
+        matrix = get_single_array_matrix(contacts[pair], limits_a, limits_b, is_cis, file_bin_size, pair_bin_size)
+      else:
+        matrix = get_single_list_matrix(contacts[pair], limits_a, limits_b, pair_bin_size)
+      
+      mmax = matrix.max()
+      
+      if not mmax:
+        continue
+      
+      if mmax < 0:
+        matrix = -1 * matrix
+      
+      a, b = matrix.shape
+      
+      fa = int(limits_a[0]/pair_bin_size)
+      fb = int(limits_b[0]/pair_bin_size)
+      
+      # Could consider not showing blank segments
+      
+      xp_max = 10 ** int(ceil(np.log10(a)))  
+      xlabel_pos = np.arange(0, a, xp_max/10.0) # Pixels/bins
+      xlabels = ['%.1f' % (x*pair_bin_size/1e6) for x in xlabel_pos]
  
-        yp_max = 10 ** int(ceil(np.log10(b)))  
-        ylabel_pos = np.arange(0, b, yp_max/10.0) # Pixels/bins
-        ylabels = ['%.1f' % (y*pair_bin_size/1e6) for y in ylabel_pos]
+      yp_max = 10 ** int(ceil(np.log10(b)))  
+      ylabel_pos = np.arange(0, b, yp_max/10.0) # Pixels/bins
+      ylabels = ['%.1f' % (y*pair_bin_size/1e6) for y in ylabel_pos]
 
-        fig, ax = plt.subplots()
- 
-        cax = ax.matshow(matrix, interpolation=None, cmap=cmap, norm=LogNorm(vmin=1), origin='upper')
-        ax.xaxis.tick_bottom()
-        ax.set_xticklabels(xlabels, fontsize=9)
-        ax.set_yticklabels(ylabels, fontsize=9)               
-        ax.xaxis.set_ticks(xlabel_pos)
-        ax.yaxis.set_ticks(ylabel_pos)
-        ax.xaxis.set_tick_params(direction='out')
-        ax.yaxis.set_tick_params(direction='out')
-        ax.set_xlabel('Position %s (Mb)' % pair[0])
-        ax.set_ylabel('Position %s (Mb)' % pair[1])
-        
-        title = 'Chromosome %s' % chr_a if is_cis else 'Chromosomes %s - %s ' % pair
-          
-        ax.set_title(title)
-        util.info('Making map for ' + title)
-        
-        cbar = plt.colorbar(cax) if matrix.max() > 10 else plt.colorbar(cax, ticks=list(range(10)), format=formatter)
-          
-        if is_cis:  
-          cbar.set_label('Count (%.1f kb bins)' % (pair_bin_size/1e3), fontsize=11)
+      fig, ax = plt.subplots()
+
+      if matrix.min() < 0:
+        v = max(-matrix.min(), matrix.max())
+        cax = ax.matshow(matrix, interpolation='none', cmap=cmap2, vmin=-v, vmax=v, origin='upper')
+        if pair_bin_size == file_bin_size:
+          metric = 'Z-score'
         else:
-          cbar.set_label('Count (%.3f Mb bins)' % (pair_bin_size/1e6), fontsize=11)
- 
-        if pdf:
-          pdf.savefig()
-        else:
-          plt.show()
-          
-        plt.close()
+          metric = 'Z-score sum'
+      else:
+        cax = ax.matshow(matrix, interpolation='none', cmap=cmap, norm=LogNorm(vmin=1), origin='upper')
+        metric = 'Count'
+        
+      ax.xaxis.tick_bottom()
+      ax.set_xticklabels(xlabels, fontsize=9)
+      ax.set_yticklabels(ylabels, fontsize=9)               
+      ax.xaxis.set_ticks(xlabel_pos)
+      ax.yaxis.set_ticks(ylabel_pos)
+      ax.xaxis.set_tick_params(direction='out')
+      ax.yaxis.set_tick_params(direction='out')
+      ax.set_xlabel('Position %s (Mb)' % pair[0])
+      ax.set_ylabel('Position %s (Mb)' % pair[1])
+      ax.text(0.01, 0.01, 'nuc_tools.contact_map', color='#B0B0B0', fontsize=8, transform=fig.transFigure) 
+      
+      title = 'Chromosome %s' % chr_a if is_cis else 'Chromosomes %s - %s ' % pair
+        
+      ax.set_title(title)
+      
+      dpi= int(float(a)/(fig.get_size_inches()[1]*ax.get_position().size[1]))
+      
+      util.info('Making map for ' + title + ' (dpi=%d)' % dpi, line_return=True)
+      
+      cbar = plt.colorbar(cax, shrink=0.3)
+      cbar.ax.tick_params(labelsize=8)
+        
+      if is_cis:  
+        cbar.set_label('%s (%.1f kb bins)' % (metric, pair_bin_size/1e3), fontsize=11)
+      else:
+        cbar.set_label('%s (%.3f Mb bins)' % (metric, pair_bin_size/1e6), fontsize=11)
+
+      if pdf:
+        pdf.savefig(dpi=dpi)
+      else:
+        plt.show()
+        
+      plt.close()
   
   if pdf:
     pdf.close()
@@ -485,7 +550,7 @@ def main(argv=None):
                              epilog=epilog, prefix_chars='-', add_help=True)
 
   arg_parse.add_argument(metavar='CONTACT_FILE', nargs='+', dest='i',
-                         help='Input NCC format (single-cell) or NPZ (binned, bulk Hi-C data) chromatin contact file(s). Wildcards accepted')
+                         help='Input NPZ (binned, bulk Hi-C data) or NCC format (single-cell) chromatin contact file(s). Wildcards accepted')
 
   arg_parse.add_argument('-o', metavar='OUT_FILE', nargs='+', default=None,
                          help='Optional output file name. If not specified, a default based on the input file name and output format will be used. ' \

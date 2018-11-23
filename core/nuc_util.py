@@ -15,9 +15,12 @@ import core.nuc_parallel as parallel
 
 # #   Srcreen reporting  # # 
 
-def report(msg):
+NEWLINE_CHARS = 0
+
+def report(msg, line_return):
  
   global LOG_FILE_OBJ
+  global NEWLINE_CHARS
   
   if LOGGING:
     if not LOG_FILE_OBJ:
@@ -26,23 +29,31 @@ def report(msg):
     LOG_FILE_OBJ.write(msg)
   
   if not QUIET:
-    print(msg)
+    if line_return:
+      fmt = '\r%%-%ds' % max(NEWLINE_CHARS, len(msg))
+      sys.stdout.write(fmt % msg) # Must have enouch columns to cover previous msg
+      sys.stdout.flush()
+      NEWLINE_CHARS = len(msg)
+    else: 
+      if NEWLINE_CHARS:
+        print('')
+      print(msg)
+      NEWLINE_CHARS = 0
    
+def warn(msg, prefix='WARNING', line_return=False):
 
-def warn(msg, prefix='WARNING'):
-
-  report('%s: %s' % (prefix, msg))
+  report('%s: %s' % (prefix, msg), line_return)
 
  
-def critical(msg, prefix='FAILURE'):
+def critical(msg, prefix='FAILURE', line_return=False):
 
-  report('%s: %s' % (prefix, msg))
+  report('%s: %s' % (prefix, msg), line_return)
   sys.exit(0)
 
 
-def info(msg, prefix='INFO'):
+def info(msg, prefix='INFO', line_return=False):
 
-  report('%s: %s' % (prefix, msg))
+  report('%s: %s' % (prefix, msg), line_return)
 
 
 # #  Run  # # 
@@ -161,3 +172,26 @@ def kMeans(data, k, centers=None, thresh=1e-10, verbose=False):
   return centers, clusters, labels
 
 
+def downsample_matrix(in_array, new_shape):
+    
+    p, q = in_array.shape
+    n, m = new_shape
+    
+    if p % n == 0:
+      pad_a = 0
+    else:
+      pad_a = n * int(1+p//n) - p
+
+    if q % m == 0:
+      pad_b = 0
+    else:
+      pad_b = m * int(1+q//m) - q 
+    
+    if pad_a or pad_b:
+      in_array = np.pad(in_array, [(0,pad_a), (0,pad_b)], 'constant')
+      p, q = in_array.shape
+        
+    shape = (n, p // n,
+             m, q // m)
+    
+    return in_array.reshape(shape).sum(-1).sum(1)
