@@ -148,6 +148,8 @@ def bin_ncc(ncc_in, out_file=None, bin_size=DEFAULT_BIN_SIZE, format=DEFAULT_FOR
         continue      
       
       if chr_a == chr_b:
+        min_a = min_b = min(min_a, min_b) # Cis should always be square
+        max_a = max_b = max(max_a, max_b)
         contacts[key] = sparse.csr_matrix(contacts[key][min_a:max_a+1,min_b:max_b+1])
       else:
         contacts[key] = sparse.coo_matrix(contacts[key][min_a:max_a+1,min_b:max_b+1])
