@@ -6,7 +6,6 @@ from math import ceil
 from collections import defaultdict
 from matplotlib import pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, LogNorm
-from matplotlib.ticker import LogFormatter 
 from matplotlib.backends.backend_pdf import PdfPages
 
 PROG_NAME = 'contact_map'
@@ -155,6 +154,8 @@ def get_single_list_matrix(contact_list, limits_a, limits_b, bin_size):
   n, m = _limits_to_shape(limits_a, limits_b, bin_size)
 
   matrix = np.zeros((n, m), float)
+  start_a, end_a = limits_a
+  start_b, end_b = limits_b
   
   for p_a, p_b, ag in contact_list:
     a = int((p_a-start_a)/bin_size)
@@ -224,6 +225,122 @@ def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
   n_cont = len(groups)
 
   return (n_cont, n_cis, n_trans, n_homolog, n_ambig), matrix, label_pos, chromo_offsets
+
+
+def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None, axis_chromos=None, grid=None,
+                        stats_text=None, colors=None, bad_color='#404040', log=True, pdf=None,
+                        watermark='nuc_tools.contact_map', tracks=None):
+  
+  from nuc_tools import util
+  
+  if not colors:
+    if log:
+      colors = ['#0000B0', '#0080FF', '#FFFFFF', '#FF0000', '#800000']
+    else:
+      colors = ['#FFFFFF', '#0080FF' ,'#FF0000','#000000']
+  
+  mmax = matrix.max()
+  
+  if not mmax:
+    util.info('Map empty for ' + title, line_return=True)
+    return
+    
+  cmap = LinearSegmentedColormap.from_list(name='pcm', colors=colors, N=255)    
+  cmap.set_bad(color=bad_color)
+  
+  if mmax < 0:
+    matrix = -1 * matrix
+  
+  a, b = matrix.shape
+  
+  if chromo_labels:
+    xlabel_pos, xlabels = zip(*chromo_labels)
+    ylabel_pos = xlabel_pos 
+    ylabels = xlabels
+    xrotation = 90.0
+    
+  else:
+    xrotation = None
+    xp_max = 10 ** int(ceil(np.log10(a)))
+    xlabel_pos = np.arange(0, a, xp_max/10.0) # Pixels/bins
+    xlabels = ['%.1f' % (x*bin_size/1e6) for x in xlabel_pos]
+ 
+    yp_max = 10 ** int(ceil(np.log10(b)))
+    ylabel_pos = np.arange(0, b, yp_max/10.0) # Pixels/bins
+    ylabels = ['%.1f' % (y*bin_size/1e6) for y in ylabel_pos]
+  
+  if tracks:
+    n_tracks = len(tracks)
+    h = [10] * n_tracks
+    h.append(a)
+    w = [1] * (n_tracks + 1)
+    fig, axarr = plt.subplots(n_tracks+1, 1, gridspec_kw = {'height_ratios':h, 'width_ratios':w})
+    ax = axarr[-1]
+    colors = ['#FF0000','#FFFFFF']
+    cmap_t = LinearSegmentedColormap.from_list(name='pcmt', colors=colors, N=255)
+    cmap_t.set_under(color='#BBBBBB')
+    
+    for i, track in enumerate(tracks):
+      track = np.array(track).reshape((1, a))
+      axarr[i].matshow(track, interpolation='none', cmap=cmap_t, vmin=0.9, aspect=a/2)
+      #axarr[i].plot(track)
+    
+  else:
+    n_tracks = 0  
+    fig, ax = plt.subplots(n_tracks+1, 1)
+  
+  if log:
+    cax = ax.matshow(matrix, interpolation='none', cmap=cmap, norm=LogNorm(vmin=1), origin='upper')
+  else:
+    v = max(-matrix.min(), matrix.max())
+    cax = ax.matshow(matrix, interpolation='none', cmap=cmap, vmin=-v, vmax=v, origin='upper')
+  
+  ax.xaxis.tick_bottom()
+  
+  ax.set_xticklabels(xlabels, fontsize=9, rotation=xrotation)
+  ax.set_yticklabels(ylabels, fontsize=9) 
+                
+  ax.xaxis.set_ticks(xlabel_pos)
+  ax.yaxis.set_ticks(ylabel_pos)
+  
+  ax.xaxis.set_tick_params(direction='out')
+  ax.yaxis.set_tick_params(direction='out')
+  
+  if stats_text:
+    ax.text(0, -int(1 + 0.01 * a), stats_text, fontsize=11)  
+    
+  ax.text(0.01, 0.01, watermark, color='#B0B0B0', fontsize=8, transform=fig.transFigure) 
+  ax.set_title(title)
+  
+  if chromo_labels:
+    ax.set_xlabel('Chromosome')
+    ax.set_ylabel('Chromosome')
+    
+  elif axis_chromos:
+    ax.set_xlabel('Position %s (Mb)' % axis_chromos[0])
+    ax.set_ylabel('Position %s (Mb)' % axis_chromos[1])
+  
+  else:
+    ax.set_xlabel('Position (Mb)')
+    ax.set_ylabel('Position (Mb)')
+     
+  if grid:
+    ax.hlines(grid, 0, a, color='#B0B0B0', alpha=0.5, linewidth=0.1)
+    ax.vlines(grid, 0, b, color='#B0B0B0', alpha=0.5, linewidth=0.1)
+  
+  cbar = plt.colorbar(cax, shrink=0.3)
+  cbar.ax.tick_params(labelsize=8)
+  cbar.set_label(scale_label, fontsize=11)
+  
+  dpi= int(float(a)/(fig.get_size_inches()[1]*ax.get_position().size[1]))
+  util.info('Making map for ' + title + ' (dpi=%d)' % dpi, line_return=True)
+
+  if pdf:
+    pdf.savefig(dpi=dpi)
+  else:
+    plt.show()
+    
+  plt.close()
   
                 
 def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500.0,
@@ -368,74 +485,48 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
   f_cis = 100.0 * n_cis / float(n_cont or 1)
   f_trans = 100.0 * n_trans / float(n_cont or 1)
   
+  metric = 'Count'
+  
   if is_z_score:
-    stats_text1 = ''
+    stats_text = ''
+    metric = 'Z-score sum '
   
   elif n_homolog:
     f_homolog = 100.0 * n_homolog / float(n_cont or 1)  
-    stats_text1 = 'Contacts:{:,d} cis:{:,d} ({:.1f}%) trans:{:,d} ({:.1f}%) homolog:{:,d} ({:.1f}%)'
-    stats_text1 = stats_text1.format(n_cont, n_cis, f_cis, n_trans, f_trans, n_homolog, f_homolog)
+    stats_text = 'Contacts:{:,d} cis:{:,d} ({:.1f}%) trans:{:,d} ({:.1f}%) homolog:{:,d} ({:.1f}%)'
+    stats_text = stats_text.format(n_cont, n_cis, f_cis, n_trans, f_trans, n_homolog, f_homolog)
   
   else:
-    stats_text1 = 'Contacts:{:,d} cis:{:,d} ({:.1f}%) trans:{:,d} ({:.1f}%)'
-    stats_text1 = stats_text1.format(n_cont, n_cis, f_cis, n_trans, f_trans)
+    stats_text = 'Contacts:{:,d} cis:{:,d} ({:.1f}%) trans:{:,d} ({:.1f}%)'
+    stats_text = stats_text.format(n_cont, n_cis, f_cis, n_trans, f_trans)
   
   if black_bg:
-    cmap = LinearSegmentedColormap.from_list(name='B', colors=['#000000', '#BB0000', '#DD8000', '#FFFF00', '#FFFF80','#FFFFFF'], N=255)    
-    cmap.set_bad(color='#404040')
-    cmap2 = LinearSegmentedColormap.from_list(name='B', colors=['00FFFF', '#0000FF', '#000000', '#FF0000', '#FFFF00'], N=255)    
-    cmap2.set_bad(color='#404040')
-  else:
-    cmap = LinearSegmentedColormap.from_list(name='W', colors=['#FFFFFF', '#0080FF' ,'#FF0000','#000000'], N=255)
-    cmap.set_bad(color='#B0B0B0')
-    cmap2 = LinearSegmentedColormap.from_list(name='W', colors=['#0000B0', '#0080FF', '#FFFFFF', '#FF0000', '#800000'], N=255)
-    cmap2.set_bad(color='#B0B0B0')
- 
-  fig, ax = plt.subplots()
-  
-  if is_z_score:
-    v = max(-full_matrix.min(), full_matrix.max())
-    cax = ax.matshow(full_matrix[:,:,0], interpolation='none', vmin=-v, vmax=v, cmap=cmap2, origin='upper')
-    metric = 'Z-score sum '
-  else:
-    cax = ax.matshow(full_matrix[:,:,0], interpolation='none', norm=LogNorm(vmin=1), cmap=cmap, origin='upper')
-    metric = 'Count'
- 
-  ax.xaxis.tick_bottom()
-  ax.xaxis.set_tick_params(direction='out')
-  ax.yaxis.set_tick_params(direction='out')
-  ax.xaxis.set_ticks(label_pos)
-  ax.yaxis.set_ticks(label_pos)
-  ax.set_xticklabels(chromo_labels, fontsize=9, rotation=90.0)
-  ax.set_yticklabels(chromo_labels, fontsize=9)
-  ax.set_title(os.path.basename(in_path))
-  ax.text(0, -int(1 + 0.01 * n), stats_text1, fontsize=11)  
-  ax.text(0.01, 0.01, 'nuc_tools.contact_map', color='#B0B0B0', fontsize=8, transform=fig.transFigure)  
-  ax.set_xlabel('Chromosome')
-  ax.set_ylabel('Chromosome')
-  
-  grid = [offsets[c][1] for c in chromos[1:]]
+    if is_z_score:
+      colors = ['00FFFF', '#0000FF', '#000000', '#FF0000', '#FFFF00']
+    else:
+      colors = ['#000000', '#BB0000', '#DD8000', '#FFFF00', '#FFFF80','#FFFFFF']
     
-  if grid:
-    ax.hlines(grid, 0, n, color='#BBBBBB', alpha=0.5, linewidth=0.1)
-    ax.vlines(grid, 0, n, color='#BBBBBB', alpha=0.5, linewidth=0.1)
-  
-  cbar = plt.colorbar(cax, shrink=0.3)
-  cbar.ax.tick_params(labelsize=8)
-  cbar.set_label('%s (%.2f Mb bins)' % (metric, bin_size/1e6), fontsize=11)
-  
-  dpi= int(float(n)/(fig.get_size_inches()[1]*ax.get_position().size[1]))
-  
+    bad_color = '#404040'
+
+  else:
+    if is_z_score:
+      colors = ['#0000B0', '#0080FF', '#FFFFFF', '#FF0000', '#800000']
+    else:
+      colors = ['#FFFFFF', '#0080FF' ,'#FF0000','#000000']
+    
+    bad_color = '#B0B0B0'
+
   if screen_gfx:
     pdf = None
-    plt.show()
   else:
-    pdf = PdfPages(out_path)   
-    pdf.savefig() # dpi=dpi)
+    pdf = PdfPages(out_path)
   
-  plt.close()
+  title = os.path.basename(in_path)
+  grid = [offsets[c][1] for c in chromos[1:]]
+  scale_label = '%s (%.2f Mb bins)' % (metric, bin_size/1e6)
   
-  formatter = LogFormatter(10, labelOnlyBase=False) 
+  plot_contact_matrix(full_matrix[:,:,0], bin_size, title, scale_label, zip(label_pos, chromo_labels),
+                      None, grid, stats_text, colors, bad_color, log=not is_z_score, pdf=pdf) 
   
   if separate_cis or separate_trans:
   
@@ -461,77 +552,17 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
         matrix = get_single_array_matrix(contacts[pair], limits_a, limits_b, is_cis, file_bin_size, pair_bin_size)
       else:
         matrix = get_single_list_matrix(contacts[pair], limits_a, limits_b, pair_bin_size)
-      
-      mmax = matrix.max()
-      
-      if not mmax:
-        continue
-      
-      if mmax < 0:
-        matrix = -1 * matrix
-      
-      a, b = matrix.shape
-      
-      fa = int(limits_a[0]/pair_bin_size)
-      fb = int(limits_b[0]/pair_bin_size)
-      
-      # Could consider not showing blank segments
-      
-      xp_max = 10 ** int(ceil(np.log10(a)))  
-      xlabel_pos = np.arange(0, a, xp_max/10.0) # Pixels/bins
-      xlabels = ['%.1f' % (x*pair_bin_size/1e6) for x in xlabel_pos]
- 
-      yp_max = 10 ** int(ceil(np.log10(b)))  
-      ylabel_pos = np.arange(0, b, yp_max/10.0) # Pixels/bins
-      ylabels = ['%.1f' % (y*pair_bin_size/1e6) for y in ylabel_pos]
-
-      fig, ax = plt.subplots()
-
-      if matrix.min() < 0:
-        v = max(-matrix.min(), matrix.max())
-        cax = ax.matshow(matrix, interpolation='none', cmap=cmap2, vmin=-v, vmax=v, origin='upper')
-        if pair_bin_size == file_bin_size:
-          metric = 'Z-score'
-        else:
-          metric = 'Z-score sum'
-      else:
-        cax = ax.matshow(matrix, interpolation='none', cmap=cmap, norm=LogNorm(vmin=1), origin='upper')
-        metric = 'Count'
-        
-      ax.xaxis.tick_bottom()
-      ax.set_xticklabels(xlabels, fontsize=9)
-      ax.set_yticklabels(ylabels, fontsize=9)               
-      ax.xaxis.set_ticks(xlabel_pos)
-      ax.yaxis.set_ticks(ylabel_pos)
-      ax.xaxis.set_tick_params(direction='out')
-      ax.yaxis.set_tick_params(direction='out')
-      ax.set_xlabel('Position %s (Mb)' % pair[0])
-      ax.set_ylabel('Position %s (Mb)' % pair[1])
-      ax.text(0.01, 0.01, 'nuc_tools.contact_map', color='#B0B0B0', fontsize=8, transform=fig.transFigure) 
-      
+            
       title = 'Chromosome %s' % chr_a if is_cis else 'Chromosomes %s - %s ' % pair
-        
-      ax.set_title(title)
       
-      dpi= int(float(a)/(fig.get_size_inches()[1]*ax.get_position().size[1]))
-      
-      util.info('Making map for ' + title + ' (dpi=%d)' % dpi, line_return=True)
-      
-      cbar = plt.colorbar(cax, shrink=0.3)
-      cbar.ax.tick_params(labelsize=8)
-        
       if is_cis:  
-        cbar.set_label('%s (%.1f kb bins)' % (metric, pair_bin_size/1e3), fontsize=11)
+        scale_label = '%s (%.1f kb bins)' % (metric, pair_bin_size/1e3)
       else:
-        cbar.set_label('%s (%.3f Mb bins)' % (metric, pair_bin_size/1e6), fontsize=11)
-
-      if pdf:
-        pdf.savefig(dpi=dpi)
-      else:
-        plt.show()
-        
-      plt.close()
-  
+        scale_label = '%s (%.3f Mb bins)' % (metric, pair_bin_size/1e6)
+     
+      plot_contact_matrix(matrix, pair_bin_size, title, scale_label, None, pair,
+                          None, None, colors, bad_color, log=not is_z_score, pdf=pdf)
+                        
   if pdf:
     pdf.close()
     util.info('Written {}'.format(out_path))
