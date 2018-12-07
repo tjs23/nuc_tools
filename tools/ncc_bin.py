@@ -27,7 +27,7 @@ def bin_ncc(ncc_in, out_file=None, bin_size=DEFAULT_BIN_SIZE, format=DEFAULT_FOR
     if file_ext.lower() == '.gz':
       file_root, file_ext = os.path.splitext(file_root)
   
-    out_file = '%s_bin_%d.%s' % (file_root, int(bin_size), format.lower())
+    out_file = '%s_%dk.%s' % (file_root, int(bin_size), format.lower())
   
   util.info('Reading %s' % ncc_in)
   
@@ -182,8 +182,8 @@ def main(argv=None):
   arg_parse.add_argument(nargs=1, metavar='NCC_FILE', dest='i',
                          help='Input NCC format file containing Hi-C contact data. May be Gzipped.')
  
-  arg_parse.add_argument('-b', type=float, metavar='KB_BIN_SIZE',
-                         default=DEFAULT_BIN_SIZE, dest='b',
+  arg_parse.add_argument('-s', type=float, metavar='KB_BIN_SIZE',
+                         default=DEFAULT_BIN_SIZE, dest='s',
                          help='Region bin size in kb, for grouping contacts')
 
   arg_parse.add_argument('-o', metavar='OUT_FILE', default=None, dest='o',
@@ -201,7 +201,7 @@ def main(argv=None):
 
   in_file  = args['i'][0]
   out_file = args['o']
-  bin_size = args['b']
+  bin_size = args['s']
   format   = args['f'].upper()  
   min_bins = args['m']
   
