@@ -8,23 +8,40 @@ from scipy import sparse, stats
 PROG_NAME = 'contact_compare'
 VERSION = '1.0.0'
 DESCRIPTION = 'Compare two Hi-C contact maps (NPZ format)'
+DEFAULT_SMALLEST_CONTIG = 0.1
 
-def normalize_contacts(contact_dict, chromo_limits, bin_sizes, bin_size, compare_trans=False, clip=0.4):
+import warnings
+warnings.filterwarnings("ignore")
+
+def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=None,
+                       new_bin_size=None, compare_trans=False, clip=0.4):
   """
   For now dict is changed in-place to keep memory use down
   """
   from nuc_tools import util, io
   
+  if not new_bin_size:
+    new_bin_size = bin_size
+  
+  if not new_chromo_limits:
+    new_chromo_limits = chromo_limits
+  
+  chromo_sizes = {}
   contact_scale = {}
   chromo_offsets = {}
-  chromos = sorted(bin_sizes) # contact dict pair keys will always be in alphabetic order
+  chromos = sorted(new_chromo_limits) # contact dict pair keys will always be in alphabetic order
   
   for chr_a in chromos:
     s, e = chromo_limits[chr_a]
-    off = int(s/bin_size)
+    off = int(s/bin_size) # Offset in the original data
     chromo_offsets[chr_a] = off
-    contact_scale[chr_a] = np.zeros(bin_sizes[chr_a], float) # Always start from zero
-  
+    
+    s, e = new_chromo_limits[chr_a] # Range in new data
+    num_bins = int(math.ceil(e/bin_size)) 
+    
+    contact_scale[chr_a] = np.zeros(num_bins, float) # Always start from zero
+    chromo_sizes[chr_a] = num_bins
+     
   # Get row sums over whole map
   
   util.info(' .. fetch scalings', line_return=True)
@@ -75,9 +92,9 @@ def normalize_contacts(contact_dict, chromo_limits, bin_sizes, bin_size, compare
     mat = contact_dict[(chr_a, chr_b)].astype(np.float32)
     a, b = mat.shape
     off_a = chromo_offsets[chr_a]
-    lim_a = bin_sizes[chr_a]
+    lim_a = chromo_sizes[chr_a]
     off_b = chromo_offsets[chr_b]
-    lim_b = bin_sizes[chr_b]
+    lim_b = chromo_sizes[chr_b]
     
     if off_a or off_b or (lim_a-a-off_a) or (lim_b-b-off_b):
       # all pairs use full range from zero
@@ -104,6 +121,12 @@ def normalize_contacts(contact_dict, chromo_limits, bin_sizes, bin_size, compare
     
     mat *= nnz/(mat.sum() or 1.0) # Counts scale with chromosome sizes
     
+    if new_bin_size > bin_size: # i.e. do nothing if smaller or equal (smaller is not valid)
+      ratio = bin_size / float(new_bin_size)
+      p = int(math.ceil(a * ratio))
+      q = int(math.ceil(b * ratio))
+      mat = util.downsample_matrix(mat, (p, q))
+    
     if is_cis:
       mat = sparse.csr_matrix(mat)
     else:
@@ -112,13 +135,21 @@ def normalize_contacts(contact_dict, chromo_limits, bin_sizes, bin_size, compare
     contact_dict[(chr_a, chr_b)] = mat
     
 
-def _vanilla_norm_cis(orig_mat, start_bin, n, clip=0.4):
+def _obs_vs_exp(obs_a, obs_b, n, clip=0.4):
  
-  """
   sep_dict_a = defaultdict(list)
   sep_dict_b = defaultdict(list)
   #sep_sig_a = np.zeros(n, float)
   #sep_sig_b = np.zeros(n, float)
+  
+  def _get_expectation(sig_seps, n):
+ 
+    expt = np.zeros((n, n), float)
+    for i in range(n):
+      expt[i,:i] = sig_seps[:i][::-1]
+      expt[i,i:] = sig_seps[:n-i]
+ 
+    return expt
  
   for d in range(1, n):
     idx1 = np.array(range(n-d))
@@ -126,7 +157,6 @@ def _vanilla_norm_cis(orig_mat, start_bin, n, clip=0.4):
     idx = (idx1, idx2)
     sep_dict_a[d] = obs_a[idx]
     sep_dict_b[d] = obs_b[idx]
- 
  
   sep_sig_a = np.zeros(n, float)
   sep_sig_b = np.zeros(n, float)
@@ -150,46 +180,11 @@ def _vanilla_norm_cis(orig_mat, start_bin, n, clip=0.4):
 
   diff = np.zeros((n, n), float)
   diff[nz] = 0.5 * (obs_a[nz] + obs_b[nz]) *  np.log(obs_a[nz]/obs_b[nz])
-  #diff[nz] = np.log(obs_a[nz]/obs_b[nz])
-  """
-  
-  a, b = orig_mat.shape
-  
-  mat = np.zeros((n, n), float)
-  mat[start_bin:a+start_bin,start_bin:b+start_bin] += orig_mat
-  mat += mat.T # Only one side of diagonal was stored
-  mat -= np.diag(np.diag(mat)) # Repeating diag() makes 1D into 2D
 
-  scale = mat.sum(axis=0)
-  
-  med = np.median(scale)
-  
-  too_small = scale < (clip * med)
-  too_large = scale > (med/clip)
-  scale[scale == 0] = 1.0
-  scale = 1.0/scale 
-  
-  scale[too_small] = 0.0
-  scale[too_large] = 0.0
-  
-  mat *= np.sqrt(np.outer(scale, scale))
 
-  nnz = len(scale.nonzero()[0])
-  mat *= float(nnz)/(mat.sum() or 1.0) # Counts scale with chromosome size
-
-  return mat
-
-def _get_expectation(sig_seps, n):
-    
-  expt = np.zeros((n, n), float)
-  for i in range(n):
-    expt[i,:i] = sig_seps[:i][::-1]
-    expt[i,i:] = sig_seps[:n-i]
-    
-  return expt  
   
-  
-def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, compare_trans=False, min_contig_size=None): 
+def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None,
+                    bin_size=None, compare_trans=False, min_contig_size=None): 
     
   from nuc_tools import util, io
   from formats import npz  
@@ -201,6 +196,9 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, compare_
   if not pdf_path:
     pdf_path = os.path.splitext(out_path)[0] + '.pdf'
   
+  if not outpath.endswith('.npz'):
+    outpath = outpath + '.npz'
+  
   file_bin_size_a, chromo_limits_a, contacts_a = npz.load_npz_contacts(in_path_a)
   file_bin_size_b, chromo_limits_b, contacts_b = npz.load_npz_contacts(in_path_b)
 
@@ -211,15 +209,44 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, compare_
     min_contig_size = int(min_contig_size * 1e6)
   else:
     largest = max([e-s for s, e in chromo_limits_a.values()])
-    min_contig_size = int(0.05*largest) 
-    util.info('Min. contig size not specified, using 5% of largest: {:,} bp'.format(min_contig_size))
+    min_contig_size = int(DEFAULT_SMALLEST_CONTIG*largest)
+    msg = 'Min. contig size not specified, using {}% of largest: {:,} bp'
+    util.info(msg.format(DEFAULT_SMALLEST_CONTIG*100, min_contig_size))
   
-  bin_size = file_bin_size_a
-  chromos = sorted(set(chromo_limits_a.keys()) & set(chromo_limits_b.keys()))
-  chromos = [c for c in chromos if (c,c) in contacts_a and (c,c) in contacts_b]
+  orig_bin_size = file_bin_size_a
   
+  if bin_size:
+    bin_size *= 1e3
+    
+    if bin_size < orig_bin_size:
+      msg = 'Comparison bin size (%.1f kb) cannot be smaller than the innate bin size in the input files (%.1f kb)'
+      util.critical(msg % (bin_size/1e3, orig_bin_size/1e3))
+    
+  else:
+    bin_size = orig_bin_size  
+  
+  common_keys = set(chromo_limits_a.keys()) & set(chromo_limits_b.keys())
+  
+  chromos = []
+  for chromo in common_keys:
+    
+    if (chromo,chromo) not in contacts_a:
+      continue
+   
+    if (chromo,chromo) not in contacts_b:
+      continue
+  
+    s, e = chromo_limits_a[chromo]
+
+    if (e-s) < min_contig_size:
+      continue
+    
+    chromos.append(chromo)
+    
+  chromos = util.sort_chromosomes(chromos)
+
   if not chromos:
-    util.critical('No chromosome names are common to both datasets')
+    util.critical('No sufficiently large chromosomes are common to both datasets')
   
   out_matrix = {}
   chromo_limits = {}
@@ -239,25 +266,26 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, compare_
   
   util.info('Normalisation')
   
-  sizes = {}
   for key in cis_pairs:
     s1, e1 = chromo_limits_a[key[0]]
     s2, e2 = chromo_limits_b[key[0]]
     chromo_limits[key[0]] = (0, max(e1, e2))
-    sizes[key[0]] = int(math.ceil(max(e1, e2)/file_bin_size_a))
   
-  normalize_contacts(contacts_a, chromo_limits_a, sizes, bin_size, compare_trans=compare_trans)
-  normalize_contacts(contacts_b, chromo_limits_b, sizes, bin_size, compare_trans=compare_trans)  
+  normalize_contacts(contacts_a, chromo_limits_a, orig_bin_size, chromo_limits, bin_size, compare_trans=compare_trans)
+  normalize_contacts(contacts_b, chromo_limits_b, orig_bin_size, chromo_limits, bin_size, compare_trans=compare_trans)  
         
   util.info('Calulating differences')
   
   pdf = PdfPages(pdf_path)
   colors = ['#0000B0', '#0080FF', '#FFFFFF', '#FF0000', '#800000']
   watermark = 'nuc_tools.contact_compare'
+  name_a = os.path.splitext(os.path.basename(in_path_a))[0]
+  name_b = os.path.splitext(os.path.basename(in_path_b))[0]
+  legend = [(name_a, colors[-2]), (name_b, colors[1])]
   
   for key in cis_pairs:
     util.info(' .. {}'.format(key[0]), line_return=True)  
-       
+            
     obs_a = contacts_a[key].toarray()
     obs_b = contacts_b[key].toarray()
     
@@ -298,15 +326,16 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, compare_
       else:
         rho = -1
       
-      corrs.append(rho)  
-    """     
+      corrs.append(rho)
+    """
+    
     if len(vals_a) > 2:
-      lr = stats.linregress(vals_a, vals_b)
-      slope = lr[0]
-      y0 = lr[1]
-      obs_b[nz] -= y0
+      slope, intercept, r_value, p_value, std_err = stats.linregress(vals_a, vals_b)
+      obs_b[nz] -= intercept
       obs_b[nz] /= slope
-
+      r2 = r_value*r_value
+    else:
+      r2 = 0.0
 
     for d in range(1, n):
       z_scores = np.zeros(n-d, np.float32)
@@ -331,14 +360,14 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, compare_
         z[z < -5.0] = -5.0
         z_scores[nz] = z
 
-         
       diff[idx] = z_scores
       
-    title = 'Chromosome %s' % key[0]
+    title = 'Chromosome %s ; R2 = %.3f' % (key[0], r2)
     scale_label = 'Z score (%.2f kb bins)' % (bin_size/1e3)
     
-    plot_contact_matrix(diff+diff.T, bin_size, title, scale_label, chromo_labels=None, axis_chromos=key, grid=None,
-                        stats_text=None, colors=colors, bad_color='#404040', log=False, pdf=pdf, watermark=watermark)
+    plot_contact_matrix(diff+diff.T, bin_size, title, scale_label, chromo_labels=None, axis_chromos=key,
+                        grid=None, stats_text=None, colors=colors, bad_color='#404040', log=False,
+                        pdf=pdf, watermark=watermark, legend=legend)
                         
     out_matrix[key] = sparse.csr_matrix(diff)
   
@@ -372,8 +401,9 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, compare_
       title = 'Chromosomes %s - %s ' % key
       scale_label = 'Z score (%.2f kb bins)' % (bin_size/1e3)
       
-      plot_contact_matrix(z_scores, bin_size, title, scale_label, chromo_labels=None, axis_chromos=key, grid=None,
-                          stats_text=None, colors=colors, bad_color='#404040', log=False, pdf=pdf, watermark=watermark)
+      plot_contact_matrix(z_scores, bin_size, title, scale_label, chromo_labels=None,
+                          axis_chromos=key, grid=None, stats_text=None, colors=colors,
+                          bad_color='#404040', log=False, pdf=pdf, watermark=watermark, legend=legend)
  
       out_matrix[key] = sparse.coo_matrix(z_scores)
 
@@ -385,7 +415,7 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, compare_
  
   util.info('Saving data')
     
-  npz.save_contacts(out_path, out_matrix, chromo_limits, file_bin_size_a, min_bins=0)  
+  npz.save_contacts(out_path, out_matrix, chromo_limits, bin_size, min_bins=0)  
   util.info('Written {}'.format(out_path))
   
 
@@ -416,25 +446,42 @@ def main(argv=None):
                          help='Optional output NPZ format file name. If not specified, a default based on the input file names will be used.')
 
   arg_parse.add_argument('-p', metavar='OUT_PDF_FILE', default=None,
-                         help='Optional PDF file to save report. If not specified, a default based on the input file names will be used..')
+                         help='Optional PDF file to save report. If not specified, a default based on the input file names will be used.')
 
   arg_parse.add_argument('-m', default=0.0, metavar='MIN_CONTIG_SIZE', type=float,
-                         help='The minimum chromosome/contig sequence length in Megabases for inclusion. ' \
-                              'Default is 10% of the largest chromosome/contig length.')
+                        help='The minimum chromosome/contig sequence length in Megabases for inclusion. ' \
+                              'Default is {}%% of the largest chromosome/contig length.'.format(DEFAULT_SMALLEST_CONTIG*100))
+
+  arg_parse.add_argument('-s', '--bin-size', default=None, metavar='BIN_SIZE', type=float, dest="s",
+                         help='Binned region size (the resolution) to compare contacts at, in kilobases. ' \
+                              'Must be no smaller than the innate resolution of the inputs files. ' \
+                              'Default is the innate resolution of the input files')
 
   arg_parse.add_argument('-t', default=False, action='store_true',
                          help='Compare trans (inter-chromosomal) chromosome pairs. ' \
-                              'By default only the intra-chromosomal contacts are compares')
+                              'By default only the intra-chromosomal contacts are compared.')
 
   args = vars(arg_parse.parse_args(argv))
 
   in_path_a, in_path_b = args['i']
   out_path = args['o']
   pdf_path = args['p']
+  bin_size = args['s']
   comp_trans = args['t']
   min_contig_size = args['m']
+
+  invalid_msg = io.check_invalid_file(in_path_a)
+  if invalid_msg:
+    util.critical(invalid_msg)
+
+  invalid_msg = io.check_invalid_file(in_path_b)
+  if invalid_msg:
+    util.critical(invalid_msg)
   
-  contact_compare(in_path_a, in_path_b, out_path, pdf_path, comp_trans, min_contig_size)
+  if  io.is_same_file(in_path_a, in_path_b):
+    util.warn('Inputs being compared are the same file')  
+    
+  contact_compare(in_path_a, in_path_b, out_path, pdf_path, bin_size, comp_trans, min_contig_size)
   
   
   
