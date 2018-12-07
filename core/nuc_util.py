@@ -172,26 +172,62 @@ def kMeans(data, k, centers=None, thresh=1e-10, verbose=False):
   return centers, clusters, labels
 
 
-def downsample_matrix(in_array, new_shape):
+def downsample_matrix(in_array, new_shape, as_mean=False):
     
-    p, q = in_array.shape
-    n, m = new_shape
-    
-    if p % n == 0:
-      pad_a = 0
-    else:
-      pad_a = n * int(1+p//n) - p
+  p, q = in_array.shape
+  n, m = new_shape
+  
+  if (p,q) == (n,m):
+    return in_array
+  
+  if p % n == 0:
+    pad_a = 0
+  else:
+    pad_a = n * int(1+p//n) - p
 
-    if q % m == 0:
-      pad_b = 0
-    else:
-      pad_b = m * int(1+q//m) - q 
-    
-    if pad_a or pad_b:
-      in_array = np.pad(in_array, [(0,pad_a), (0,pad_b)], 'constant')
-      p, q = in_array.shape
-        
-    shape = (n, p // n,
-             m, q // m)
-    
+  if q % m == 0:
+    pad_b = 0
+  else:
+    pad_b = m * int(1+q//m) - q 
+  
+  if pad_a or pad_b:
+    in_array = np.pad(in_array, [(0,pad_a), (0,pad_b)], 'constant')
+    p, q = in_array.shape
+      
+  shape = (n, p // n,
+           m, q // m)
+  
+  if as_mean:
+    return in_array.reshape(shape).mean(-1).mean(1)
+  else:
     return in_array.reshape(shape).sum(-1).sum(1)
+
+
+def sort_chromosomes(chromos):
+  
+  sort_chromos = []
+  
+  for chromo in chromos:
+    if chromo.lower().startswith('chr'):
+      c = chromo[3:]
+    else:
+      c = chromo
+
+    if ('.' in c) and c.split('.')[-1].upper() in ('A','B'):
+      try:
+        key = ('%09d' % int(c.split('.')[0]), c.split('.')[-1])
+      except ValueError as err:
+        key = (c, c.split('.')[-1],)
+
+    else:
+      try:
+        key = '%09d' % int(c)
+      except ValueError as err:
+        key = c
+
+    sort_chromos.append((key, chromo))
+
+  sort_chromos.sort()
+  
+  return [x[1] for x in sort_chromos]  
+  

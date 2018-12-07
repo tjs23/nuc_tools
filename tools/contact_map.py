@@ -14,6 +14,10 @@ DESCRIPTION = 'Chromatin contact (NCC or NPZ format) Hi-C contact map PDF displa
 DEFAULT_CIS_BIN_KB = 250
 DEFAULT_TRANS_BIN_KB = 500
 DEFAULT_MAIN_BIN_KB = 1000
+DEFAULT_SMALLEST_CONTIG = 0.1
+
+import warnings
+warnings.filterwarnings("ignore")
 
 def _downsample_matrix(in_array, new_shape, as_mean=False):
     
@@ -229,7 +233,7 @@ def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
 
 def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None, axis_chromos=None, grid=None,
                         stats_text=None, colors=None, bad_color='#404040', log=True, pdf=None,
-                        watermark='nuc_tools.contact_map', tracks=None):
+                        watermark='nuc_tools.contact_map', legend=None, tracks=None):
   
   from nuc_tools import util
   
@@ -328,6 +332,12 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
     ax.hlines(grid, 0, a, color='#B0B0B0', alpha=0.5, linewidth=0.1)
     ax.vlines(grid, 0, b, color='#B0B0B0', alpha=0.5, linewidth=0.1)
   
+  if legend:
+    for label, color in legend:
+      ax.plot([], linewidth=3, label=label, color=color)
+    
+    ax.legend(fontsize=8, loc=9, ncol=len(legend), bbox_to_anchor=(0.5, 1.05), frameon=False)
+    
   cbar = plt.colorbar(cax, shrink=0.3)
   cbar.ax.tick_params(labelsize=8)
   cbar.set_label(scale_label, fontsize=11)
@@ -344,7 +354,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
   
                 
 def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500.0,
-                separate_cis=False, separate_trans=False, show_chromos=None, screen_gfx=False,
+                no_separate_cis=False, separate_trans=False, show_chromos=None, screen_gfx=False,
                 black_bg=False, font=None, font_size=12, line_width=0.2, min_contig_size=None):
   
   from nuc_tools import io, util
@@ -380,8 +390,8 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
     min_contig_size = int(min_contig_size * 1e6)
   else:
     largest = max([e-s for s, e in chromo_limits.values()])
-    min_contig_size = int(0.05*largest) 
-    util.info('Min. contig size not specified, using 5% of largest: {:,} bp'.format(min_contig_size))
+    min_contig_size = int(DEFAULT_SMALLEST_CONTIG*largest) 
+    util.info('Min. contig size not specified, using {}% of largest: {:,} bp'.format(DEFAULT_SMALLEST_CONTIG*100, min_contig_size))
   
   if show_chromos:
     chr_names = ', '.join(sorted(chromo_limits))
@@ -421,7 +431,8 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
     
     bin_size = int(tot_size/1000)
     util.info('Bin size not specified, using approx. 1000 x 1000 bin equivalent: {:,} bp'.format(bin_size))
-    
+  
+  separate_cis = not bool(no_separate_cis)
   bin_size2 = int(bin_size2 * 1e3)
   bin_size3 = int(bin_size3 * 1e3)
           
@@ -438,31 +449,13 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
       else:
         skipped.append(chromo)
         continue
-        
-    if chromo.lower().startswith('chr'):
-      c = chromo[3:]
-    else:
-      c = chromo
 
-    if c.split('.')[-1].upper() in ('A','B'):
-      try:
-        key = ('%09d' % int(c.split('.')[0]), c.split('.')[-1])
-      except ValueError as err:
-        key = (c, c.split('.')[-1],)
-
-    else:
-      try:
-        key = '%09d' % int(c)
-      except ValueError as err:
-        key = c
-
-    chromos.append((key, chromo))
+    chromos.append(chromo)
 
   if skipped:
     util.info('Skipped {:,} small chromosomes/contigs < {:,} bp'.format(len(skipped), min_contig_size))
 
-  chromos.sort()
-  chromos = [x[1] for x in chromos]
+  chromos = util.sort_chromosomes(chromos)
    
   chromo_labels = []
   for chromo in chromos:
@@ -590,33 +583,34 @@ def main(argv=None):
   arg_parse.add_argument('-chr', metavar='CHROMOSOMES', nargs='+', default=None,
                          help='Optional selection of chromsome names to generate contact maps for.')
 
-  arg_parse.add_argument('-c', default=False, action='store_true',
-                         help='Display separate contact maps for all chromosomes (intra-chromosomal contacts). ' \
-                              'By default only the overall whole-genome map is displayed')
+  arg_parse.add_argument('-nc', '--no-cis', default=False, action='store_true', dest="nc",
+                         help='Do not display separate contact maps for individual chromosomes (intra-chromosomal contacts). ' \
+                              'Only the overall whole-genome map will be displayed (unless -t option also used)')
 
-  arg_parse.add_argument('-t', default=False, action='store_true',
+  arg_parse.add_argument('-t', '--trans', default=False, action='store_true', dest="t",
                          help='Display separate contact maps for all trans (inter-chromosomal) pairs. ' \
                               'By default only the overall whole-genome map is displayed')
 
   arg_parse.add_argument('-g', default=False, action='store_true',
                          help='Display graphics on-screen using matplotlib, where possible and do not automatically save output.')
 
-  arg_parse.add_argument('-s1', default=DEFAULT_MAIN_BIN_KB, metavar='BIN_SIZE', type=float,
+  arg_parse.add_argument('-s1', '--bin-size-main' ,default=DEFAULT_MAIN_BIN_KB, metavar='BIN_SIZE', type=float, dest="s1",
                          help='Binned sequence region size (the resolution) for the overall contact map, in kilobases. Default is {:.1f} kb'.format(DEFAULT_MAIN_BIN_KB))
 
-  arg_parse.add_argument('-s2', default=DEFAULT_CIS_BIN_KB, metavar='BIN_SIZE', type=float,
+  arg_parse.add_argument('-s2', '--bin-size-cis', default=DEFAULT_CIS_BIN_KB, metavar='BIN_SIZE', type=float, dest="s2",
                          help='Binned sequence region size (the resolution) for separate intra-chromsomal maps, ' \
                               'in kilobases. Default is {:.1f} kb'.format(DEFAULT_CIS_BIN_KB))
   
-  arg_parse.add_argument('-s3', default=DEFAULT_TRANS_BIN_KB, metavar='BIN_SIZE', type=float,
+  arg_parse.add_argument('-s3', '--bin-size-trans', default=DEFAULT_TRANS_BIN_KB, metavar='BIN_SIZE', type=float, dest="s3",
                          help='Binned sequence region size (the resolution) for separate inter-chromsomal maps, ' \
                               'in kilobases. Default is {:.1f} kb'.format(DEFAULT_TRANS_BIN_KB))
 
   arg_parse.add_argument('-m', default=0.0, metavar='MIN_CONTIG_SIZE', type=float,
-                         help='The minimum chromosome/contig sequence length in Megabases for inclusion. Default is 10% of the largest chromosome/contig length.')
+                         help='The minimum chromosome/contig sequence length in Megabases for inclusion. ' \
+                              'Default is {}%% of the largest chromosome/contig length.'.format(DEFAULT_SMALLEST_CONTIG*100))
 
-  arg_parse.add_argument('-b', default=False, action='store_true',
-                         help='Specifies that the contact map should have a white background (default is white)')
+  arg_parse.add_argument('-b', '--black-bg',default=False, action='store_true', dest="b",
+                         help='Specifies that the contact map should have a black background (default is white)')
                          
   args = vars(arg_parse.parse_args(argv))
 
@@ -628,7 +622,7 @@ def main(argv=None):
   bin_size3 = args['s3']
   min_contig_size = args['m']
   black_bg = args['b']
-  sep_cis = args['c']
+  no_sep_cis = args['nc']
   sep_trans = args['t']
   chromos = args['chr']
   
@@ -652,7 +646,7 @@ def main(argv=None):
       util.critical('Input contact file could not be found at "{}"'.format(in_path))
 
     contact_map(in_path, out_path, bin_size, bin_size2, bin_size3,
-                sep_cis, sep_trans, chromos, screen_gfx,
+                no_sep_cis, sep_trans, chromos, screen_gfx,
                 black_bg, min_contig_size=min_contig_size)
 
 
