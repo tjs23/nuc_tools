@@ -6,7 +6,7 @@ from collections import defaultdict
 from scipy import sparse, stats
 
 PROG_NAME = 'contact_compare'
-VERSION = '1.0.0'
+VERSION = '1.0.1'
 DESCRIPTION = 'Compare two Hi-C contact maps (NPZ format)'
 DEFAULT_SMALLEST_CONTIG = 0.1
 DEFAULT_DMAX = 5.0
@@ -112,21 +112,24 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
       else:
         mat += mat.T
         
-    scale_a = contact_scale[chr_a]
-    scale_b = contact_scale[chr_b]
+    scale_a = contact_scale[chr_a].astype(np.float32)
+    scale_b = contact_scale[chr_b].astype(np.float32)
     
     mat *= np.sqrt(np.outer(scale_a, scale_b))
-
+    
     nnz = np.sqrt(len(scale_a.nonzero()[0]) * len(scale_b.nonzero()[0]))
     
-    mat *= nnz/(mat.sum() or 1.0) # The counts scale with the chromosome sizes
+    msum = mat.sum()
+    
+    if msum:
+      mat *= nnz/msum # The counts scale with the chromosome sizes
     
     if new_bin_size > bin_size: # i.e. do nothing if smaller or equal (smaller is not valid)
       ratio = bin_size / float(new_bin_size)
       p = int(math.ceil(a * ratio))
       q = int(math.ceil(b * ratio))
       mat = util.downsample_matrix(mat, (p, q))
-    
+       
     if store_sparse:
       if is_cis:
         mat = sparse.csr_matrix(mat)
@@ -138,16 +141,18 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
   util.info(' .. normalised {} chromosomes/pairs'.format(len(pairs)), line_return=True)
     
 
-def _obs_vs_exp(obs_a, obs_b, n, clip=0.4):
-  """
-  Function not used but may be reinstated in the future
-  """
+def get_cov_mat(obs, clip=5.0):
+
+  n = len(obs)
   
-  sep_dict_a = defaultdict(list)
-  sep_dict_b = defaultdict(list)
+  obs -= np.diag(np.diag(obs))
+  sobs = obs.sum()
+  sep_dict = defaultdict(list)
   
   def _get_expectation(sig_seps, n):
+    sig_seps /= sig_seps.sum()
     expt = np.zeros((n, n), float)
+    
     for i in range(n):
       expt[i,:i] = sig_seps[:i][::-1]
       expt[i,i:] = sig_seps[:n-i]
@@ -158,40 +163,41 @@ def _obs_vs_exp(obs_a, obs_b, n, clip=0.4):
     idx1 = np.array(range(n-d))
     idx2 = idx1 + d
     idx = (idx1, idx2)
-    sep_dict_a[d] = obs_a[idx]
-    sep_dict_b[d] = obs_b[idx]
- 
-  sep_sig_a = np.zeros(n, float)
-  sep_sig_b = np.zeros(n, float)
+    sep_dict[d] = obs[idx]
+    
+  sep_sig = np.zeros(n, float)
+  
   for i in range(n):
-    if i in sep_dict_a:
-      sep_sig_a[i] = np.median(sep_dict_a[i]) # already non-zero
- 
-    if i in sep_dict_b:
-      sep_sig_b[i] = np.median(sep_dict_b[i])
+    if i in sep_dict:
+      sep_sig[i] = np.mean(sep_dict[i])
 
-  exp_a = _get_expectation(sep_sig_a, n)
-  exp_b = _get_expectation(sep_sig_b, n)
- 
-  nz_a = (exp_a * obs_a).nonzero()
-  nz_b = (exp_b * obs_b).nonzero()
+  expt = _get_expectation(sep_sig, n)
 
-  obs_a[nz_a] /= exp_a[nz_a]
-  obs_b[nz_b] /= exp_b[nz_b]
- 
-  nz = (obs_a * obs_b).nonzero()
+  vals = obs.sum(axis=0).astype(float)
+  vals /= vals.sum()
+    
+  expt *= np.outer(vals, vals)
+  expt *= sobs/expt.sum()  
+  
+  prod = expt * obs
+  nz = prod != 0.0
+  
+  log_ratio = obs.copy()
+  log_ratio[nz] /= expt[nz] 
+  log_ratio[nz] = np.log(log_ratio[nz])
+  log_ratio = np.clip(log_ratio, -clip, clip)
+  
+  cov_mat = np.cov(log_ratio)
 
-  comp = np.zeros((n, n), float)
-  comp[nz] = 0.5 * (obs_a[nz] + obs_b[nz]) *  np.log(obs_a[nz]/obs_b[nz])
-
-  return comp
+  return cov_mat
   
   
 def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size=None,
-                    compare_trans=False, min_contig_size=None, d_max=DEFAULT_DMAX): 
+                    compare_trans=False, min_contig_size=None, d_max=DEFAULT_DMAX,
+                    use_cov=False, bed_path=None): 
     
   from nuc_tools import util, io
-  from formats import npz  
+  from formats import npz, bed 
   from contact_map import  plot_contact_matrix
   
   if not out_path:
@@ -207,7 +213,7 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
   file_bin_size_b, chromo_limits_b, contacts_b = npz.load_npz_contacts(in_path_b)
 
   if file_bin_size_a != file_bin_size_b:
-    util.critical('Chromatin contact matrices to be compared must be beinned at the same resolution')
+    util.critical('Chromatin contact matrices to be compared must be binned at the same resolution')
     # Above could be relaxed as long as one is a multiple of the other, and lowest resolution is used
 
   if min_contig_size:
@@ -281,6 +287,11 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
   # Vanilla normalisation for now. Enforces comparable matrix sizes.
   normalize_contacts(contacts_a, chromo_limits_a, orig_bin_size, chromo_limits, bin_size, compare_trans=compare_trans)
   normalize_contacts(contacts_b, chromo_limits_b, orig_bin_size, chromo_limits, bin_size, compare_trans=compare_trans)  
+    
+  if bed_path:
+    bed_region_dict = {}
+    bed_value_dict = {}
+  
         
   util.info('Calulating differences')
   
@@ -290,17 +301,18 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
   name_a = os.path.splitext(os.path.basename(in_path_a))[0]
   name_b = os.path.splitext(os.path.basename(in_path_b))[0]
   legend = [(name_a, colors[-2]), (name_b, colors[1])]
-
+  bed_max = 0
+  
   for key in cis_pairs:
     util.info(' .. comparing {}'.format(key[0]), line_return=True)  
-            
+      
     obs_a = contacts_a[key].toarray()
     obs_b = contacts_b[key].toarray()
     
     n, m = obs_a.shape
         
-    obs_a[obs_a < 1.0/n] = 0.0 # Avoid anything too small to avoid extremes
-    obs_b[obs_b < 1.0/n] = 0.0          
+    #obs_a[obs_a < 1.0/n] = 0.0 
+    #obs_b[obs_b < 1.0/n] = 0.0          
     diff = np.zeros((n, n), np.float32)
 
     nz = (obs_a> 0) & (obs_b > 0)      
@@ -345,45 +357,85 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
       r2 = r_value*r_value
     else:
       r2 = 0.0
+    
+    if use_cov:
+      x = get_cov_mat(obs_a)
+      y = get_cov_mat(obs_b)
+            
+      diff = x * y
+      diff[diff > 0] = 0
+      
+      pos_mask = x > 0
+      neg_mask = x < 0
+      
+      pos_diff = diff.copy()
+      pos_diff[neg_mask] = 0
+      
+      neg_diff = diff.copy()
+      neg_diff[pos_mask] = 0
+      
+      bed_values = pos_diff.sum(axis=0) * neg_diff.sum(axis=0)
+      
+      diff[pos_mask] *= -1
+      v_max = 0.5 * diff.max()
 
-    for d in range(1, n):
-      deltas = np.zeros(n-d, np.float32)
-      idx1 = np.array(range(n-d))
-      idx2 = idx1 + d
-      idx = (idx1, idx2)
+    else:
+      v_max = None
+    
+      for d in range(1, n):
+        deltas = np.zeros(n-d, np.float32)
+        idx1 = np.array(range(n-d))
+        idx2 = idx1 + d
+        idx = (idx1, idx2)
 
-      vals_a = obs_a[idx]
-      vals_b = obs_b[idx]
+        vals_a = obs_a[idx]
+        vals_b = obs_b[idx]
+ 
+        nz = (vals_a > 0) & (vals_b > 0)
+ 
+        vals_a = vals_a[nz]
+        vals_b = vals_b[nz]
+ 
+        vals_a /= np.median(vals_a)
+        vals_b /= np.median(vals_b)
+ 
+        if len(vals_a) > 2:
+          deltas[nz] = vals_a - vals_b
+ 
+        diff[idx] = deltas
       
-      nz = (vals_a > 0) & (vals_b > 0)
+      diff += diff.T  
       
-      vals_a = vals_a[nz]
-      vals_b = vals_b[nz]
+      bed_values = diff.sum(axis=0)
       
-      vals_a /= np.median(vals_a)
-      vals_b /= np.median(vals_b)
-     
-               
-      if len(vals_a) > 2:
-        nz_deltas = vals_a - vals_b
-        nz_deltas[nz_deltas > d_max] = d_max
-        nz_deltas[nz_deltas < -d_max] = -d_max
-        deltas[nz] = nz_deltas
+      diff[diff > d_max] = d_max
+      diff[diff < -d_max] = -d_max
         
-      diff[idx] = deltas
-      
     title = 'Chromosome %s ; R2 = %.3f' % (key[0], r2)
     scale_label = 'Scaled difference (%.2f kb bins)' % (bin_size/1e3)
     
-    plot_contact_matrix(diff+diff.T, bin_size, title, scale_label, chromo_labels=None, axis_chromos=key,
+    plot_contact_matrix(diff, bin_size, title, scale_label, chromo_labels=None, axis_chromos=key,
                         grid=None, stats_text=None, colors=colors, bad_color='#404040', log=False,
-                        pdf=pdf, watermark=watermark, legend=legend, v_max=None)
+                        pdf=pdf, watermark=watermark, legend=legend, v_max=v_max)
                         
     out_matrix[key] = sparse.csr_matrix(diff)
+    
+    if bed_path:
+      pos = np.arange(0, bin_size*n, bin_size)
+      bed_regions = np.stack([pos, pos+(bin_size-1)], axis=1)
+
+      nz = bed_values.nonzero()
+      bed_regions = bed_regions[nz]
+      bed_values = bed_values[nz]
+      
+      if len(bed_values):
+        bed_region_dict[key[0]] = bed_regions
+        bed_value_dict[key[0]] = bed_values
+        bed_max = max(bed_max, bed_values.max(), abs(bed_values.min()))
   
   util.info(' .. done {} chromosomes'.format(len(cis_pairs)), line_return=True)  
   
-  if compare_trans:
+  if compare_trans and not use_cov:
     for key in trans_pairs:
       util.info(' .. comparing {} - {}'.format(*key), line_return=True)
  
@@ -422,14 +474,21 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
 
     util.info(' .. done {} pairs'.format(len(trans_pairs)), line_return=True)  
   
+  if bed_path:
+    for chomo in bed_value_dict:
+      bed_value_dict[chomo] = (1000.0/bed_max * bed_value_dict[chomo]).astype(int)
+  
+    bed.save_bed_data_track(bed_path, bed_region_dict, bed_value_dict)
+    util.info('Written BED file {}'.format(bed_path))
+  
   if pdf:
     pdf.close()
-    util.info('Written {}'.format(pdf_path))
+    util.info('Written PDF file {}'.format(pdf_path))
  
   util.info('Saving data')
     
   npz.save_contacts(out_path, out_matrix, chromo_limits, bin_size, min_bins=0)  
-  util.info('Written {}'.format(out_path))
+  util.info('Written NPZ file {}'.format(out_path))
 
 
 def main(argv=None):
@@ -471,6 +530,12 @@ def main(argv=None):
                          help='Compare trans (inter-chromosomal) chromosome pairs. ' \
                               'By default only the intra-chromosomal contacts are compared.')
 
+  arg_parse.add_argument('-cov', default=False, action='store_true',
+                         help='Compare differences in covariance matrices, rather than contact counts.')
+
+  arg_parse.add_argument('-bed', metavar='OUT_BED_FILE', default=None,
+                         help='Save differences (summed for each chromosome position) as a BED format file.')
+
   args = vars(arg_parse.parse_args(argv))
 
   in_path_a, in_path_b = args['i']
@@ -480,6 +545,8 @@ def main(argv=None):
   comp_trans = args['t']
   min_contig_size = args['m']
   d_max = args['dmax']
+  use_cov = args['cov']
+  bed_path = args['bed']
 
   invalid_msg = io.check_invalid_file(in_path_a)
   if invalid_msg:
@@ -489,11 +556,11 @@ def main(argv=None):
   if invalid_msg:
     util.critical(invalid_msg)
   
-  if  io.is_same_file(in_path_a, in_path_b):
+  if io.is_same_file(in_path_a, in_path_b):
     util.warn('Inputs being compared are the same file')  
     
   contact_compare(in_path_a, in_path_b, out_path, pdf_path, bin_size,
-                  comp_trans, min_contig_size, d_max)
+                  comp_trans, min_contig_size, d_max, use_cov, bed_path)
   
 
 if __name__ == "__main__":
