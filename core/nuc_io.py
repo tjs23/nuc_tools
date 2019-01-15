@@ -69,7 +69,7 @@ def get_safe_file_path(path_name, file_name=None):
   return file_path
   
   
-def merge_file_names(file_path1, file_path2, sep='_'):
+def merge_file_names(file_path1, file_path2, sep='_', prefix='', suffix=''):
 
   # same dir, need non truncated name
   
@@ -110,7 +110,7 @@ def merge_file_names(file_path1, file_path2, sep='_'):
     else:
       parts3.append(parts2[i])
   
-  file_root3 = sep.join(parts3)
+  file_root3 = prefix + sep.join(parts3) + suffix
   
   file_path3 = os.path.join(dir_name1, file_root3 + file_ext1)
   
