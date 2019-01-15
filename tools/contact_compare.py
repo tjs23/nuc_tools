@@ -187,14 +187,17 @@ def get_cov_mat(obs, clip=5.0):
   log_ratio[nz] = np.log(log_ratio[nz])
   log_ratio = np.clip(log_ratio, -clip, clip)
   
-  cov_mat = np.cov(log_ratio)
+  cov_mat = np.corrcoef(log_ratio)
+  cov_mat -= np.diag(np.diag(cov_mat))
 
+  np.nan_to_num(cov_mat, copy=False)
+  
   return cov_mat
   
   
 def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size=None,
                     compare_trans=False, min_contig_size=None, d_max=DEFAULT_DMAX,
-                    use_cov=False, bed_path=None): 
+                    use_corr=False, bed_path=None): 
     
   from nuc_tools import util, io
   from formats import npz, bed 
@@ -300,7 +303,9 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
   watermark = 'nuc_tools.contact_compare'
   name_a = os.path.splitext(os.path.basename(in_path_a))[0]
   name_b = os.path.splitext(os.path.basename(in_path_b))[0]
-  legend = [(name_a, colors[-2]), (name_b, colors[1])]
+  
+  stats_text = 'Comparing %s to %s' % (name_a, name_b)
+  legend = [] # ('-ve to +ve', colors[-2]), ('+ve to -ve', colors[1])]  
   bed_max = 0
   
   for key in cis_pairs:
@@ -315,9 +320,15 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
     #obs_b[obs_b < 1.0/n] = 0.0          
     diff = np.zeros((n, n), np.float32)
 
-    nz = (obs_a> 0) & (obs_b > 0)      
+    nz = (obs_a > 0) & (obs_b > 0)      
     vals_a = obs_a[nz]
     vals_b = obs_b[nz]
+    
+    if not len(vals_a):
+      continue
+
+    if not len(vals_b):
+      continue
     
     """
     # May calculate overall correlation in the future...    
@@ -358,15 +369,22 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
     else:
       r2 = 0.0
     
-    if use_cov:
+    if use_corr:
       x = get_cov_mat(obs_a)
       y = get_cov_mat(obs_b)
+      
+      diff = x - y
+      v_max = 0.5
             
+      """
       diff = x * y
       diff[diff > 0] = 0
       
       pos_mask = x > 0
       neg_mask = x < 0
+
+      vals = -1 * diff[diff.nonzero()]      
+      v_max = 10.0 * np.mean(vals) # np.percentile(vals, 98)
       
       pos_diff = diff.copy()
       pos_diff[neg_mask] = 0
@@ -377,7 +395,8 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
       bed_values = pos_diff.sum(axis=0) * neg_diff.sum(axis=0)
       
       diff[pos_mask] *= -1
-      v_max = 0.5 * diff.max()
+      """
+      scale_label = 'Correlation flip (%.2f kb bins)' % (bin_size/1e3)
 
     else:
       v_max = None
@@ -411,11 +430,12 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
       diff[diff > d_max] = d_max
       diff[diff < -d_max] = -d_max
         
+      scale_label = 'Scaled difference (%.2f kb bins)' % (bin_size/1e3)
+
     title = 'Chromosome %s ; R2 = %.3f' % (key[0], r2)
-    scale_label = 'Scaled difference (%.2f kb bins)' % (bin_size/1e3)
     
     plot_contact_matrix(diff, bin_size, title, scale_label, chromo_labels=None, axis_chromos=key,
-                        grid=None, stats_text=None, colors=colors, bad_color='#404040', log=False,
+                        grid=None, stats_text=stats_text, colors=colors, bad_color='#404040', log=False,
                         pdf=pdf, watermark=watermark, legend=legend, v_max=v_max)
                         
     out_matrix[key] = sparse.csr_matrix(diff)
@@ -435,7 +455,7 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
   
   util.info(' .. done {} chromosomes'.format(len(cis_pairs)), line_return=True)  
   
-  if compare_trans and not use_cov:
+  if compare_trans and not use_corr:
     for key in trans_pairs:
       util.info(' .. comparing {} - {}'.format(*key), line_return=True)
  
@@ -530,8 +550,8 @@ def main(argv=None):
                          help='Compare trans (inter-chromosomal) chromosome pairs. ' \
                               'By default only the intra-chromosomal contacts are compared.')
 
-  arg_parse.add_argument('-cov', default=False, action='store_true',
-                         help='Compare differences in covariance matrices, rather than contact counts.')
+  arg_parse.add_argument('-corr', default=False, action='store_true',
+                         help='Compare differences in correlation matrices, rather than differences contact counts.')
 
   arg_parse.add_argument('-bed', metavar='OUT_BED_FILE', default=None,
                          help='Save differences (summed for each chromosome position) as a BED format file.')
@@ -545,7 +565,7 @@ def main(argv=None):
   comp_trans = args['t']
   min_contig_size = args['m']
   d_max = args['dmax']
-  use_cov = args['cov']
+  use_corr = args['corr']
   bed_path = args['bed']
 
   invalid_msg = io.check_invalid_file(in_path_a)
@@ -560,7 +580,7 @@ def main(argv=None):
     util.warn('Inputs being compared are the same file')  
     
   contact_compare(in_path_a, in_path_b, out_path, pdf_path, bin_size,
-                  comp_trans, min_contig_size, d_max, use_cov, bed_path)
+                  comp_trans, min_contig_size, d_max, use_corr, bed_path)
   
 
 if __name__ == "__main__":
