@@ -39,7 +39,7 @@ def test_imports():
 
 def calcContactVoidRegions(pop_contacts_path, binSize=int(5e5), close_cis=int(1e6), clip_factor=2.0):
   
-  chromosomes, chromo_limits, contact_dict = ncc.load_ncc_file(pop_contacts_path)
+  chromosomes, chromo_limits, contact_dict = ncc.load_file(pop_contacts_path, pair_key=False)
 
   regionDict = {}
   
@@ -121,7 +121,7 @@ def make_ab_compartment_tracks(pop_contacts_path, active_marks_track=None, binSi
       
   import tools.cyt_ab_kmeans as cyt_ab_kmeans
   
-  chromosomes, chromo_limits, contact_dict = ncc.load_ncc_file(pop_contacts_path)
+  chromosomes, chromo_limits, contact_dict = ncc.load_file(pop_contacts_path, pair_key=False)
   if active_marks_track is None:
     marks_regions = marks_values = None
   else:

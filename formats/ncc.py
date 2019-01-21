@@ -7,7 +7,7 @@ import numpy as np
 
 # #   Nuc Formats  # # 
 
-def load_ncc_file(file_path):
+def load_file(file_path, pair_key=True):
   """Load chromosome and contact data from NCC format file, as output from NucProcess"""
   
   from core import nuc_io as io
@@ -39,45 +39,53 @@ def load_ncc_file(file_path):
       if chr_a > chr_b:
         chr_a, chr_b = chr_b, chr_a
         pos_a, pos_b = pos_b, pos_a
- 
-      if chr_a not in contact_dict:
-        contact_dict[chr_a] = {}
-        chromosomes.add(chr_a)
- 
-      if chr_b not in contact_dict[chr_a]:
-        contact_dict[chr_a][chr_b] = []
-        chromosomes.add(chr_b)
- 
-      contact_dict[chr_a][chr_b].append((pos_a, pos_b, num_obs, int(ambig_group)))
 
-  
+      key = (chr_a, chr_b)
+      if key not in contact_dict:
+        contact_dict[key] = []
+         
+      chromosomes.add(chr_a)
+      chromosomes.add(chr_b)
+      contact_dict[key].append((pos_a, pos_b, num_obs, int(ambig_group)))
+
   chromo_limits = {}
     
-  for chr_a in contact_dict:
-    for chr_b in contact_dict[chr_a]:
-      contacts = np.array(contact_dict[chr_a][chr_b]).T
-      contact_dict[chr_a][chr_b] = contacts
+  for key in contact_dict:
+    chr_a, chr_b  = key
+    
+    contacts = np.array(contact_dict[key]).T
       
-      seq_pos_a = contacts[0]
-      seq_pos_b = contacts[1]
+    seq_pos_a = contacts[0]
+    seq_pos_b = contacts[1]
+    
+    min_a = min(seq_pos_a)
+    max_a = max(seq_pos_a)
+    min_b = min(seq_pos_b)
+    max_b = max(seq_pos_b)
       
-      min_a = min(seq_pos_a)
-      max_a = max(seq_pos_a)
-      min_b = min(seq_pos_b)
-      max_b = max(seq_pos_b)
+    if chr_a in chromo_limits:
+      prev_min, prev_max = chromo_limits[chr_a]
+      chromo_limits[chr_a] = [min(prev_min, min_a), max(prev_max, max_a)]
+    else:
+      chromo_limits[chr_a] = [min_a, max_a]
+    
+    if chr_b in chromo_limits:
+      prev_min, prev_max = chromo_limits[chr_b]
+      chromo_limits[chr_b] = [min(prev_min, min_b), max(prev_max, max_b)]
+    else:
+      chromo_limits[chr_b] = [min_b, max_b]
+  
+  if not pair_key:
+    pairs = sorted(contact_dict)
+    
+    for pair in pairs:
+      chr_a, chr_b = pair
+      if chr_a not in contact_dict:
+        contact_dict[chr_a] = {}
+        contact_dict[chr_a][chr_b] = np.array( contact_dict[pair]).T
+      
+      del contact_dict[pair]        
         
-      if chr_a in chromo_limits:
-        prev_min, prev_max = chromo_limits[chr_a]
-        chromo_limits[chr_a] = [min(prev_min, min_a), max(prev_max, max_a)]
-      else:
-        chromo_limits[chr_a] = [min_a, max_a]
-      
-      if chr_b in chromo_limits:
-        prev_min, prev_max = chromo_limits[chr_b]
-        chromo_limits[chr_b] = [min(prev_min, min_b), max(prev_max, max_b)]
-      else:
-        chromo_limits[chr_b] = [min_b, max_b]
-         
   chromosomes = sorted(chromosomes)      
         
   return chromosomes, chromo_limits, contact_dict
