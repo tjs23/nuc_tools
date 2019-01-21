@@ -64,7 +64,121 @@ def _get_chromo_offsets(bin_size, chromos, chromo_limits):
     n += 1 # Add space between chromos on matrix
   
   return n, chromo_offsets, label_pos
+
+
+def _get_cis_expectation(obs):
+
+  n = len(obs)
+  sobs = obs.sum()
+  sep_dict = defaultdict(list) 
+ 
+  for d in range(1, n):
+    idx1 = np.array(range(n-d))
+    idx2 = idx1 + d
+    idx = (idx1, idx2)
+    sep_dict[d] = obs[idx]
+ 
+  sep_sig = np.zeros(n, float)
+ 
+  for i in range(n):
+    if i in sep_dict:
+      sep_sig[i] = np.mean(sep_dict[i])
+
+  expt = np.zeros((n, n), float)
+
+  for i in range(n):
+    expt[i,:i] = sep_sig[:i][::-1]
+    expt[i,i:] = sep_sig[:n-i]
   
+  vals = obs.sum(axis=0).astype(float)
+  vals /= vals.sum()
+ 
+  expt *= np.outer(vals, vals)
+  expt *= sobs/expt.sum()
+  
+  return expt
+
+  
+def get_corr_mat(obs, clip=5.0):
+
+  obs -= np.diag(np.diag(obs))
+  expt = _get_cis_expectation(obs)
+
+  prod = expt * obs
+  nz = prod != 0.0
+ 
+  log_ratio = obs.copy()
+  log_ratio[nz] /= expt[nz]
+  log_ratio[nz] = np.log(log_ratio[nz])
+  log_ratio = np.clip(log_ratio, -clip, clip)
+ 
+  corr_mat = np.corrcoef(log_ratio)
+  corr_mat -= np.diag(np.diag(corr_mat))
+
+  np.nan_to_num(corr_mat, copy=False)
+
+  
+  return corr_mat
+
+
+def get_trans_corr_mat(obs_a, obs_b, obs_ab, clip=5.0):
+  
+  n = len(obs_a)
+  m = len(obs_b)
+  z = n+m
+
+  obs_a -= np.diag(np.diag(obs_a))
+  obs_b -= np.diag(np.diag(obs_b))
+  mat = np.zeros((z, z))
+  
+  # Add cis A
+  
+  expt = _get_cis_expectation(obs_a)
+  nz = (expt * obs_a) != 0.0  
+  log_ratio = obs_a.copy()
+  log_ratio[nz] /= expt[nz]
+  
+  mat[:n,:n] = log_ratio
+  
+  # Add cis B
+  
+  expt = _get_cis_expectation(obs_b)
+  nz = (expt * obs_b) != 0.0  
+  log_ratio = obs_b.copy()
+  log_ratio[nz] /= expt[nz]
+  
+  mat[n:,n:] = log_ratio
+  
+  # Add trans
+  
+  expt = np.full((n,m), obs_ab.mean())
+  sobs = obs_ab.sum()
+  
+  vals_a = obs_a.sum(axis=0) + obs_ab.sum(axis=1)
+  vals_b = obs_b.sum(axis=0) + obs_ab.sum(axis=0)
+ 
+  expt *= np.outer(vals_a, vals_b)
+  expt *= sobs/expt.sum()
+  
+  nz = (expt * obs_ab) != 0.0  
+  log_ratio = obs_ab.copy()
+  log_ratio[nz] /= expt[nz]
+  
+  mat[:n,n:] = log_ratio
+  mat[n:,:n] = log_ratio.T
+  
+  nz = mat.nonzero()
+  mat[nz] = np.log(mat[nz])
+  mat = np.clip(mat, -clip, clip)
+  
+  corr_mat = np.corrcoef(mat)
+    
+  corr_mat = corr_mat[:n,n:]
+    
+  np.nan_to_num(corr_mat, copy=False)
+  
+  return corr_mat
+
 
 def get_contact_arrays_matrix(contacts, bin_size, chromos, chromo_limits):
  
@@ -128,7 +242,7 @@ def _limits_to_shape(limits_a, limits_b, bin_size):
   n = int(ceil(end_a/float(bin_size))) - int(start_a/bin_size)
   m = int(ceil(end_b/float(bin_size))) - int(start_b/bin_size)
   
-  return n, n
+  return n, m
 
 
 def get_single_array_matrix(contact_matrix, limits_a, limits_b, is_cis, orig_bin_size, bin_size):
@@ -162,26 +276,27 @@ def get_single_list_matrix(contact_list, limits_a, limits_b, bin_size):
   start_a, end_a = limits_a
   start_b, end_b = limits_b
   
-  for p_a, p_b, ag in contact_list:
+  for p_a, p_b, nobs, ag in contact_list:
     a = int((p_a-start_a)/bin_size)
     b = int((p_b-start_b)/bin_size) 
 
-    matrix[a, b] += 1.0
-    matrix[b, a] += 1.0
+    matrix[a, b] += nobs
+    matrix[b, a] += nobs
  
   return matrix
   
   
 def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
   
-  n, chromo_offsets, label_pos, chromo_spans = _get_chromo_offsets(bin_size, chromos, chromo_limits)
+  n, chromo_offsets, label_pos = _get_chromo_offsets(bin_size, chromos, chromo_limits)
   
   # Fill contact map matrix, last dim is for (un)ambigous
   matrix = np.zeros((n, n, 2), float)
   
   groups = defaultdict(int)
+    
   for key in contacts:
-    for p_a, p_b, ag in contacts[key]:
+    for p_a, p_b, nobs, ag in contacts[key]:
       groups[ag] += 1
 
   homolog_groups = set()
@@ -204,7 +319,7 @@ def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
       s_a, off_a, size_a = chromo_offsets[chr_a]
       s_b, off_b, size_b = chromo_offsets[chr_b]
 
-      for p_a, p_b, ag in contact_list:
+      for p_a, p_b, nobs, ag in contact_list:
         if chr_a != chr_b:
           if ('.' in chr_a) and ('.' in chr_b) and (chr_a.split('.')[0] == chr_b.split('.')[0]):
             homolog_groups.add(ag)
@@ -220,18 +335,19 @@ def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
  
         k = 0 if groups[ag] == 1 else 1
 
-        matrix[a, b, k] += 1.0
-        matrix[b, a, k] += 1.0
+        matrix[a, b, k] += nobs
+        matrix[b, a, k] += nobs
 
   n_ambig = len([x for x in groups.values() if x > 1])
   n_homolog = len(homolog_groups)
   n_trans = len(trans_groups)
   n_cis = len(cis_groups)
   n_cont = len(groups)
-
+  
   return (n_cont, n_cis, n_trans, n_homolog, n_ambig), matrix, label_pos, chromo_offsets
 
-def _get_tick_delta(n, bin_size, max_ticks=10):
+
+def _get_tick_delta(n, bin_size, max_ticks=10, unit=1e6):
   
   val_max = n * bin_size
   
@@ -239,51 +355,58 @@ def _get_tick_delta(n, bin_size, max_ticks=10):
   
   while d % 5 != 0:
     d += 1
+ 
+  tick_delta = d/bin_size
   
-  return d/bin_size
+  nminor = d/5
+
+  return tick_delta, nminor
   
 
 def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None, axis_chromos=None, grid=None,
                         stats_text=None, colors=None, bad_color='#404040', log=True, pdf=None,
-                        watermark='nuc_tools.contact_map', legend=None, tracks=None, v_max=None):
+                        watermark='nuc_tools.contact_map', legend=None, tracks=None, v_max=None, v_min=None):
   
   from nuc_tools import util
-  
-  if not colors:
-    if log:
-      colors = ['#0000B0', '#0080FF', '#FFFFFF', '#FF0000', '#800000']
-    else:
-      colors = ['#FFFFFF', '#0080FF' ,'#FF0000','#000000']
-  
   mmax = matrix.max()
-  
   if not mmax:
     util.info('Map empty for ' + title, line_return=True)
     return
+  
+  if mmax < 0:
+    matrix = -1 * matrix
+    
+  if not colors:
+    if log or (matrix.min() < 0):
+      colors = ['#0000B0', '#0080FF', '#FFFFFF', '#FF0000', '#800000']
+    else:
+      colors = ['#FFFFFF', '#0080FF' ,'#FF0000','#000000']  
     
   cmap = LinearSegmentedColormap.from_list(name='pcm', colors=colors, N=255)    
   cmap.set_bad(color=bad_color)
   
-  if mmax < 0:
-    matrix = -1 * matrix
-  
   a, b = matrix.shape
+  unit = 1e6 # Megabase
   
   if chromo_labels:
     xlabel_pos, xlabels = zip(*chromo_labels)
     ylabel_pos = xlabel_pos 
     ylabels = xlabels
     xrotation = 90.0
-    minor_tick_locator = None
+    xminor_tick_locator = None
+    yminor_tick_locator = None
     
   else:
     xrotation = None
-    xlabel_pos = np.arange(0, a, _get_tick_delta(a, bin_size/1e6)) # Pixels/bins
-    xlabels = ['%.1f' % (x*bin_size/1e6) for x in xlabel_pos]
- 
-    ylabel_pos = np.arange(0, b, _get_tick_delta(b, bin_size/1e6)) # Pixels/bins
-    ylabels = ['%.1f' % (y*bin_size/1e6) for y in ylabel_pos]
-    minor_tick_locator = AutoMinorLocator(5)
+    tick_delta, nminor = _get_tick_delta(b, bin_size/unit)
+    xlabel_pos = np.arange(0, b, tick_delta) # Pixel bins
+    xlabels = ['%.1f' % (x*bin_size/unit) for x in xlabel_pos]
+    xminor_tick_locator = AutoMinorLocator(nminor)
+    
+    tick_delta, nminor = _get_tick_delta(a, bin_size/unit) 
+    ylabel_pos = np.arange(0, a, tick_delta) # Pixel bins
+    ylabels = ['%.1f' % (y*bin_size/unit) for y in ylabel_pos]
+    yminor_tick_locator = AutoMinorLocator(nminor)
   
   if tracks:
     n_tracks = len(tracks)
@@ -308,9 +431,13 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
   if log:
     cax = ax.matshow(matrix, interpolation='none', cmap=cmap, norm=LogNorm(vmin=1), origin='upper')
   else:
-    if not v_max:
+    if v_max is None:
       v_max = max(-matrix.min(), matrix.max())
-    cax = ax.matshow(matrix, interpolation='none', cmap=cmap, vmin=-v_max, vmax=v_max, origin='upper')
+    
+    if v_min is None:
+      v_min = -v_max
+      
+    cax = ax.matshow(matrix, interpolation='none', cmap=cmap, vmin=v_min, vmax=v_max, origin='upper')
   
   ax.xaxis.tick_bottom()
   
@@ -324,7 +451,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
   ax.yaxis.set_tick_params(which='both', direction='out')
   
   if stats_text:
-    ax.text(0, -int(1 + 0.01 * a), stats_text, fontsize=11)  
+    ax.text(0, -int(1 + 0.01 * a), stats_text, fontsize=9)  
     
   ax.text(0.01, 0.01, watermark, color='#B0B0B0', fontsize=8, transform=fig.transFigure) 
   ax.set_title(title)
@@ -335,16 +462,16 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
     ax.set_ylabel('Chromosome')
     
   elif axis_chromos:
-    ax.set_xlabel('Position %s (Mb)' % axis_chromos[0])
-    ax.set_ylabel('Position %s (Mb)' % axis_chromos[1])
-    ax.xaxis.set_minor_locator(minor_tick_locator)
-    ax.yaxis.set_minor_locator(minor_tick_locator)
+    ax.set_ylabel('Position %s (Mb)' % axis_chromos[0])
+    ax.set_xlabel('Position %s (Mb)' % axis_chromos[1])
+    ax.xaxis.set_minor_locator(xminor_tick_locator)
+    ax.yaxis.set_minor_locator(yminor_tick_locator)
   
   else:
     ax.set_xlabel('Position (Mb)')
     ax.set_ylabel('Position (Mb)')
-    ax.xaxis.set_minor_locator(minor_tick_locator)
-    ax.yaxis.set_minor_locator(minor_tick_locator)
+    ax.xaxis.set_minor_locator(xminor_tick_locator)
+    ax.yaxis.set_minor_locator(yminor_tick_locator)
     
   if grid:
     ax.hlines(grid, 0, a, color='#B0B0B0', alpha=0.5, linewidth=0.1)
@@ -372,8 +499,8 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
   
                 
 def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500.0,
-                no_separate_cis=False, separate_trans=False, show_chromos=None, screen_gfx=False,
-                black_bg=False, font=None, font_size=12, line_width=0.2, min_contig_size=None):
+                no_separate_cis=False, separate_trans=False, show_chromos=None, use_corr=False,
+                screen_gfx=False, black_bg=False, font=None, font_size=12, line_width=0.2, min_contig_size=None):
   
   from nuc_tools import io, util
   from formats import ncc, npz
@@ -394,9 +521,9 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
   else:
     util.info('Making PDF contact map for {}'.format(in_path))
   
-  if in_path.lower().endswith('.ncc'):
+  if in_path.lower().endswith('.ncc') or in_path.lower().endswith('.ncc.gz'):
     file_bin_size = None
-    chromosomes, chromo_limits, contacts = ncc.load_ncc(in_path)
+    chromosomes, chromo_limits, contacts = ncc.load_file(in_path)
     
   else:
     file_bin_size, chromo_limits, contacts = npz.load_npz_contacts(in_path)
@@ -484,23 +611,52 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
   if file_bin_size:
     count_list, full_matrix, label_pos, offsets = get_contact_arrays_matrix(contacts, bin_size, chromos, chromo_limits)
     n_cont, n_cis, n_trans, n_homolog, n_ambig = count_list
+    full_matrix = full_matrix[:,:,0]
     
   else:
     count_list, full_matrix, label_pos, offsets = get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits)
     n_cont, n_cis, n_trans, n_homolog, n_ambig = count_list
+    full_matrix = full_matrix[:,:,0]
   
-  is_z_score = full_matrix.min() < 0
+  if use_corr:
+    has_neg = True
+    full_matrix = get_corr_mat(full_matrix)
+  else:
+    has_neg = full_matrix.min() < 0
+  
+  max_val = full_matrix.max()
+  is_single_cell = max_val < 100
+  
+  if has_neg:
+    use_log = False
+  elif is_single_cell:
+    use_log = False
+  else:
+    use_log = True
+  
   n = len(full_matrix)
   util.info('Full contact map size %d x %d' % (n, n))
   
   f_cis = 100.0 * n_cis / float(n_cont or 1)
   f_trans = 100.0 * n_trans / float(n_cont or 1)
+
+  if use_corr:
+    metric = 'Correlation'
+    v_max = 0.5
+    v_min = -0.5
+  else:
+    metric = 'Count'
+    
+    if is_single_cell:
+      v_max = 1
+      v_min = 0
+    else:
+      v_max = None
+      v_min = 0.0
   
-  metric = 'Count'
-  
-  if is_z_score:
+  if has_neg and not use_corr:
     stats_text = ''
-    metric = 'Z-score sum '
+    metric = 'Value '
   
   elif n_homolog:
     f_homolog = 100.0 * n_homolog / float(n_cont or 1)  
@@ -510,9 +666,9 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
   else:
     stats_text = 'Contacts:{:,d} cis:{:,d} ({:.1f}%) trans:{:,d} ({:.1f}%)'
     stats_text = stats_text.format(n_cont, n_cis, f_cis, n_trans, f_trans)
-  
+
   if black_bg:
-    if is_z_score:
+    if has_neg:
       colors = ['00FFFF', '#0000FF', '#000000', '#FF0000', '#FFFF00']
     else:
       colors = ['#000000', '#BB0000', '#DD8000', '#FFFF00', '#FFFF80','#FFFFFF']
@@ -520,7 +676,7 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
     bad_color = '#404040'
 
   else:
-    if is_z_score:
+    if has_neg:
       colors = ['#0000B0', '#0080FF', '#FFFFFF', '#FF0000', '#800000']
     else:
       colors = ['#FFFFFF', '#0080FF' ,'#FF0000','#000000']
@@ -536,9 +692,9 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
   grid = [offsets[c][1] for c in chromos[1:]]
   scale_label = '%s (%.2f Mb bins)' % (metric, bin_size/1e6)
   
-  plot_contact_matrix(full_matrix[:,:,0], bin_size, title, scale_label, zip(label_pos, chromo_labels),
-                      None, grid, stats_text, colors, bad_color, log=not is_z_score, pdf=pdf) 
-  
+  plot_contact_matrix(full_matrix, bin_size, title, scale_label, zip(label_pos, chromo_labels),
+                      None, grid, stats_text, colors, bad_color, log=use_log, pdf=pdf, v_max=v_max, v_min=v_min) 
+  use_log
   if separate_cis or separate_trans:
   
     pairs = []
@@ -574,6 +730,22 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
       if key != pair:
         matrix = matrix.T
             
+      if use_corr:
+        if is_cis:
+          matrix = get_corr_mat(matrix)
+        else:
+          if file_bin_size:
+            matrix_a = get_single_array_matrix(contacts[(chr_a, chr_a)], limits_a, limits_a, True, file_bin_size, pair_bin_size)
+          else:
+            matrix_a = get_single_list_matrix(contacts[(chr_a, chr_a)], limits_a, limits_a, pair_bin_size)
+
+          if file_bin_size:
+            matrix_b = get_single_array_matrix(contacts[(chr_b, chr_b)], limits_b, limits_b, True, file_bin_size, pair_bin_size)
+          else:
+            matrix_b = get_single_list_matrix(contacts[(chr_b, chr_b)], limits_b, limits_b, pair_bin_size)
+
+          matrix = get_trans_corr_mat(matrix_a, matrix_b, matrix)
+             
       title = 'Chromosome %s' % chr_a if is_cis else 'Chromosomes %s - %s ' % pair
       
       if is_cis:  
@@ -582,12 +754,14 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
         scale_label = '%s (%.3f Mb bins)' % (metric, pair_bin_size/1e6)
      
       plot_contact_matrix(matrix, pair_bin_size, title, scale_label, None, pair,
-                          None, None, colors, bad_color, log=not is_z_score, pdf=pdf)
+                          None, None, colors, bad_color, log=use_log, pdf=pdf, v_max=v_max, v_min=v_min)
                         
   if pdf:
     pdf.close()
     util.info('Written {}'.format(out_path))
-
+  else:
+    util.info('Done')
+  
 def main(argv=None):
 
   from argparse import ArgumentParser
@@ -639,6 +813,11 @@ def main(argv=None):
 
   arg_parse.add_argument('-b', '--black-bg',default=False, action='store_true', dest="b",
                          help='Specifies that the contact map should have a black background (default is white).')
+
+  arg_parse.add_argument('-corr', default=False, action='store_true', dest="corr",
+                         help='Plot Pearson correlation coefficients for the contacts, rather than counts. ' \
+                              'For trans/inter-chromosome pairs, the correlations shown are the non-cis part of the '\
+                              'square, symmetric correlation matrix of the combined map for both chromosomes.')
                          
   args = vars(arg_parse.parse_args(argv))
 
@@ -653,6 +832,7 @@ def main(argv=None):
   no_sep_cis = args['nc']
   sep_trans = args['t']
   chromos = args['chr']
+  use_corr = args['corr']
   
   if not in_paths:
     arg_parse.print_help()
@@ -674,7 +854,7 @@ def main(argv=None):
       util.critical('Input contact file could not be found at "{}"'.format(in_path))
 
     contact_map(in_path, out_path, bin_size, bin_size2, bin_size3,
-                no_sep_cis, sep_trans, chromos, screen_gfx,
+                no_sep_cis, sep_trans, chromos, use_corr, screen_gfx,
                 black_bg, min_contig_size=min_contig_size)
 
 
