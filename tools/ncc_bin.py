@@ -7,7 +7,7 @@ from sys import stdout
 
 PROG_NAME = 'ncc_bin'
 VERSION = '1.0.0'
-DESCRIPTION = 'Perform uniform region binning of NCC format Hi-C contact data and output in various formats'
+DESCRIPTION = 'Perform uniform region binning of NCC format Hi-C contact data and output as a sparse .npz format'
 
 OUT_FORMATS = {'NPZ':'SciPy parse matrices stored as a NumPy archive (a .npz file with special keys)'}
 
@@ -187,12 +187,13 @@ def main(argv=None):
                          help='Region bin size in kb, for grouping contacts')
 
   arg_parse.add_argument('-o', metavar='OUT_FILE', default=None, dest='o',
-                         help='Optional output file name. If not specified the output file' \
-                         'will be put in the same directory as the input and' \
-                         'automatically named according to the bin size and output format')
-                         
-  arg_parse.add_argument('-f', metavar='OUT_FORMAT', default=DEFAULT_FORMAT, dest='f',
-                         help='Output file format. Default: %s. Available: %s' % (DEFAULT_FORMAT, avail_fmts))
+                         help='Optional output file name. If not specified, the output file ' \
+                         'will be put in the same directory as the input and ' \
+                         'automatically named according to the bin size and output format.')
+  
+  ## Could add different output formats in future                        
+  #arg_parse.add_argument('-f', metavar='OUT_FORMAT', default=DEFAULT_FORMAT, dest='f',
+  #                       help='Output file format. Default: %s. Available: %s' % (DEFAULT_FORMAT, avail_fmts))
 
   arg_parse.add_argument('-m', default=DEFAULT_MIN_BINS, metavar='MIN_BINS', type=int, dest='m',
                          help='The minimum number of bins for chromosomes/contigs; those with fewer than this are excluded from output')
@@ -202,7 +203,7 @@ def main(argv=None):
   in_file  = args['i'][0]
   out_file = args['o']
   bin_size = args['s']
-  format   = args['f'].upper()  
+  format   = DEFAULT_FORMAT # args['f'].upper()  
   min_bins = args['m']
   
   invalid_msg = io.check_invalid_file(in_file)
