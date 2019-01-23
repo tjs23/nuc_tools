@@ -373,14 +373,35 @@ def _get_tick_delta(n, bin_size, max_ticks=10, unit=1e6):
   tick_delta = d/bin_size
   
   nminor = d/5
-
-  return tick_delta, nminor
   
+  return tick_delta, nminor
 
+
+def get_diag_region(diag_width, matrix):
+
+  n = len(matrix)
+  d = min(n, diag_width)
+  diag_mat = np.zeros((d, n*2))
+  
+  for y in range(d):
+    rows = np.array(range(n-y))
+    cols = rows + y
+    xvals = rows + cols
+    yvals = np.full(n-y, y)
+    counts = matrix[(rows, cols)]
+    diag_mat[(yvals, xvals)] = counts
+    
+    xvals += 1
+    diag_mat[(yvals[:-1], xvals[:-1])] = counts[:-1]
+
+  
+  return diag_mat
+  
+  
 def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None, axis_chromos=None, grid=None,
                         stats_text=None, colors=None, bad_color='#404040', log=True, pdf=None,
                         watermark='nuc_tools.contact_map', legend=None, tracks=None, v_max=None, v_min=None,
-                        ambig_matrix=None):
+                        ambig_matrix=None, diag_width=None):
   
   from nuc_tools import util
   mmax = matrix.max()
@@ -415,136 +436,193 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
     do_ambig = False  
    
   a, b = matrix.shape
+  
+  if diag_width and (a != b):
+    util.critical('Diagonal width option only valid for square matrices. Input size was %d x %d' % (a,b))
+  
   unit = 1e6 # Megabase
-    
-  if chromo_labels:
-    xlabel_pos, xlabels = zip(*chromo_labels)
-    ylabel_pos = xlabel_pos 
-    ylabels = xlabels
-    xrotation = 90.0
-    xminor_tick_locator = None
-    yminor_tick_locator = None
-    
-  else:
-    xrotation = None
-    tick_delta, nminor = _get_tick_delta(b, bin_size/unit)
-    xlabel_pos = np.arange(0, b, tick_delta) # Pixel bins
-    xlabels = ['%.1f' % (x*bin_size/unit) for x in xlabel_pos]
-    xminor_tick_locator = AutoMinorLocator(nminor)
-    
-    tick_delta, nminor = _get_tick_delta(a, bin_size/unit) 
-    ylabel_pos = np.arange(0, a, tick_delta) # Pixel bins
-    ylabels = ['%.1f' % (y*bin_size/unit) for y in ylabel_pos]
-    yminor_tick_locator = AutoMinorLocator(nminor)
-   
-  if 0: # tracks:
-    n_tracks = len(tracks)
-    h = [10] * n_tracks
-    h.append(a)
-    w = [1] * (n_tracks + 1)
-    fig, axarr = plt.subplots(n_tracks+1, 1, gridspec_kw = {'height_ratios':h, 'width_ratios':w})
-    ax = axarr[-1]
-    colors = ['#FF0000','#FFFFFF']
-    cmap_t = LinearSegmentedColormap.from_list(name='pcmt', colors=colors, N=255)
-    cmap_t.set_under(color='#BBBBBB')
-    
-    for i, track in enumerate(tracks):
-      track = np.array(track).reshape((1, a))
-      axarr[i].matshow(track, interpolation='none', cmap=cmap_t, vmin=0.9, aspect=a/2)
-      #axarr[i].plot(track)
-  
-  else:
-    n_tracks = 0  
-    fig, ax = plt.subplots(n_tracks+1, 1)
-  
-  if grid and grid is not True:
-    grid = np.array(grid, float)
-    ax.hlines(grid-0.5, -0.5, float(b), color='#B0B0B0', alpha=0.5, linewidth=0.1)
-    ax.vlines(grid, float(a), -0.5, color='#B0B0B0', alpha=0.5, linewidth=0.1)
-  
+          
   if log:
-    if do_ambig:
-      cax2 = ax.matshow(ambig_matrix, interpolation='none', cmap=cmap2, norm=LogNorm(vmin=1), origin='upper')
-                        
-    cax = ax.matshow(matrix, interpolation='none', cmap=cmap, norm=LogNorm(vmin=1), origin='upper')
-  
+    norm = LogNorm(vmin=1)
+    v_max = v_min = None
+
   else:
+    norm = None
     if v_max is None:
       v_max = max(-matrix.min(), matrix.max())
-    
+ 
     if v_min is None:
       v_min = -v_max
     
+  if diag_width:
+    w = 7 * diag_width
+    nax = int(ceil(a / float(w)))
+    fig, axarr = plt.subplots(nax, 1)
+    
+    if nax == 1:
+      axarr = [axarr]
+    
+    kw = {'interpolation':'none', 'norm':norm, 'origin':'lower',
+          'vmin':v_min, 'vmax':v_max}
+    
     if do_ambig:
-      cax2 = ax.matshow(ambig_matrix, interpolation='none', cmap=cmap2, 
-                        vmin=v_min, vmax=v_max, origin='upper')
+      diag_mat = get_diag_region(diag_width, ambig_matrix)
+      
+      for i in range(nax):
+        ax = axarr[i]
+        cax2 = ax.matshow(diag_mat[:,i*w*2:(i+1)*w*2], cmap=cmap2, aspect=1.0, **kw)
     
-    cax = ax.matshow(matrix, interpolation='none', cmap=cmap,
-                     vmin=v_min, vmax=v_max, origin='upper') 
-    
-  ax.xaxis.tick_bottom()
-  
-  
-  if chromo_labels and len(xlabels) > 25:
-    ax.set_xticklabels(xlabels, fontsize=5, rotation=xrotation)
-    ax.set_yticklabels(ylabels, fontsize=5)
-  
-  else:
-    ax.set_xticklabels(xlabels, fontsize=9, rotation=xrotation)
-    ax.set_yticklabels(ylabels, fontsize=9)
+    diag_mat = get_diag_region(diag_width, matrix)
+    tick_delta, nminor = _get_tick_delta(w, 0.5*bin_size/unit)
+    xminor_tick_locator = AutoMinorLocator(nminor)
+
+    for i in range(nax):
+      ax = axarr[i]
+      p1 = i*w*2
+      p2 = (i+1)*w*2
+      cax = ax.matshow(diag_mat[:,p1:p2], cmap=cmap, aspect=1.0, **kw)
+      ax.xaxis.tick_bottom()
+      
+      
+      ylabels = []
+      ax.yaxis.set_ticks(ylabels)
+      ax.set_yticklabels(ylabels, fontsize=9)
+      
+      ax.yaxis.set_tick_params(which='both', direction='out')
+      ax.xaxis.set_tick_params(which='both', direction='out')
+      ax.xaxis.set_minor_locator(xminor_tick_locator)
+
+
+      ax.set_anchor('W')
  
-                
-  ax.xaxis.set_ticks(xlabel_pos)
-  ax.yaxis.set_ticks(ylabel_pos)
+      xlabel_pos = np.arange(p1, p2, tick_delta) # Pixel bins
+      xlabels = ['%.1f' % (x*0.5*bin_size/unit) for x in xlabel_pos]
+      xlabel_pos -= p1
+
+      ax.set_xticklabels(xlabels, fontsize=9)
+      ax.xaxis.set_ticks(xlabel_pos)
+      ax.xaxis.set_minor_locator(xminor_tick_locator)
+    
+    ax.set_xlabel('Position (Mb)')
+    
+    ax = axarr[0]
+    
+    if do_ambig:
+      cbaxes = fig.add_axes([0.92, 0.15, 0.02, 0.3])
+      cbar2 = plt.colorbar(cax2, cax=cbaxes)
+      cbar2.ax.tick_params(labelsize=8)
+      cbar2.set_label('Ambig. count', fontsize=11)
+    
+    cbaxes = fig.add_axes([0.92, 0.55, 0.02, 0.3])
+    cbar = plt.colorbar(cax, cax=cbaxes)
+    cbar.ax.tick_params(labelsize=8)
+    cbar.set_label(scale_label, fontsize=9)
+
+    dpi= int(float(w)/(fig.get_size_inches()[1]*ax.get_position().size[1]))
+          
+  else:
+ 
+    if chromo_labels:
+      xlabel_pos, xlabels = zip(*chromo_labels)
+      ylabel_pos = xlabel_pos
+      ylabels = xlabels
+      xrotation = 90.0
+      xminor_tick_locator = None
+      yminor_tick_locator = None
+ 
+    else:
+      xrotation = None
+      tick_delta, nminor = _get_tick_delta(b, bin_size/unit)
+      xlabel_pos = np.arange(0, b, tick_delta) # Pixel bins
+      xlabels = ['%.1f' % (x*bin_size/unit) for x in xlabel_pos]
+      xminor_tick_locator = AutoMinorLocator(nminor)
+ 
+      tick_delta, nminor = _get_tick_delta(a, bin_size/unit)
+      ylabel_pos = np.arange(0, a, tick_delta) # Pixel bins
+      ylabels = ['%.1f' % (y*bin_size/unit) for y in ylabel_pos]
+      yminor_tick_locator = AutoMinorLocator(nminor)
+      
+    fig, ax = plt.subplots(1, 1)
+    
+    if grid and grid is not True:
+      grid = np.array(grid, float)
+      ax.hlines(grid-0.5, -0.5, float(b), color='#B0B0B0', alpha=0.5, linewidth=0.1)
+      ax.vlines(grid, float(a), -0.5, color='#B0B0B0', alpha=0.5, linewidth=0.1)
+      
+    kw = {'interpolation':'none', 'norm':norm, 'origin':'upper',
+          'vmin':v_min, 'vmax':v_max}
+    if do_ambig:
+      cax2 = ax.matshow(ambig_matrix, cmap=cmap2, **kw)
+ 
+    cax = ax.matshow(matrix, cmap=cmap, **kw)
   
-  ax.xaxis.set_tick_params(which='both', direction='out')
-  ax.yaxis.set_tick_params(which='both', direction='out')
+    ax.xaxis.tick_bottom()
+ 
+    if chromo_labels and len(xlabels) > 25:
+      ax.set_xticklabels(xlabels, fontsize=5, rotation=xrotation)
+      ax.set_yticklabels(ylabels, fontsize=5)
+ 
+    else:
+      ax.set_xticklabels(xlabels, fontsize=9, rotation=xrotation)
+      ax.set_yticklabels(ylabels, fontsize=9)
+ 
+    ax.xaxis.set_ticks(xlabel_pos)
+    ax.xaxis.set_tick_params(which='both', direction='out')
+ 
+    ax.yaxis.set_ticks(ylabel_pos)
+    ax.yaxis.set_tick_params(which='both', direction='out')
+ 
+ 
+    if chromo_labels:
+      ax.set_xlabel('Chromosome')
+      ax.set_ylabel('Chromosome')
+ 
+    elif axis_chromos:
+      ax.set_ylabel('Position %s (Mb)' % axis_chromos[0])
+      ax.xaxis.set_minor_locator(xminor_tick_locator)
+      ax.set_xlabel('Position %s (Mb)' % axis_chromos[1])
+      ax.yaxis.set_minor_locator(yminor_tick_locator)
+      if grid is True and not log:
+        ax.grid(alpha=0.08, linestyle='-', linewidth=0.1)
+ 
+    else:
+      ax.set_xlabel('Position (Mb)')
+      ax.xaxis.set_minor_locator(xminor_tick_locator)
+      ax.set_ylabel('Position (Mb)')
+      ax.yaxis.set_minor_locator(yminor_tick_locator)
+ 
+      if grid is True and not log:
+        ax.grid(alpha=0.08, linestyle='-', linewidth=0.1)
+ 
+    if do_ambig:
+      cbaxes = fig.add_axes([0.85, 0.15, 0.02, 0.3])
+      cbar2 = plt.colorbar(cax2, cax=cbaxes)
+      cbar2.ax.tick_params(labelsize=8)
+      cbar2.set_label('Ambig. count', fontsize=11)
+ 
+    cbaxes = fig.add_axes([0.85, 0.55, 0.02, 0.3])
+    cbar = plt.colorbar(cax, cax=cbaxes)
+    cbar.ax.tick_params(labelsize=8)
+    cbar.set_label(scale_label, fontsize=11)
   
+    dpi= int(float(a)/(fig.get_size_inches()[1]*ax.get_position().size[1]))
+            
   if stats_text:
     ax.text(0, -int(1 + 0.01 * a), stats_text, fontsize=9)  
     
   ax.text(0.01, 0.01, watermark, color='#B0B0B0', fontsize=8, transform=fig.transFigure) 
   ax.set_title(title)
-    
-  if chromo_labels:
-    ax.set_xlabel('Chromosome')
-    ax.set_ylabel('Chromosome')
-    
-  elif axis_chromos:
-    ax.set_ylabel('Position %s (Mb)' % axis_chromos[0])
-    ax.set_xlabel('Position %s (Mb)' % axis_chromos[1])
-    ax.xaxis.set_minor_locator(xminor_tick_locator)
-    ax.yaxis.set_minor_locator(yminor_tick_locator)
-    
-    if grid is True and not log:
-      ax.grid(alpha=0.08, linestyle='-', linewidth=0.1)
-  
-  else:
-    ax.set_xlabel('Position (Mb)')
-    ax.set_ylabel('Position (Mb)')
-    ax.xaxis.set_minor_locator(xminor_tick_locator)
-    ax.yaxis.set_minor_locator(yminor_tick_locator)
-    
-    if grid is True and not log:
-      ax.grid(alpha=0.08, linestyle='-', linewidth=0.1)
  
   if legend:
     for label, color in legend:
       ax.plot([], linewidth=3, label=label, color=color)
     
     ax.legend(fontsize=8, loc=9, ncol=len(legend), bbox_to_anchor=(0.5, 1.05), frameon=False)
-  
-  
-  if do_ambig:
-    cbar2 = plt.colorbar(cax2, shrink=0.3,  use_gridspec=False, anchor=(-1.225, 0.2))
-    cbar2.ax.tick_params(labelsize=8)
-    cbar2.set_label('Ambig. count', fontsize=11)
     
-  cbar = plt.colorbar(cax, shrink=0.3, use_gridspec=False, anchor=(0.0, 0.8))
-  cbar.ax.tick_params(labelsize=8)
-  cbar.set_label(scale_label, fontsize=11)
-    
-  dpi= 4 * int(float(a)/(fig.get_size_inches()[1]*ax.get_position().size[1]))
+  
+  while dpi < 300:
+    dpi *= 2
+  
   util.info(' .. making map ' + title + ' (dpi=%d)' % dpi, line_return=True)
 
   if pdf:
@@ -558,7 +636,8 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
 def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500.0,
                 no_separate_cis=False, separate_trans=False, show_chromos=None,
                 use_corr=False, is_single_cell=False, screen_gfx=False, black_bg=False,
-                font=None, font_size=12, line_width=0.2, min_contig_size=None, chromo_grid=False):
+                min_contig_size=None, chromo_grid=False, diag_width=None,
+                font=None, font_size=12, line_width=0.2):
   
   from nuc_tools import io, util
   from formats import ncc, npz
@@ -823,15 +902,19 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
           matrix = get_trans_corr_mat(matrix_a, matrix_b, matrix)
              
       title = 'Chromosome %s' % chr_a if is_cis else 'Chromosomes %s - %s ' % pair
+      dw = None
       
       if is_cis:
         scale_label = '%s (%.1f kb bins)' % (metric, pair_bin_size/1e3)
+        if diag_width:
+          dw = diag_width
+        
       else:
         scale_label = '%s (%.3f Mb bins)' % (metric, pair_bin_size/1e6)
      
       plot_contact_matrix(matrix, pair_bin_size, title, scale_label, None, pair,
                           chromo_grid, None, colors, bad_color, log=use_log, pdf=pdf,
-                          v_max=v_max, v_min=v_min, ambig_matrix=ambig_matrix)
+                          v_max=v_max, v_min=v_min, ambig_matrix=ambig_matrix, diag_width=dw)
                         
   if pdf:
     pdf.close()
@@ -902,6 +985,10 @@ def main(argv=None):
 
   arg_parse.add_argument('-grid', default=False, action='store_true', dest="grid",
                          help='Show grid lines at numeric chromosome positions.')
+
+  arg_parse.add_argument('-diag', default=0, type=int, dest="diag",
+                         help='The width, in bins (see "-s2" option for bin size) for showing intra-chromosomal plots as diagonal regions ' \
+                              'rotated 45 degrees, rather than as full matrices.')
                          
   args = vars(arg_parse.parse_args(argv))
 
@@ -919,6 +1006,7 @@ def main(argv=None):
   use_corr = args['corr']
   is_single = args['sc']
   chromo_grid = args['grid']
+  diag_width = args['diag']
   
   if not in_paths:
     arg_parse.print_help()
@@ -941,8 +1029,8 @@ def main(argv=None):
 
     contact_map(in_path, out_path, bin_size, bin_size2, bin_size3,
                 no_sep_cis, sep_trans, chromos, use_corr, is_single,
-                screen_gfx, black_bg, min_contig_size=min_contig_size,
-                chromo_grid=chromo_grid)
+                screen_gfx, black_bg, min_contig_size,
+                chromo_grid, diag_width )
 
 
 if __name__ == "__main__":
