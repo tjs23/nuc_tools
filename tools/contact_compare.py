@@ -11,6 +11,7 @@ DESCRIPTION = 'Compare two Hi-C contact maps (NPZ format)'
 DEFAULT_SMALLEST_CONTIG = 0.1
 DEFAULT_DMAX = 5.0
 DEFAULT_CMAX = 0.5
+DEFAULT_DIAG_REGION = 50.0
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -144,7 +145,7 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
   
 def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size=None,
                     compare_trans=False, min_contig_size=None, d_max=None,
-                    use_corr=False, bed_path=None): 
+                    use_corr=False, bed_path=None, diag_width=None): 
     
   from nuc_tools import util, io
   from formats import npz, bed 
@@ -334,7 +335,7 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
     
     plot_contact_matrix(diff, bin_size, title, scale_label, chromo_labels=None, axis_chromos=key,
                         grid=None, stats_text=stats_text, colors=colors, bad_color='#404040', log=False,
-                        pdf=pdf, watermark=watermark, legend=legend, v_max=d_max)
+                        pdf=pdf, watermark=watermark, legend=legend, v_max=d_max, diag_width=diag_width)
                         
     out_matrix[key] = sparse.csr_matrix(diff)
     
@@ -467,6 +468,11 @@ def main(argv=None):
                               'For trans/inter-chromosome pairs, the correlations are taken from the non-cis part of the '\
                               'square, symmetric correlation matrix of the combined map for both chromosomes.')
 
+  arg_parse.add_argument('-diag', default=0.0, metavar='REGION_WIDTH', const=DEFAULT_DIAG_REGION, type=float, dest="diag", nargs='?',
+                         help='Plot horizontally only the diagonal parts of the intra-chromosomal contact matrices. ' \
+                              'The width of stacked regions (in Megabases) may be optionally specified, ' \
+                              'but otherwise defaults to %.1f Mb' % DEFAULT_DIAG_REGION)
+
   arg_parse.add_argument('-bed', metavar='OUT_BED_FILE', default=None,
                          help='Save differences (summed for each chromosome position) as a BED format file.')
 
@@ -481,6 +487,7 @@ def main(argv=None):
   d_max = args['dmax']
   use_corr = args['corr']
   bed_path = args['bed']
+  diag_width = args['diag']
   
   if not d_max:
     if use_corr:
@@ -500,7 +507,7 @@ def main(argv=None):
     util.warn('Inputs being compared are the same file')  
     
   contact_compare(in_path_a, in_path_b, out_path, pdf_path, bin_size,
-                  comp_trans, min_contig_size, d_max, use_corr, bed_path)
+                  comp_trans, min_contig_size, d_max, use_corr, bed_path, diag_width)
   
 
 if __name__ == "__main__":
