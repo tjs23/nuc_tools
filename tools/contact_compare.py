@@ -17,7 +17,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=None,
-                       new_bin_size=None, compare_trans=False, clip=0.4, store_sparse=True):
+                       new_bin_size=None, compare_trans=False, clip=0.1, store_sparse=True):
   """
   For now dict is changed in-place to keep memory use down.
   """
@@ -158,13 +158,19 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
       d_max = DEFAULT_DMAX
   
   if not out_path:
-    out_path = io.merge_file_names(in_path_a, in_path_b)
+    if use_corr:
+      suffix = '_corr'
+    else:
+      suffix = '_diff'
+    
+    out_path = io.merge_file_names(in_path_a, in_path_b, suffix=suffix)
+    
+  out_path = io.check_file_ext(out_path, '.npz')
   
-  if not pdf_path:
+  if pdf_path:
+    pdf_path = io.check_file_ext(pdf_path, '.pdf')
+  else:
     pdf_path = os.path.splitext(out_path)[0] + '.pdf'
-  
-  if not out_path.endswith('.npz'):
-    out_path = out_path + '.npz'
   
   file_bin_size_a, chromo_limits_a, contacts_a = npz.load_npz_contacts(in_path_a)
   file_bin_size_b, chromo_limits_b, contacts_b = npz.load_npz_contacts(in_path_b)
@@ -292,11 +298,13 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
       r2 = 0.0
     
     if use_corr:
+      nz = (obs_a != 0.0) & (obs_b != 0.0)
       x = get_corr_mat(obs_a)
       y = get_corr_mat(obs_b)
       
       diff = x - y
-
+      diff[nz] = 0
+      
       bed_values = np.abs(diff).sum(axis=0)
 
       scale_label = 'Correlation change (%.2f kb bins)' % (bin_size/1e3)
