@@ -67,6 +67,19 @@ def get_safe_file_path(path_name, file_name=None):
     util.info('Results will be saved in %s' % file_path)
   
   return file_path
+
+
+def check_file_ext(file_path, ext):
+  
+  if ext[0] != '.':
+    ext = '.' + ext
+  
+  file_root, file_ext = os.path.splitext(file_path)
+  
+  if file_ext.lower() != ext.lower():
+    file_path = file_root + ext
+    
+  return file_path
   
   
 def merge_file_names(file_path1, file_path2, sep='_', prefix='', suffix=''):
