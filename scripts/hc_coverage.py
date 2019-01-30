@@ -1,4 +1,7 @@
+import os, sys
 import numpy as np
+
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from matplotlib import pyplot as plt
 
@@ -6,7 +9,7 @@ from collections import defaultdict
 
 from nuc_tools import util, io
 
-ncc_path = '/data/hi-c/pop_HybridES0418.ncc.gz'
+ncc_path = '/data/hi-c/pop_HybridES0418_001.ncc.gz'
 #ncc_path = '/data/hi-c/pop_HybridES0418_unambig.ncc'
 #ncc_path = '/data/hi-c/pop_HybridES0418_chr1.ncc'
 
@@ -15,7 +18,7 @@ chromo_names_path_2 = '/data/genome/mm_CAST_chr_names.tsv'
 align_coords_path = '/data/genome/mm_129-CAST_align.coords.gz'
 
 val_max = 2.1e8
-bin_size = 1e4
+bin_size = 1e5
 n_bins = int(val_max/bin_size)
 
 g1_counts = np.ones(n_bins, float)
@@ -119,7 +122,7 @@ with io.open_file(ncc_path) as file_obj:
   for line in file_obj:
     k += 1
     
-    if k % 100000 == 0:
+    if k % 1000000 == 0:
       util.info('  .. {:,}'.format(k))
         
     chr_a, start_a, end_a, f_start_a, f_end_a, strand_a, \
@@ -132,10 +135,10 @@ with io.open_file(ncc_path) as file_obj:
     if chr_a == chr_b:
       continue
 
-    if 'chr2' not in chr_a:
+    if 'chr3' not in chr_a:
       continue
       
-    if 'chr2' not in chr_b:
+    if 'chr3' not in chr_b:
       continue
 
     if '.' not in chr_a:
@@ -206,11 +209,12 @@ idx -= set(idx_u)
 idx -= set(idx_l)
 idx = sorted(idx)
 
-ax1.scatter(g1_counts[idx], g2_counts[idx], color='#B0B000', alpha=alpha)
-ax1.scatter(g1_counts[idx_l]-0.33, g2_counts[idx_l], color='#0080FF', alpha=alpha)
-ax1.scatter(g1_counts[idx_u]+0.33, g2_counts[idx_u], color='#FF0000', alpha=alpha)
-ax1.set_xlabel('Genome A')
-ax1.set_ylabel('Genome B')
+ax1.scatter(g1_counts[idx], g2_counts[idx], color='#B0B000', alpha=alpha, label='Zero')
+ax1.scatter(g1_counts[idx_l]-0.2, g2_counts[idx_l]-0.2, color='#0080FF', alpha=alpha, label='1-3')
+ax1.scatter(g1_counts[idx_u]+0.2, g2_counts[idx_u]+0.2, color='#FF0000', alpha=alpha, label='>3')
+ax1.set_xlabel('Contacts per bin Genome A')
+ax1.set_ylabel('Contacts per bin Genome B')
+ax1.legend()
 #ax1.plot(g1_counts, color='#0080FF', alpha=alpha)
 #ax1.plot(-g2_counts, color='#FF4000', alpha=alpha)
 #ax1.plot(c_counts, color='#000000', alpha=alpha)
