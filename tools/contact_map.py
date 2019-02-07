@@ -118,8 +118,7 @@ def get_corr_mat(obs, clip=5.0):
   corr_mat = np.corrcoef(log_ratio)
   corr_mat -= np.diag(np.diag(corr_mat))
 
-  np.nan_to_num(corr_mat, copy=False)
-
+  corr_mat = np.nan_to_num(corr_mat)
   
   return corr_mat
 
