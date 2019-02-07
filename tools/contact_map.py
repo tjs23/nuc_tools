@@ -10,7 +10,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.ticker import AutoMinorLocator
 
 PROG_NAME = 'contact_map'
-VERSION = '1.0.0'
+VERSION = '1.0.1'
 DESCRIPTION = 'Chromatin contact (NCC or NPZ format) Hi-C contact map PDF display module'
 DEFAULT_CIS_BIN_KB = 250
 DEFAULT_TRANS_BIN_KB = 500
@@ -598,8 +598,8 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
   unit = 1e6 # Megabase
           
   if log:
-    norm = LogNorm(vmin=1)
-    v_max = v_min = None
+    norm = LogNorm(vmin=v_min)
+    v_min = None # No need for further clipping
 
   else:
     norm = None
@@ -796,11 +796,16 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
     plt.show()
     
   plt.close()
-  
-                
+
+def _get_vmax(matrix):  
+ 
+  diag = np.diag(matrix)
+  return np.percentile(diag[diag.nonzero()], 95.0)
+    
+                   
 def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500.0,
                 no_separate_cis=False, separate_trans=False, show_chromos=None,
-                use_corr=False, is_single_cell=False, screen_gfx=False, black_bg=False,
+                use_corr=False, use_norm=False, is_single_cell=False, screen_gfx=False, black_bg=False,
                 min_contig_size=None, chromo_grid=False, diag_width=None,
                 font=None, font_size=12, line_width=0.2):
   
@@ -937,16 +942,15 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
   
   mito_frac, mito_cat = _get_mito_fraction(contacts, file_bin_size)
   
+  if n_cont < 1e7 and not is_single_cell:
+    util.warn('Contact map is sparse but single-cell "-sc" option not used')
+  
   if use_corr:
     has_neg = True
     full_matrix = get_corr_mat(full_matrix)
+  
   else:
     has_neg = full_matrix.min() < 0
-  
-  max_val = full_matrix.max()
-  
-  if full_matrix.sum() < 1e7 and not is_single_cell:
-    util.warn('Contact map is sparse but single-cell "-sc" option not used')
 
   if has_neg or is_single_cell:
     use_log = False
@@ -963,19 +967,32 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
     metric = 'Correlation'
     v_max = 0.5
     v_min = -0.5
-  else:
-    metric = 'Count'
-    
-    if is_single_cell:
-      v_max = 4
-      v_min = 0
-    else:
-      v_max = None
-      v_min = 0.0
   
+  elif has_neg: # Some external non-count value being plotted
+    metric = 'Value '
+    v_max = None # Will be set to full, symmetric range
+    v_min = None
+  
+  elif is_single_cell:
+    metric = 'Count'
+    v_max = 4
+    v_min = 0
+  
+  elif use_norm: # Normalised log scale counts
+    metric = 'Count/mean'
+    norm_scale = np.mean(full_matrix[full_matrix.nonzero()])
+    full_matrix = full_matrix.astype(float)/norm_scale
+
+    v_max = _get_vmax(full_matrix)
+    v_min = 1.0/norm_scale
+    
+  else: # Log counts
+    metric = 'Count'
+    v_max = _get_vmax(full_matrix)
+    v_min = 1.0
+
   if has_neg and not use_corr:
     stats_text = ''
-    metric = 'Value '
   
   elif n_homolog:
     f_homolog = 100.0 * n_homolog / float(n_cont or 1)  
@@ -997,6 +1014,7 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
   else:
     if has_neg:
       colors = ['#0000B0', '#0080FF', '#FFFFFF', '#FF0000', '#800000']
+      
     elif is_single_cell:
       colors = ['#FFFFFF', '#0080FF' ,'#0000FF','#0000B0','#000080']
     
@@ -1013,7 +1031,6 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
   title = os.path.basename(in_path)
   grid = [offsets[c][1] for c in chromos[1:]]
   scale_label = '%s (%.2f Mb bins)' % (metric, bin_size/1e6)
-  
   extra_texts = []
  
   if n_isol is not None:
@@ -1067,6 +1084,10 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
       
       if key != pair:
         matrix = matrix.T
+      
+      cn_cont = int(matrix.sum())
+      if is_cis:
+        cn_cont /= 2
             
       if use_corr:
         if is_cis:
@@ -1080,10 +1101,41 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
           if file_bin_size:
             matrix_b = get_single_array_matrix(contacts[(chr_b, chr_b)], limits_b, limits_b, True, file_bin_size, pair_bin_size)
           else:
-            matrix_b, amb_b = get_single_list_matrix(contacts[(chr_b, chr_b)], limits_b, limits_b, True, pair_bin_siz, ambig_groupse)
+            matrix_b, amb_b = get_single_list_matrix(contacts[(chr_b, chr_b)], limits_b, limits_b, True, pair_bin_size, ambig_groups)
 
           matrix = get_trans_corr_mat(matrix_a, matrix_b, matrix)
-             
+	  
+        cv_max = v_max
+        cv_min = v_min
+      
+      if use_corr or has_neg or is_single_cell: # Scale range same as global
+        cv_max = v_max
+        cv_min = v_min
+               
+      elif use_norm:
+        cv_max = v_max
+        cv_min = v_min
+        nz = matrix[matrix > 0]
+      
+        if len(nz):
+          norm_scale = np.mean(matrix[matrix.nonzero()])
+          matrix = matrix.astype(float)/norm_scale
+
+          if is_cis:
+            cv_max = _get_vmax(matrix)
+          else:
+            cv_max = matrix.max()
+            
+          cv_min = 1.0/norm_scale
+
+      else:  
+        if is_cis:
+          cv_max = _get_vmax(matrix)
+        else:
+          cv_max = matrix.max()
+          
+        cv_min = 1.0
+      
       title = 'Chromosome %s' % chr_a if is_cis else 'Chromosomes %s - %s ' % pair
       dw = None
       
@@ -1094,14 +1146,11 @@ def contact_map(in_path, out_path, bin_size=None, bin_size2=250.0, bin_size3=500
         
       else:
         scale_label = '%s (%.3f Mb bins)' % (metric, pair_bin_size/1e6)
-      
-      n_cont = int(matrix.sum())
-      if is_cis:
-        n_cont /= 2
-      stats_text = 'Contacts:{:,d}'.format(n_cont)
+	
+      stats_text = 'Contacts:{:,d}'.format(cn_cont)
       plot_contact_matrix(matrix, pair_bin_size, title, scale_label, None, pair,
                           chromo_grid, stats_text, colors, bad_color, log=use_log, pdf=pdf,
-                          v_max=v_max, v_min=v_min, ambig_matrix=ambig_matrix, diag_width=dw)
+                          v_max=cv_max, v_min=cv_min, ambig_matrix=ambig_matrix, diag_width=dw)
                         
   if pdf:
     pdf.close()
@@ -1170,6 +1219,11 @@ def main(argv=None):
                               'For trans/inter-chromosome pairs, the correlations shown are the non-cis part of the '\
                               'square, symmetric correlation matrix of the combined map for both chromosomes.')
 
+  arg_parse.add_argument('-norm', default=False, action='store_true', dest="norm",
+                         help='Normalise the contact map so that displayed values are relative to (non-zero) mean of the contact map; ' \
+			      'useful for comparing maps with different numbers of contacts. ' \
+                              'This option will be ignored if the -corr option is specified.')
+
   arg_parse.add_argument('-grid', default=False, action='store_true', dest="grid",
                          help='Show grid lines at numeric chromosome positions.')
 
@@ -1192,6 +1246,7 @@ def main(argv=None):
   sep_trans = args['t']
   chromos = args['chr']
   use_corr = args['corr']
+  use_norm = args['norm']
   is_single = args['sc']
   chromo_grid = args['grid']
   diag_width = args['diag']
@@ -1210,13 +1265,17 @@ def main(argv=None):
       
   else:
     out_paths = [None] * len(in_paths)
-
+  
+  if use_corr and use_norm:
+    util.warn('Correlation plot option "-corr" cannot be used with normalization option "-norm". The latter will be ignored')
+    use_norm = False
+  
   for in_path, out_path in zip(in_paths, out_paths):
     if not os.path.exists(in_path):
       util.critical('Input contact file could not be found at "{}"'.format(in_path))
 
     contact_map(in_path, out_path, bin_size, bin_size2, bin_size3,
-                no_sep_cis, sep_trans, chromos, use_corr, is_single,
+                no_sep_cis, sep_trans, chromos, use_corr, use_norm, is_single,
                 screen_gfx, black_bg, min_contig_size,
                 chromo_grid, diag_width)
 
