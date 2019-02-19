@@ -4,7 +4,7 @@ from scipy import sparse
 
 CHR_KEY_SEP = ' '
 
-def load_npz_contacts(file_path):
+def load_npz_contacts(file_path, trans=True):
   
   file_dict = np.load(file_path)
   
@@ -17,7 +17,10 @@ def load_npz_contacts(file_path):
     if key != 'params':
       if CHR_KEY_SEP in key:
         chr_a, chr_b = key.split(CHR_KEY_SEP)
-        contacts[(chr_a, chr_b)] = file_dict[key][()].toarray()
+        
+        if (chr_a == chr_b) or trans:
+          contacts[(chr_a, chr_b)] = file_dict[key][()].toarray()
+  
       else:
         offset, count = file_dict[key]
         chromo_limits[key] = offset * bin_size, (offset + count) * bin_size

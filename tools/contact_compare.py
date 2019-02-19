@@ -123,8 +123,10 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
     
     msum = mat.sum()
     
-    if msum:
-      mat *= nnz/msum # The counts scale with the chromosome sizes
+    if not msum:
+      continue
+    
+    mat *= nnz/msum # The counts scale with the chromosome sizes
     
     if new_bin_size > bin_size: # i.e. do nothing if smaller or equal (smaller is not valid)
       ratio = bin_size / float(new_bin_size)
@@ -143,9 +145,9 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
   util.info(' .. normalised {} chromosomes/pairs'.format(len(pairs)), line_return=True)
   
   
-def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size=None,
+def contact_compare(in_path_a, in_path_b, pdf_path=None, npz_path=None, bin_size=None,
                     compare_trans=False, min_contig_size=None, d_max=None,
-                    use_corr=False, bed_path=None, diag_width=None): 
+                    use_corr=False, bed_path=None, diag_width=None, screen_gfx=False): 
     
   from nuc_tools import util, io
   from formats import npz, bed 
@@ -157,21 +159,19 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
     else:
       d_max = DEFAULT_DMAX
   
-  if not out_path:
+  if not pdf_path:
     if use_corr:
       suffix = '_corr'
     else:
       suffix = '_diff'
     
-    out_path = io.merge_file_names(in_path_a, in_path_b, suffix=suffix)
+    pdf_path = io.merge_file_names(in_path_a, in_path_b, suffix=suffix)
     
-  out_path = io.check_file_ext(out_path, '.npz')
+  pdf_path = io.check_file_ext(pdf_path, '.pdf')
   
-  if pdf_path:
-    pdf_path = io.check_file_ext(pdf_path, '.pdf')
-  else:
-    pdf_path = os.path.splitext(out_path)[0] + '.pdf'
-  
+  if npz_path:
+    npz_path = io.check_file_ext(npz_path, '.npz')
+
   file_bin_size_a, chromo_limits_a, contacts_a = npz.load_npz_contacts(in_path_a)
   file_bin_size_b, chromo_limits_b, contacts_b = npz.load_npz_contacts(in_path_b)
 
@@ -197,8 +197,13 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
       util.critical(msg % (bin_size/1e3, orig_bin_size/1e3))
     
   else:
-    bin_size = orig_bin_size  
-  
+    bin_size = orig_bin_size
+    
+  if screen_gfx:
+    util.info('Displaying comparison map for {} vs {}'.format(in_path_a, in_path_b))
+  else:
+    util.info('Making PDF comparison map for {} vs {}'.format(in_path_a, in_path_b))
+     
   # get a sorted list of large contigs/chromosomes common to both inputs
   
   common_keys = set(chromo_limits_a.keys()) & set(chromo_limits_b.keys())
@@ -260,7 +265,11 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
           
   util.info('Calulating differences')
   
-  pdf = PdfPages(pdf_path)
+  if screen_gfx:
+    pdf = None
+  else:
+    pdf = PdfPages(pdf_path)
+  
   colors = ['#0000B0', '#0080FF', '#BBDDFF', '#FFFFFF', '#FFBBBB', '#FF0000', '#800000']
   watermark = 'nuc_tools.contact_compare'
   name_a = os.path.splitext(os.path.basename(in_path_a))[0]
@@ -302,7 +311,7 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
       x = get_corr_mat(obs_a)
       y = get_corr_mat(obs_b)
       
-      diff = x - y
+      diff = y - x
       diff[nz] = 0
       
       bed_values = np.abs(diff).sum(axis=0)
@@ -313,6 +322,7 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
     
       for d in range(1, n):
         deltas = np.zeros(n-d, np.float32)
+
         idx1 = np.array(range(n-d))
         idx2 = idx1 + d
         idx = (idx1, idx2)
@@ -426,9 +436,10 @@ def contact_compare(in_path_a, in_path_b, out_path=None, pdf_path=None, bin_size
     util.info('Written PDF file {}'.format(pdf_path))
  
   util.info('Saving data')
-    
-  npz.save_contacts(out_path, out_matrix, chromo_limits, bin_size, min_bins=0)  
-  util.info('Written NPZ file {}'.format(out_path))
+  
+  if npz_path:  
+    npz.save_contacts(npz_path, out_matrix, chromo_limits, bin_size, min_bins=0)  
+    util.info('Written NPZ file {}'.format(out_path))
 
 
 def main(argv=None):
@@ -447,11 +458,11 @@ def main(argv=None):
   arg_parse.add_argument(metavar='CONTACT_FILES', nargs=2, dest='i',
                          help='Two input NPZ format (binned, bulk Hi-C data) chromatin contact files to be compared.')
 
-  arg_parse.add_argument('-o', metavar='OUT_FILE', default=None,
-                         help='Optional output NPZ format file name. If not specified, a default based on the input file names will be used.')
-
-  arg_parse.add_argument('-p', metavar='OUT_PDF_FILE', default=None,
+  arg_parse.add_argument('-o', metavar='OUT_PDF_FILE', default=None,
                          help='Optional PDF file to save report. If not specified, a default based on the input file names will be used.')
+
+  arg_parse.add_argument('-npz', metavar='OUT_NPZ_FILE', default=None,
+                         help='Optional output NPZ format file name. If not specified, a default based on the input file names will be used.')
 
   arg_parse.add_argument('-s', '--bin-size', default=None, metavar='BIN_SIZE', type=float, dest="s",
                          help='Binned region size (the resolution) to compare contacts at, in kilobases. ' \
@@ -471,6 +482,9 @@ def main(argv=None):
                          help='Compare trans (inter-chromosomal) chromosome pairs. ' \
                               'By default only the intra-chromosomal contacts are compared.')
 
+  arg_parse.add_argument('-g', default=False, action='store_true',
+                         help='Display graphics on-screen using matplotlib, where possible and do not automatically save output.')
+
   arg_parse.add_argument('-corr', default=False, action='store_true',
                          help='Compare differences in correlation matrices, rather than difference in sequence-separation normalized contact counts.' \
                               'For trans/inter-chromosome pairs, the correlations are taken from the non-cis part of the '\
@@ -487,11 +501,12 @@ def main(argv=None):
   args = vars(arg_parse.parse_args(argv))
 
   in_path_a, in_path_b = args['i']
-  out_path = args['o']
-  pdf_path = args['p']
+  npz_path = args['npz']
+  pdf_path = args['o']
   bin_size = args['s']
   comp_trans = args['t']
   min_contig_size = args['m']
+  screen_gfx = args['g']
   d_max = args['dmax']
   use_corr = args['corr']
   bed_path = args['bed']
@@ -513,9 +528,14 @@ def main(argv=None):
   
   if io.is_same_file(in_path_a, in_path_b):
     util.warn('Inputs being compared are the same file')  
-    
-  contact_compare(in_path_a, in_path_b, out_path, pdf_path, bin_size,
-                  comp_trans, min_contig_size, d_max, use_corr, bed_path, diag_width)
+  
+  if pdf_path and screen_gfx:
+    util.warn('Output PDF file will not be written in screen graphics (-g) mode')
+    pdf_path = None
+
+  contact_compare(in_path_a, in_path_b, pdf_path, npz_path, bin_size,
+                  comp_trans, min_contig_size, d_max, use_corr, bed_path,
+                  diag_width, screen_gfx)
   
 
 if __name__ == "__main__":
