@@ -82,6 +82,14 @@ def check_file_ext(file_path, ext):
   return file_path
   
   
+def is_ncc(file_path):
+
+  if file_path.lower().endswith('.ncc') or file_path.lower().endswith('.ncc.gz'):
+    return True
+  else:
+    return False
+   
+  
 def merge_file_names(file_path1, file_path2, sep='_', prefix='', suffix=''):
 
   # same dir, need non truncated name

@@ -7,7 +7,7 @@ import numpy as np
 
 # #   Nuc Formats  # # 
 
-def load_file(file_path, pair_key=True):
+def load_file(file_path, pair_key=True, trans=True):
   """Load chromosome and contact data from NCC format file, as output from NucProcess"""
   
   from core import nuc_io as io
@@ -25,7 +25,10 @@ def load_file(file_path, pair_key=True):
       chr_a, start_a, end_a, f_start_a, f_end_a, strand_a, \
         chr_b, start_b, end_b, f_start_b, f_end_b, strand_b, \
         ambig_group, pair_id, swap_pair = line.split()
- 
+      
+      if (chr_a != chr_b) and not trans:
+        continue
+       
       if strand_a == '+':
         pos_a = int(f_start_a)
       else:
@@ -51,7 +54,7 @@ def load_file(file_path, pair_key=True):
   chromo_limits = {}
     
   for key in contact_dict:
-    chr_a, chr_b  = key
+    chr_a, chr_b = key
     
     contacts = np.array(contact_dict[key]).T
       

@@ -180,7 +180,7 @@ def main(argv=None):
                          help='Include only contacts between/within the specified chromosomes')
 
   arg_parse.add_argument('-bp', '--basepair-range', type=int, metavar='BASEPAIR', nargs=2,  dest='bp',
-                         help='Include only contacts within the specified raneg of basepair positions (considering all selected chromosomes)')
+                         help='Include only contacts within the specified range of basepair positions (considering all selected chromosomes)')
 
   args = vars(arg_parse.parse_args(argv))
   

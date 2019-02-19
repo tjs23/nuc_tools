@@ -115,44 +115,4 @@ def parallel_split_job(target_func, split_data, common_args, num_cpu=MAX_CORES, 
     for proc in processes: # Asynchromous wait and no output captured
       proc.join()
     
-      
-def call(cmd_args, stdin=None, stdout=None, stderr=None, verbose=True, wait=True, path=None, shell=False):
-  """
-  Wrapper for external calls to log and report commands,
-  open stdin, stderr and stdout etc.
-  """
-  
-  if verbose:
-    info(' '.join(cmd_args))
-  
-  if path:
-    env = dict(os.environ)
-    prev = env.get('PATH', '')
-    
-    if path not in prev.split(':'):
-      env['PATH'] = prev + ':' + path
-  
-  else:
-    env = None # Current environment variables 
-  
-  if shell:
-    cmd_args = ' '.join(cmd_args)
-    
-  if stdin and isinstance(stdin, str):
-    stdin = open(stdin)
-
-  if stdout and isinstance(stdout, str):
-    stdout = open(stdout, 'w')
-
-  if stderr and isinstance(stderr, str):
-    stderr = open(stderr, 'a')
-  
-  if stderr is None and LOGGING:
-    logging()
-    stderr = LOG_FILE_OBJ
-  
-  if wait:
-    subprocess.call(cmd_args, stdin=stdin, stdout=stdout, stderr=stderr, env=env, shell=shell)
-      
-  else:
-    subprocess.Popen(cmd_args, stdin=stdin, stdout=stdout, stderr=stderr, env=env, shell=shell)
+ 
