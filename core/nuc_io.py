@@ -241,25 +241,27 @@ def check_regular_file(file_path):
   return True, ''
 
 
-def check_invalid_file(file_path):
-
+def check_invalid_file(file_path, critical=True):
+  
+  msg = ''
+  
   if not os.path.exists(file_path):
     msg = 'File "%s" does not exist'
-    return msg % file_path
-  
-  if not os.path.isfile(file_path):
+ 
+  elif not os.path.isfile(file_path):
     msg = 'Location "%s" is not a regular file'
-    return msg % file_path
   
-  if os.stat(file_path).st_size == 0:
+  elif os.stat(file_path).st_size == 0:
     msg = 'File "%s" is of zero size '
-    return msg % file_path
     
-  if not os.access(file_path, os.R_OK):
+  elif not os.access(file_path, os.R_OK):
     msg = 'File "%s" is not readable'
-    return msg % file_path
-
-  return ''
+   
+  if msg and critical:
+    util.critical(msg)
+  
+  return msg
+  
 
 def is_same_file(file_path_a, file_path_b):
   
