@@ -7,7 +7,7 @@ import numpy as np
 
 # #   Nuc Formats  # # 
 
-def load_file(file_path, pair_key=True, trans=True):
+def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=int, n_max=None):
   """Load chromosome and contact data from NCC format file, as output from NucProcess"""
   
   from core import nuc_io as io
@@ -20,25 +20,19 @@ def load_file(file_path, pair_key=True, trans=True):
  
     contact_dict = {}
     chromosomes = set()
- 
+    n = 0
+    
     for line in file_obj:
-      chr_a, start_a, end_a, f_start_a, f_end_a, strand_a, \
-        chr_b, start_b, end_b, f_start_b, f_end_b, strand_b, \
-        ambig_group, pair_id, swap_pair = line.split()
+      chr_a, f_start_a, f_end_a, start_a, end_a, strand_a, \
+      chr_b, f_start_b, f_end_b, start_b, end_b, strand_b, \
+      ambig_group, pair_id, swap_pair = line.split()
       
       if (chr_a != chr_b) and not trans:
         continue
-       
-      if strand_a == '+':
-        pos_a = int(f_start_a)
-      else:
-        pos_a = int(f_end_a)
- 
-      if strand_b == '+':
-        pos_b = int(f_start_b)
-      else:
-        pos_b = int(f_end_b)
- 
+
+      pos_a = int(f_start_a if strand_a == '+' else f_end_a)
+      pos_b = int(f_start_b if strand_b == '+' else f_end_b)
+        
       if chr_a > chr_b:
         chr_a, chr_b = chr_b, chr_a
         pos_a, pos_b = pos_b, pos_a
@@ -50,13 +44,17 @@ def load_file(file_path, pair_key=True, trans=True):
       chromosomes.add(chr_a)
       chromosomes.add(chr_b)
       contact_dict[key].append((pos_a, pos_b, num_obs, int(ambig_group)))
+      n += 1
+
+  if n_max and (n > n_max):
+    critical('Too many contacts in ncc file (> %d), this code is meant for single cell data' % n_max)
 
   chromo_limits = {}
     
   for key in contact_dict:
     chr_a, chr_b = key
     
-    contacts = np.array(contact_dict[key]).T
+    contacts = np.array(contact_dict[key], dtype=dtype).T
       
     seq_pos_a = contacts[0]
     seq_pos_b = contacts[1]
@@ -77,7 +75,9 @@ def load_file(file_path, pair_key=True, trans=True):
       chromo_limits[chr_b] = [min(prev_min, min_b), max(prev_max, max_b)]
     else:
       chromo_limits[chr_b] = [min_b, max_b]
-  
+    
+    contact_dict[key] = contacts
+    
   if not pair_key:
     pairs = sorted(contact_dict)
     
@@ -85,7 +85,7 @@ def load_file(file_path, pair_key=True, trans=True):
       chr_a, chr_b = pair
       if chr_a not in contact_dict:
         contact_dict[chr_a] = {}
-        contact_dict[chr_a][chr_b] = np.array( contact_dict[pair]).T
+        contact_dict[chr_a][chr_b] = contact_dict[pair]
       
       del contact_dict[pair]        
         
