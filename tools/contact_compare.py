@@ -57,12 +57,15 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
       
       if orig_mat is None:
         continue
-      
+  
+      if hasattr(orig_mat, 'toarray'):
+        orig_mat = orig_mat.toarray()
+          
       a, b = orig_mat.shape
       pairs.append(pair)
       off_a = chromo_offsets[chr_a]
       off_b = chromo_offsets[chr_b]
-      
+     
       contact_scale[chr_a][off_a:off_a+a] += orig_mat.sum(axis=1)
       contact_scale[chr_b][off_b:off_b+b] += orig_mat.sum(axis=0)
   
@@ -91,7 +94,12 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
       continue
     
     util.info(' .. {} {}   '.format(chr_a, chr_b), line_return=True)
-    mat = contact_dict[(chr_a, chr_b)].astype(np.float32)
+    mat = contact_dict[(chr_a, chr_b)]
+    
+    if hasattr(mat, 'toarray'):
+      mat = mat.toarray()
+    
+    mat = mat.astype(np.float32)
     a, b = mat.shape
     off_a = chromo_offsets[chr_a]
     lim_a = chromo_sizes[chr_a]
@@ -282,8 +290,18 @@ def contact_compare(in_path_a, in_path_b, pdf_path=None, npz_path=None, bin_size
   for key in cis_pairs:
     util.info(' .. comparing {}'.format(key[0]), line_return=True)  
       
-    obs_a = contacts_a[key].toarray()
-    obs_b = contacts_b[key].toarray()
+    obs_a = contacts_a[key]
+    obs_b = contacts_b[key]
+    
+    if hasattr(obs_a, 'toarray'):
+      obs_a = obs_a.toarray()
+      
+
+    if hasattr(obs_b, 'toarray'):
+      obs_b = obs_b.toarray()
+      
+    obs_a = obs_a.astype(float)
+    obs_b = obs_b.astype(float)
     
     n, m = obs_a.shape        
     diff = np.zeros((n, n), np.float32)

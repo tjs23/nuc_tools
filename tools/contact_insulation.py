@@ -248,9 +248,7 @@ def main(argv=None):
   #num_null = args['nn']
   
   for file_path in contact_paths:
-    invalid_msg = io.check_invalid_file(file_path)
-    if invalid_msg:
-      util.critical(invalid_msg)
+    io.check_invalid_file(file_path, critical=True)
    
   if pdf_path and screen_gfx:
     util.warn('Output PDF file will not be written in screen graphics (-g) mode')

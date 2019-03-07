@@ -246,17 +246,17 @@ def check_invalid_file(file_path, critical=True):
   msg = ''
   
   if not os.path.exists(file_path):
-    msg = 'File "%s" does not exist'
+    msg = 'File "%s" does not exist' % file_path
  
   elif not os.path.isfile(file_path):
-    msg = 'Location "%s" is not a regular file'
+    msg = 'Location "%s" is not a regular file' % file_path
   
   elif os.stat(file_path).st_size == 0:
-    msg = 'File "%s" is of zero size '
+    msg = 'File "%s" is of zero size ' % file_path
     
   elif not os.access(file_path, os.R_OK):
-    msg = 'File "%s" is not readable'
-   
+    msg = 'File "%s" is not readable' % file_path
+
   if msg and critical:
     util.critical(msg)
   
