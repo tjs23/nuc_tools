@@ -456,13 +456,16 @@ def get_diag_region(diag_width, matrix, double=False):
       xvals += 1
       diag_mat[(yvals[:-1], xvals[:-1])] = counts[:-1]
       
-      rows, cols = cols, rows
-      yvals = np.full(n-y, d-y)
-      counts = matrix[(rows, cols)]
-      diag_mat[(yvals, xvals)] = counts
+      if y:
+        rows, cols = cols, rows
+        yvals = np.full(n-y, d-y)
+        counts = matrix[(rows, cols)]
+        xvals -= 1
+        diag_mat[(yvals, xvals)] = counts
  
-      xvals += 1
-      diag_mat[(yvals[:-1], xvals[:-1])] = counts[:-1]
+        xvals += 1
+        diag_mat[(yvals[:-1], xvals[:-1])] = counts[:-1]
+ 
       
   else:
     diag_mat = np.zeros((d, n*2))
