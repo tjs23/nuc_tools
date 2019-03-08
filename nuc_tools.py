@@ -17,7 +17,7 @@ TOOLS = {'adapt': 'tools.nuc_adapt',
          'contact_insulation': 'tools.contact_insulation',
          'contact_probability': 'tools.contact_probability',
          #'contact_combine': 'tools.contact_combine',
-         #'contact_enrichment': 'tools.contact_enrichment',
+         'contact_pair_points': 'tools.contact_pair_points',
          'ncc_filter': 'tools.ncc_filter',
          'ncc_bin': 'tools.ncc_bin',
          'cs_process': 'tools.cs_process'}

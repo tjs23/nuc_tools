@@ -296,6 +296,6 @@ if __name__ == "__main__":
 
 
 """
-python tools/contact_pair_points.py ES_loops_mm10.bed /data/hi-c/pop/SLX-7672_E14_25k.npz /data/hi-c/pop/SLX-7676_Mbd3KO_25k.npz /data/hi-c/pop/SLX-7677_CHD4KD_25k.npz -l E14 Mbd3KO Chd4KD -g
+./nuc_tools contact_pair_points ES_loops_mm10.bed /data/hi-c/pop/SLX-7672_E14_100k.npz /data/hi-c/pop/SLX-7676_Mbd3KO_100k.npz z -l E14 Mbd3KO -g
 """
 
