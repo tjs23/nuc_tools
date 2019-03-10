@@ -4,7 +4,7 @@ from scipy import sparse
 
 CHR_KEY_SEP = ' '
 
-def load_npz_contacts(file_path, trans=True):
+def load_npz_contacts(file_path, trans=True, store_sparse=False):
   
   file_dict = np.load(file_path)
   
@@ -19,7 +19,12 @@ def load_npz_contacts(file_path, trans=True):
         chr_a, chr_b = key.split(CHR_KEY_SEP)
         
         if (chr_a == chr_b) or trans:
-          contacts[(chr_a, chr_b)] = file_dict[key][()].toarray()
+          mat = file_dict[key][()]
+          
+          if store_sparse:
+             contacts[(chr_a, chr_b)] = mat
+          else:
+             contacts[(chr_a, chr_b)] = mat.toarray()     
   
       else:
         offset, count = file_dict[key]
