@@ -12,7 +12,7 @@ DESCRIPTION = 'Paired-point chromatin contact (NPZ format) analysis'
 DEFAULT_BIN_SIZE = 100
   
 def contact_points(paired_region_path, contact_paths, pdf_path, bin_size=DEFAULT_BIN_SIZE, labels=None,
-                   screen_gfx=False):
+                   screen_gfx=False, max_sep=4e6):
 
   from nuc_tools import util, io
   from formats import bed, ncc, npz  
@@ -179,8 +179,6 @@ def contact_points(paired_region_path, contact_paths, pdf_path, bin_size=DEFAULT
   ax2.set_ylim(score_range)
   ax2.legend(loc=4)
   
-  max_sep = 2e6
-  
   for i, counts in enumerate(all_counts[1:], 1):
     nz = (counts > 0) & ref_nz
   
@@ -296,6 +294,6 @@ if __name__ == "__main__":
 
 
 """
-./nuc_tools contact_pair_points ES_loops_mm10.bed /data/hi-c/pop/SLX-7672_E14_100k.npz /data/hi-c/pop/SLX-7676_Mbd3KO_100k.npz z -l E14 Mbd3KO -g
+./nuc_tools contact_pair_points ES_loops_mm10.bed /data/hi-c/pop/SLX-7672_E14_100k.npz /data/hi-c/pop/SLX-7676_Mbd3KO_100k.npz -l E14 Mbd3KO -g
 """
 
