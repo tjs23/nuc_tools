@@ -76,7 +76,7 @@ def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=int, n_max=N
     else:
       chromo_limits[chr_b] = [min_b, max_b]
     
-    contact_dict[key] = contacts
+    contact_dict[key] = contacts.T
     
   if not pair_key:
     pairs = sorted(contact_dict)
