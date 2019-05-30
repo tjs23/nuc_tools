@@ -207,7 +207,9 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
                  row.append('%.5e' % pval)
            
              write('\t'.join(row) + '\n')
-            
+             
+    util.info('Written {}'.format(tsv_path))
+          
   from colorsys import hsv_to_rgb
   
   max_count = max([x.max() for x in all_counts])
