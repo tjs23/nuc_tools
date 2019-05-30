@@ -2,7 +2,7 @@ import sys, math, os
 import numpy as np
 from collections import defaultdict
 from random import randint
-from scipy import stats
+from scipy.stats import sem, norm
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
@@ -10,9 +10,37 @@ PROG_NAME = 'contact_points'
 VERSION = '1.0.0'
 DESCRIPTION = 'Paired-point chromatin contact (NPZ format) analysis'
 DEFAULT_BIN_SIZE = 100
+
+def poisson_wald(c1, c2, n1=None, n2=None,
+                 smaller=True, larger=True,
+                 null_ratio=1.0):
   
-def contact_points(paired_region_path, contact_paths, pdf_path, bin_size=DEFAULT_BIN_SIZE, labels=None,
-                   screen_gfx=False, max_sep=4e6):
+  assert smaller or larger
+  
+  if not n1 or not n2:
+    exposure_ratio = 1.0
+  else:
+    exposure_ratio = n2 / n1
+    
+  r = null_ratio / exposure_ratio
+  
+  if not (c1 and c2):
+    return None, None
+
+  z_stat = (c1 - c2 * r) / math.sqrt(c1 + c2 * r * r)
+  
+  if smaller and larger: # Two-sided
+    p_val = norm.sf(abs(z_stat))*2
+  elif smaller:
+    p_val = norm.cdf(z_stat)
+  else:
+    p_val = norm.sf(z_stat)
+
+  return z_stat, p_val
+  
+def contact_points(paired_region_path, contact_paths, pdf_path,
+                   bin_size=DEFAULT_BIN_SIZE, labels=None,
+                   screen_gfx=False, tsv_path=None, max_sep=4e6):
 
   from nuc_tools import util, io
   from formats import bed, ncc, npz  
@@ -35,6 +63,7 @@ def contact_points(paired_region_path, contact_paths, pdf_path, bin_size=DEFAULT
     labels = [os.path.basename(x) for x in contact_paths]
   
   point_dict = defaultdict(list)
+  counts_dict = defaultdict(list)
   
   with open(paired_region_path) as file_obj:
     prev_pair_id = None
@@ -121,6 +150,9 @@ def contact_points(paired_region_path, contact_paths, pdf_path, bin_size=DEFAULT
       
       counts = mat[(rows,cols)]
       
+      if tsv_path:
+        counts_dict[chromo_pair].append(counts)
+      
       deltas = np.abs(rows-cols) # num separating bins
       
       #counts /= medians[deltas]
@@ -132,7 +164,50 @@ def contact_points(paired_region_path, contact_paths, pdf_path, bin_size=DEFAULT
     file_counts = np.concatenate(file_counts)
     all_counts.append(file_counts)
     all_deltas.append(file_deltas)
+  
+  if tsv_path:
+    util.warn('Only separations larger than the Hi-C bin size are written to TSV.')  
+    with open(tsv_path, 'w') as file_obj:
+      write = file_obj.write
+      head = ['chr','size','pos_a','pos_b']
+      head += ['ncount_%d(%s)' % (i+1,x) for i,x in enumerate(labels)]
+      head += ['diff_1:%d' % (i+1) for i in range(1,n_inp)]
+      head += ['pval_1:%d' % (i+1) for i in range(1,n_inp)]
+      write('\t'.join(head) + '\n')
+      
+      for chromo_pair in point_dict:
+        loops = point_dict.get(chromo_pair)
+      
+        if loops is None:
+          continue
+          
+        chromo = chromo_pair[0]
+        counts = counts_dict[chromo_pair]
+        n = len(counts)
+        
+        for i, region in enumerate(loops):
+           start, end = sorted(region)
+           size = end-start
+           
+           if size > file_bin_size:
+             row = [chromo, '%d' % size, '%d' % start, '%d' % end]
+             row_counts = [counts[j][i] for j in range(n)]
+             
+             for count in row_counts:
+               row.append('%d' % count)
  
+             for count in row_counts[1:]:
+               row.append('%d' % (row_counts[0]-count))
+             
+             for count in row_counts[1:]:
+               zstat, pval = poisson_wald(row_counts[0], count)
+               if pval is None:
+                 row.append('-')
+               else:
+                 row.append('%.5e' % pval)
+           
+             write('\t'.join(row) + '\n')
+            
   from colorsys import hsv_to_rgb
   
   max_count = max([x.max() for x in all_counts])
@@ -203,7 +278,7 @@ def contact_points(paired_region_path, contact_paths, pdf_path, bin_size=DEFAULT
         lquart.append(q25)
         uquart.append(q75)
         means.append(np.mean(col_data))
-        sems.append(stats.sem(col_data))
+        sems.append(sem(col_data))
         x_vals.append(file_bin_size/1e3 * sep)
     
     medians = np.array(medians)
@@ -254,6 +329,9 @@ def main(argv=None):
   arg_parse.add_argument('-o', '--out-pdf', metavar='PDF_FILE', default=None, dest="o",
                          help='Output PDF format file. If not specified, a default based on the input file name(s).')
 
+  arg_parse.add_argument('-t', '--out-tsv', metavar='TSV_FILE', default=None, dest="t",
+                         help='Output TSV format text file listing regions, sizes and contact counts.')
+
   arg_parse.add_argument('-g', '--gfx', default=False, action='store_true', dest="g",
                          help='Display graphics on-screen using matplotlib and do not automatically save output.')
 
@@ -269,6 +347,7 @@ def main(argv=None):
   paired_region_path = args['r'][0]
   contact_paths = args['i']
   pdf_path = args['o']
+  tsv_path = args['t']
   bin_size = args['s']
   labels = args['l'] or None
   screen_gfx = args['g']
@@ -284,7 +363,7 @@ def main(argv=None):
     pdf_path = None
      
   contact_points(paired_region_path, contact_paths, pdf_path, bin_size,
-                 labels, screen_gfx)
+                 labels, screen_gfx, tsv_path)
   
 
 if __name__ == "__main__":
