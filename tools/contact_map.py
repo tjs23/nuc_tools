@@ -5,7 +5,7 @@ import os, sys
 from math import ceil
 from collections import defaultdict
 from matplotlib import pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap, ListedColormap, LogNorm
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap, LogNorm, Colormap
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.ticker import AutoMinorLocator
 
@@ -19,6 +19,7 @@ DEFAULT_SC_MAIN_BIN_KB = 5000
 DEFAULT_SC_CHR_BIN_KB = 500
 DEFAULT_SMALLEST_CONTIG = 0.1
 DEFAULT_DIAG_REGION = 50.0
+COLORMAP_URL = 'https://matplotlib.org/tutorials/colors/colormaps.html'
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -642,14 +643,18 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
   if mmax < 0:
     matrix = -1 * matrix
   
-  if not colors:
-    if log or (matrix.min() < 0):
-      colors = ['#0000B0', '#0080FF', '#FFFFFF', '#FF0000', '#800000']
-    else:
-      colors = ['#FFFFFF', '#0080FF' ,'#FF0000','#000000']  
+  if colors and isinstance(colors, Colormap):
+    cmap = colors
   
-  cmap = LinearSegmentedColormap.from_list(name='pcm', colors=colors, N=255)    
-  cmap.set_bad(color=bad_color)
+  else:
+    if not colors:
+      if log or (matrix.min() < 0):
+        colors = ['#0000B0', '#0080FF', '#FFFFFF', '#FF0000', '#800000']
+      else:
+        colors = ['#FFFFFF', '#0080FF' ,'#FF0000','#000000']
+  
+    cmap = LinearSegmentedColormap.from_list(name='pcm', colors=colors, N=255)    
+    cmap.set_bad(color=bad_color)
 
   if (ambig_matrix is not None) and ambig_matrix.max():
     do_ambig = True
@@ -657,7 +662,6 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
     cmap2 = LinearSegmentedColormap.from_list(name='pcm', colors=ambig_colors, N=255)
     cmap2.set_bad(color=bad_color)
     
-    ListedColormap
     clist = cmap(np.arange(cmap.N))
     clist[0,-1] = 0.0
     cmap = ListedColormap(clist)
@@ -887,7 +891,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
                 no_separate_cis=False, separate_trans=False, show_chromos=None,
                 use_corr=False, use_norm=False, is_single_cell=False, screen_gfx=False, black_bg=False,
                 min_contig_size=None, chromo_grid=False, diag_width=None,
-                font=None, font_size=12, line_width=0.2):
+                font=None, font_size=12, line_width=0.2, cmap=None):
   
   from nuc_tools import io, util
   from formats import ncc, npz
@@ -1158,8 +1162,12 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
       else:
         extra = ' homolog:{:,d} ({:.1f}%)'
         stats_text += extra.format(n_homolog, f_homolog)
- 
-  if black_bg:
+  
+  if cmap:
+    colors = cmap
+    bad_color = '#888888'
+  
+  elif black_bg:
     if has_neg:
       colors = ['00FFFF', '#0000FF', '#000000', '#FF0000', '#FFFF00']
     else:
@@ -1176,6 +1184,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
     
     else:
       colors = ['#FFFFFF', '#0080FF' ,'#FF0000','#FFFF00','#000000']
+      colors = ['#FFFFFF', '#0040FF' ,'#FF0000']
     
     bad_color = '#B0B0B0'
 
@@ -1440,6 +1449,12 @@ def main(argv=None):
                          help='Plot horizontally only the diagonal parts of the intra-chromosomal contact matrices. ' \
                               'The width of stacked regions (in Megabases) may be optionally specified, ' \
                               'but otherwise defaults to %.1f Mb' % DEFAULT_DIAG_REGION)
+  
+  arg_parse.add_argument('-colors', metavar='COLOR_MAP', default=None,
+                         help='Optional comma-separated map colours, e.g. "white,blue,red" ' \
+                              'or colormap (scheme) name, as used by matplotlib. ' \
+                              'Note: #RGB style hex colours must be quoted e.g. "#FF0000,#0000FF" ' \
+                              'See: %s This option overrides -b.' % COLORMAP_URL)
                          
   args = vars(arg_parse.parse_args(argv))
 
@@ -1459,6 +1474,7 @@ def main(argv=None):
   is_single = args['sc']
   chromo_grid = args['grid']
   diag_width = args['diag']
+  cmap = args['colors']
   
   if not in_paths:
     arg_parse.print_help()
@@ -1478,11 +1494,29 @@ def main(argv=None):
   for in_path in in_paths:
     if not os.path.exists(in_path):
       util.critical('Input contact file could not be found at "{}"'.format(in_path))
-
+  
+  if cmap:
+    if ',' in cmap:
+      colors = cmap.split(',')
+      try:
+        cmap = LinearSegmentedColormap.from_list(name='pcm', colors=colors, N=255)    
+  
+      except ValueError as err:
+        util.warn(err)
+        util.critical('Invalid colour specification')
+      
+    else:
+      try:
+        cmap = plt.get_cmap(cmap)
+ 
+      except ValueError as err:
+        util.warn(err)
+        util.critical('Invalid colourmap name. See: %s' % COLORMAP_URL)
+    
   contact_map(in_paths, out_path, bin_size, bin_size2, bin_size3,
               no_sep_cis, sep_trans, chromos, use_corr, use_norm, is_single,
               screen_gfx, black_bg, min_contig_size,
-              chromo_grid, diag_width)
+              chromo_grid, diag_width, cmap=cmap)
 
 
 if __name__ == "__main__":
