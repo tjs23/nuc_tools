@@ -104,8 +104,8 @@ def bin_region_values(regions, values, bin_size=1000, start=0, end=-1):
       continue
     
     if start > p2:
-      continue  
-    
+      continue
+      
     b1 = p1 / bin_size
     b2 = p2 / bin_size
     r = float(p2-p1)
@@ -281,6 +281,75 @@ def get_pde(dens_mat, chromo_limits, anchor_bed_path, density_bed_path, bin_size
 
   return dens_obs, dens_exp
     
+    
+def correlation_plot(n_tracks, dens_exp, data_labels, cmap, split_idx=None, is_primary=True, max_dens=4.5, hist_bins2d=50):
+  
+  hist_range =  (0.0, max_dens)
+  fig, axarr = plt.subplots(n_tracks, n_tracks, sharex=True, sharey=True)
+  
+  if split_idx is None:
+    plt.suptitle('Density correlations')
+    
+  elif split_idx and is_primary:
+    plt.suptitle('Density correlations : primary structures')
+    
+  else:
+    plt.suptitle('Density correlations : secondary structures')
+
+  for row, col in dens_exp:
+    
+  
+    if n_tracks > 1:
+      ax = axarr[row, col]
+    else:
+      ax = axarr
+ 
+    if split_idx is None:
+      ref = np.concatenate(dens_exp[(row, row)]) # All particle
+      exp = np.concatenate(dens_exp[(row, col)]) # All particle
+ 
+    elif is_primary:
+      ref = np.concatenate(dens_exp[(row, row)][:split_idx]) # All particle
+      exp = np.concatenate(dens_exp[(row, col)][:split_idx]) # All particle
+    
+    else:
+      ref = np.concatenate(dens_exp[(row, row)][split_idx:]) # All particle
+      exp = np.concatenate(dens_exp[(row, col)][split_idx:]) # All particle
+ 
+    nz = (ref > 0) & (exp > 0)
+
+    x_vals = np.log10(ref[nz])
+    y_vals = np.log10(exp[nz])
+
+    r, p = stats.pearsonr(x_vals, y_vals)
+
+    ax.hist2d(x_vals, y_vals,
+              bins=hist_bins2d, range=(hist_range, hist_range),
+              cmap=cmap)
+
+    ax.plot([0.0, max_dens], [0.0, max_dens], color='#808080', alpha=0.5, linestyle='--')
+
+    ax.text(0.25, max_dens-0.5, '$\\rho$=%.3f\n$n$=%d' % (r,len(x_vals)),
+            color='#404040', verticalalignment='center', alpha=0.5, fontsize=10)
+
+    if row == 0:
+      axr = ax.twiny()
+      axr.set_xticks([])
+      axr.set_xlabel(data_labels[col])
+
+    if row == n_tracks-1:
+      ax.set_xlabel('Density')
+
+    if col == n_tracks-1:
+      axr = ax.twinx()
+      axr.set_yticks([])
+      axr.set_ylabel(data_labels[row])
+
+    if col == 0:
+      ax.set_ylabel('Density')
+
+  plt.show()
+
 
 def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=None,
                            out_path=None, screen_gfx=False, radius=DEFAULT_MAX_RADIUS, 
@@ -334,7 +403,7 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
   for n3d_path in struc_paths1 + struc_paths2:
     util.info('Analysing structure {}'.format(os.path.basename(n3d_path)))  
     n3d_root = io.get_file_root(n3d_path)
-    
+
     if cache_dir:
       cache_file = os.path.join(cache_dir, n3d_root + '_sd.npz')
       
@@ -365,7 +434,7 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
       bed_root1 = io.get_file_root(anchor_bed_path)
       
       for col, density_bed_path in enumerate(data_tracks): # Data
-        key = (row, col)
+        key = row, col
         util.info('  .. compared to {}'.format(os.path.basename(density_bed_path)))
         bed_root2 = io.get_file_root(density_bed_path)
         
@@ -397,60 +466,14 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
   
   hist_bins = 25
   hist_bins2d = 50
-  
-  max_dens = 4.5
-  hist_range = (0.0, max_dens)
+ 
+  if struc_paths2:
+    split_idx = len(struc_paths1)
+    correlation_plot(n_tracks, dens_exp, data_labels, cmap, split_idx, True)
+    correlation_plot(n_tracks, dens_exp, data_labels, cmap, split_idx, False)
+  else:
+    correlation_plot(n_tracks, dens_exp, data_labels, cmap)
     
-  fig, axarr = plt.subplots(n_tracks, n_tracks, sharex=True, sharey=True)    
-  
-  plt.suptitle('Density correlations')
-  
-  for key in dens_exp:
-    row, col = key
-    
-    if n_tracks > 1:
-      ax = axarr[row, col]
-    else:
-      ax = axarr
-    
-    ref = np.concatenate(dens_exp[(row, row)]) # All particle
-    exp = np.concatenate(dens_exp[key]) # All particle
-    
-    nz = (ref > 0) & (exp > 0)
-    
-    x_vals = np.log10(ref[nz])
-    y_vals = np.log10(exp[nz])
-    
-    r, p = stats.pearsonr(x_vals, y_vals)
-    
-    ax.hist2d(x_vals, y_vals,
-              bins=hist_bins2d, range=(hist_range, hist_range),
-              cmap=cmap)
-
-    ax.plot([0.0, max_dens], [0.0, max_dens], color='#808080', alpha=0.5, linestyle='--')
-    
-    ax.text(0.25, max_dens-0.5, '$\\rho$=%.3f\n$n$=%d' % (r,len(x_vals)),
-            color='#404040', verticalalignment='center', alpha=0.5, fontsize=10)
-
-    if row == 0:
-      axr = ax.twiny()
-      axr.set_xticks([])
-      axr.set_xlabel(data_labels[row])
-   
-    if row == n_tracks-1:
-      ax.set_xlabel('Density')
-    
-    if col == n_tracks-1:
-      axr = ax.twinx()
-      axr.set_yticks([])
-      axr.set_ylabel(data_labels[row])
-     
-    if col == 0:
-      ax.set_ylabel('Density')
-      
-    
-  plt.show()
-  
   # Enrichment distribs
   
   fig, axarr = plt.subplots(n_tracks, n_tracks, sharey=True)    
@@ -484,8 +507,8 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
       n = float(len(exp2))      
       obs2 *= 100.0/(n+1.0)
            
-      hist_obs, edges = np.histogram(obs1, bins=hist_bins , range=hist_range)
-      hist_exp, edges = np.histogram(obs2, bins=hist_bins , range=hist_range)
+      hist_obs, edges = np.histogram(obs1, bins=hist_bins, range=hist_range)
+      hist_exp, edges = np.histogram(obs2, bins=hist_bins, range=hist_range)
       
       label1 = 'Group1'
       label2 = 'Group2'
@@ -549,7 +572,7 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
     if row == 0:
       axr = ax.twiny()
       axr.set_xticks([])
-      axr.set_xlabel(data_labels[row])      
+      axr.set_xlabel(data_labels[col])      
     
     if row == n_tracks-1:
       ax.set_xlabel('Density percentile')
@@ -713,27 +736,24 @@ if __name__ == "__main__":
 TTD
 ---
 Multi-page PDF
+Bootstrap graph errors
+Labels, dendrogram on colour matrices
++ Split between struc groups
 
-Do different correlation plots for each structure group
+Structure differences matrix 
++ hierarchical order
++ cols from data pairs
++ separately for two groups
 
+--
+
+Proper distrib p-values
 MD5sum caching 
-
 Reduce memory use
 
-Comparison between tracks
-   
- - Error bars (over structures) for density distribs
-   
- - Colour matrices, labelled, hierarchical
+--
 
-Differences between structures
- - Hierarchical on metric/p-val vector
-   + Vector from all selfs (maybe all pairs)
- 
- - Rank correlations?
- 
- - Track correlations for each group separately
- 
+
 New programs
 
  Compare tracks
@@ -760,5 +780,6 @@ New programs
 
 ./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[12]_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed -cache sdd_temp
 
-./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell1_100kb_x10.n3d -s /home/tjs23/gh/nuc_tools/n3d/Cell2_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed -cache sdd_temp
+./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell1_100kb_x10.n3d -s /home/tjs23/gh/nuc_tools/n3d/Cell2_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/Oct4_GEO.bed /data/bed/p300_GEO.bed /data/bed/H3K36me3_hap_EDL.bed /data/bed/H3K27ac_GEO.bed -cache sdd_temp
+./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[12]_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/Oct4_GEO.bed /data/bed/p300_GEO.bed /data/bed/H3K36me3_hap_EDL.bed /data/bed/H3K27ac_GEO.bed -cache sdd_temp
 """
