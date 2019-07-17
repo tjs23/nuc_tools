@@ -6,8 +6,11 @@ from collections import defaultdict
 from numba import jit, int32, float64, int64
 from os.path import dirname
 from matplotlib import pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap, LogNorm, Colormap
 from scipy import stats
+from scipy.cluster import hierarchy
+from scipy.spatial import distance
 
 PROG_NAME = 'structure_data_density'
 VERSION = '1.0.0'
@@ -21,50 +24,8 @@ DEFAULT_POW = 3.0
 COLORMAP_URL = 'https://matplotlib.org/tutorials/colors/colormaps.html'
 MIN_FLOAT = sys.float_info.min
 DENSITY_KEY = '_DENSITY_'
-
-@jit(int64[:](int64[:], int64[:,:], int64), cache=True)  
-def points_region_intersect(pos, regions, exclude=0):
-  """
-  Return an array of indices for points which either do (exclude=0) or do not
-  (exclude=1) interest with an array of regions 
-  """
-  
-  sel_overlap = 1 - int(exclude)
-  
-  n = 0
-  n_pos   = np.int64(len(pos))
-  n_reg   = np.int64(len(regions))
-  indices = np.empty(n_pos, np.int64)
-  order   = regions[:,0].argsort()
-  
-  for i in range(n_pos):
-    
-    if pos[i] < regions[order[0],0]:
-      if not sel_overlap:
-        indices[n] = i
-        n += 1
-      
-      continue
-      
-    a = 0
-    for k in range(n_reg):
-      j = order[k]
-      
-      if (regions[j,0] <= pos[i]) and (pos[i] <= regions[j,1]):
-        a = 1
-        break
- 
-      if pos[i] < regions[j, 0]:
-        break
-        
-    if sel_overlap == a:
-      indices[n] = i
-      n += 1
-  
-  return indices[:n]
-
-  
-  
+PDF_DPI = 200
+A4_INCHES = (11.69, 8.27)
   
 @jit(float64[:](int64[:,:], float64[:], int64, int64, int64), cache=True)  
 def bin_region_values(regions, values, bin_size=1000, start=0, end=-1):
@@ -282,10 +243,14 @@ def get_pde(dens_mat, chromo_limits, anchor_bed_path, density_bed_path, bin_size
   return dens_obs, dens_exp
     
     
-def correlation_plot(n_tracks, dens_exp, data_labels, cmap, split_idx=None, is_primary=True, max_dens=4.5, hist_bins2d=50):
+def correlation_plot(n_tracks, dens_exp, data_labels, pdf=None, cmap='Blues', split_idx=None, is_primary=True, max_dens=4.5, hist_bins2d=50):
   
   hist_range =  (0.0, max_dens)
   fig, axarr = plt.subplots(n_tracks, n_tracks, sharex=True, sharey=True)
+  fig.set_size_inches(*A4_INCHES)
+  plt.subplots_adjust(left=0.1, bottom=0.1, right=0.95, top=0.9, wspace=0.05, hspace=0.05)
+  
+  corr_mat = np.zeros((n_tracks, n_tracks))
   
   if split_idx is None:
     plt.suptitle('Density correlations')
@@ -297,8 +262,7 @@ def correlation_plot(n_tracks, dens_exp, data_labels, cmap, split_idx=None, is_p
     plt.suptitle('Density correlations : secondary structures')
 
   for row, col in dens_exp:
-    
-  
+
     if n_tracks > 1:
       ax = axarr[row, col]
     else:
@@ -322,37 +286,109 @@ def correlation_plot(n_tracks, dens_exp, data_labels, cmap, split_idx=None, is_p
     y_vals = np.log10(exp[nz])
 
     r, p = stats.pearsonr(x_vals, y_vals)
+    corr_mat[row, col] = r
 
     ax.hist2d(x_vals, y_vals,
               bins=hist_bins2d, range=(hist_range, hist_range),
               cmap=cmap)
 
-    ax.plot([0.0, max_dens], [0.0, max_dens], color='#808080', alpha=0.5, linestyle='--')
+    ax.plot([0.0, max_dens], [0.0, max_dens], color='#808080', alpha=0.5, linestyle='--', linewidth=0.5)
 
-    ax.text(0.25, max_dens-0.5, '$\\rho$=%.3f\n$n$=%d' % (r,len(x_vals)),
-            color='#404040', verticalalignment='center', alpha=0.5, fontsize=10)
+    ax.text(0.05, 0.95, '$\\rho$={:.3f}\n$n$={:,}'.format(r,len(x_vals)), transform=ax.transAxes,
+            color='#404040', verticalalignment='top', alpha=0.5, fontsize=8)
 
+            
     if row == 0:
       axr = ax.twiny()
       axr.set_xticks([])
-      axr.set_xlabel(data_labels[col])
-
-    if row == n_tracks-1:
-      ax.set_xlabel('Density')
+      axr.set_xlabel(data_labels[col], fontsize=11)
 
     if col == n_tracks-1:
       axr = ax.twinx()
       axr.set_yticks([])
-      axr.set_ylabel(data_labels[row])
+      axr.set_ylabel(data_labels[row], fontsize=11)
 
-    if col == 0:
-      ax.set_ylabel('Density')
+    if (row == n_tracks-1) and (col == int(n_tracks/2)):
+      ax.set_xlabel('Density percentile', fontsize=11)
 
-  plt.show()
+    if (col == 0) and (row == int(n_tracks/2)):
+      ax.set_ylabel('Density percentile', fontsize=11)
+  
+  if pdf:
+    pdf.savefig(dpi=PDF_DPI)
+  else:
+    plt.show()
+    
+  plt.close()
+  
+  return corr_mat
 
+def density_plot(title, mat, val_label, data_labels, cmap, pdf, vmin=None, vmax=None):  
+  
+  mh = 0.5
+  bw = 0.1
+  dh = 0.2
+  
+  n_tracks = len(mat)
+  
+  if vmax is None:
+    vmax = mat.max()
+  
+  if vmin is None:
+    if mat.min() < 0:
+      vmin = min(mat.min(), -vmax)
+    else:
+      vmin = 0.0
+      
+  fig = plt.figure()    
+  fig.set_size_inches(8, 8)
+  
+  plt.suptitle(title)
+  plt.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.9, wspace=0.04, hspace=0.04)
+  
+  ax1 = fig.add_axes([bw,bw+dh,mh,mh])
+  
+  dist_mat = distance.pdist(mat)
+  linkage = hierarchy.linkage(dist_mat, method='ward', optimal_ordering=True)
+  order = hierarchy.leaves_list(linkage)
+  
+  xylabels = [data_labels[i] for i in order]
+  xylabel_pos = np.linspace(0.0, n_tracks-1, n_tracks)
+  
+  cax1 = ax1.matshow(mat[order][:,order], cmap=cmap, aspect='auto', vmin=vmin, vmax=vmax)
+  ax1.set_xticklabels(xylabels, fontsize=8, rotation=90.0)
+  ax1.set_yticklabels(xylabels, fontsize=8)
+
+  ax1.xaxis.set_ticks(xylabel_pos)
+  ax1.xaxis.set_tick_params(which='both', direction='out')
+ 
+  ax1.yaxis.set_ticks(xylabel_pos)
+  ax1.yaxis.set_tick_params(which='both', direction='out')
+
+  dgax1 = fig.add_axes([bw, bw, mh, dh]) # left, bottom, w, h  
+  ddict = hierarchy.dendrogram(linkage, orientation='bottom', labels=data_labels,
+                               above_threshold_color='#000000', no_labels=True,
+                               link_color_func=lambda k: '#000000', ax=dgax1)
+  dgax1.set_xticklabels([])
+  dgax1.set_xticks([])
+  dgax1.set_axis_off()               
+  
+  cbax1 = fig.add_axes([bw+mh+0.05, bw+dh, 0.02, mh]) # left, bottom, w, h
+  
+  cbar = plt.colorbar(cax1, cax=cbax1, orientation='vertical')
+  cbar.ax.tick_params(labelsize=8)
+  cbar.set_label(val_label, fontsize=9)
+  
+  if pdf:
+    pdf.savefig(dpi=PDF_DPI)
+  else:
+    plt.show() 
+  
+  plt.close()
+  
 
 def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=None,
-                           out_path=None, screen_gfx=False, radius=DEFAULT_MAX_RADIUS, 
+                           out_path=None, screen_gfx=None, radius=DEFAULT_MAX_RADIUS, 
                            min_sep=DEFAULT_MIN_PARTICLE_SEP, dist_pow=DEFAULT_POW,
                            cmap=plt.get_cmap('Blues'), cache_dir=None):
   
@@ -363,7 +399,7 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
     out_path = io.check_file_ext(out_path, '.pdf')
   
   else:
-    file_name = DEFAULT_PDF_OUT.format(util.get_rand_string(5))
+    file_name = DEFAULT_PDF_OUT.format('m50Qk') # util.get_rand_string(5))
     dir_path = dirname(struc_paths1[0])
     out_path = os.path.join(dir_path, file_name)
   
@@ -388,7 +424,12 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
   
   if cache_dir and not os.path.exists(cache_dir):
     io.makedirs(cache_dir, exist_ok=True)
-  
+
+  if screen_gfx:
+    pdf = None
+  else:
+    pdf = PdfPages(out_path)  
+    
   # Get universal chromosome regions
   
   util.info('Getting chromosome limits')  
@@ -469,16 +510,18 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
  
   if struc_paths2:
     split_idx = len(struc_paths1)
-    correlation_plot(n_tracks, dens_exp, data_labels, cmap, split_idx, True)
-    correlation_plot(n_tracks, dens_exp, data_labels, cmap, split_idx, False)
+    corr_mat1 = correlation_plot(n_tracks, dens_exp, data_labels, pdf, cmap, split_idx, True)
+    corr_mat2 = correlation_plot(n_tracks, dens_exp, data_labels, pdf, cmap, split_idx, False)
   else:
-    correlation_plot(n_tracks, dens_exp, data_labels, cmap)
+    corr_mat1 = correlation_plot(n_tracks, dens_exp, data_labels, pdf, cmap)
     
   # Enrichment distribs
   
   fig, axarr = plt.subplots(n_tracks, n_tracks, sharey=True)    
+  fig.set_size_inches(*A4_INCHES)
   
   plt.suptitle('Density enrichments')
+  plt.subplots_adjust(left=0.08, bottom=0.08, right=0.95, top=0.9, wspace=0.05, hspace=0.05)
   
   js_mat = np.zeros((n_tracks, n_tracks))
   pv_mat = np.zeros((n_tracks, n_tracks)) + MIN_FLOAT
@@ -558,65 +601,66 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
     ax.plot((0.0, 100.0), (exp_val, exp_val), color='#808080', ls='--', alpha=0.5, label='Exp')
     
     js = 0.5 * (hist_obs * np.log(hist_obs/hist_exp)).sum()
-    js += 0.5 * (hist_exp * np.log(hist_exp/hist_obs)).sum()
+    #js += 0.5 * (hist_exp * np.log(hist_exp/hist_obs)).sum()
     
     pv_mat[row, col] = pv
     js_mat[row, col] = js
     
     y_max = 1.4 * exp_val
 
-    ax.text(0.15, y_max, 'JS={:.3f}\np={:.3e}\nn={:,}'.format(js,pv,n_obs),
-            color='#404040', verticalalignment='center',
-            alpha=0.5, fontsize=10)
+    ax.text(0.05, 0.95, 'JS={:.3f}\np={:.3e}'.format(js,pv),
+            color='#404040', verticalalignment='top',
+            alpha=0.5, fontsize=8, transform=ax.transAxes)
     
     if row == 0:
       axr = ax.twiny()
       axr.set_xticks([])
-      axr.set_xlabel(data_labels[col])      
+      axr.set_xlabel(data_labels[col], fontsize=8)      
     
-    if row == n_tracks-1:
-      ax.set_xlabel('Density percentile')
+    if row < (n_tracks-1):
+      ax.set_xticks([])
+
+    if (row == n_tracks-1) and (col == int(n_tracks/2)):
+      ax.set_xlabel('Density percentile', fontsize=11)
     
     if col == n_tracks-1:
       axr = ax.twinx()
       axr.set_yticks([])
-      axr.set_ylabel(data_labels[row])
+      axr.set_ylabel('{}\nn={:,}'.format(data_labels[row], n_obs), fontsize=8)
      
-    if col == 0:
-      ax.set_ylabel('Fraction total')
+    if (col == 0) and (row == int(n_tracks/2)):
+      ax.set_ylabel('Fraction total', fontsize=11)
+  
+  ax = fig.add_axes([0.1, 0.9, 0.1, 0.1])
+  ax.plot([], [], color='#0080FF', label=label1)
     
-    ax.legend(fontsize=9, frameon=False, loc='lower right')
+  if struc_paths2:
+    ax.plot([], [], color='#808080', label=label2)
     
-  plt.show() 
-       
-  fig, (ax1, ax2) = plt.subplots(2, 1)    
-  
-  pv_mat = -np.log10(pv_mat)
-  
-  cax1 = ax1.matshow(js_mat, cmap=cmap)
-  
-  x0, y0, w, h = ax1.get_position().bounds
-  cbaxes1 = fig.add_axes([x0+w, y0, 0.02, h]) # left, bottom, w, h
-  cbar = plt.colorbar(cax1, cax=cbaxes1)
-  cbar.ax.tick_params(labelsize=8)
-  cbar.set_label('Jensesn-Shannon divergence', fontsize=9)
-
-  cax2 = ax2.matshow(pv_mat, cmap=cmap)
-  
-  x0, y0, w, h = ax2.get_position().bounds
-  cbaxes2 = fig.add_axes([x0+w, y0, 0.02, h])
-  cbar = plt.colorbar(cax2, cax=cbaxes2)
-  cbar.ax.tick_params(labelsize=8)
-  cbar.set_label('-log10(P-value)', fontsize=9)
- 
-  plt.show() 
-  
-  #if pdf:
-  #  pdf.savefig(dpi=dpi)
-  #else:
-  #  plt.show() 
+  ax.plot([], [], color='#808080', ls='--', alpha=0.5, label='Exp')
+  ax.axis('off')
+  ax.legend(fontsize=11, frameon=False)
+    
+  if pdf:
+    pdf.savefig(dpi=PDF_DPI)
+  else:
+    plt.show() 
   
   plt.close()
+
+  cmap2 = LinearSegmentedColormap.from_list(name='pcm', colors=['#0060E0','#FFFFFF','#E02000'], N=255)    
+  
+  js_mat += js_mat.T
+  
+  density_plot('Density enrichment - all stuctures', js_mat, 'Jensen-Shannon divergence', data_labels, cmap2, pdf, 0.0, 0.1)
+
+  density_plot('Density correlation', corr_mat1, 'Pearson correlation coefficient', data_labels, cmap2, pdf, 0.0, 1.0)
+
+  if pdf:
+    pdf.close()
+    util.info('Written {}'.format(out_path))
+  else:
+    util.info('Done')
   
                              
 def main(argv=None):
@@ -673,7 +717,7 @@ def main(argv=None):
                          help='If set, saves intermediate results to the specified directory.' \
                               'Makes re-plotting much faster.')
 
-  arg_parse.add_argument('-colors', metavar='COLOR_SCALE', default='Blues',
+  arg_parse.add_argument('-colors', metavar='COLOR_SCALE', default='w,b,y',
                          help='Optional scale colours as a comma-separated list, e.g. "white,blue,red".' \
                               'or colormap (scheme) name, as used by matplotlib. ' \
                               'Note: #RGB style hex colours must be quoted e.g. "#FF0000,#0000FF" ' \
@@ -735,8 +779,14 @@ if __name__ == "__main__":
 """
 TTD
 ---
-Multi-page PDF
 Bootstrap graph errors
+
+Density matrices
++ all structures vs null (set hier order)
+
++ g1 vs null, g2 vs null (same order as above)
+  g1 vs g2 (SJ), g1-g2
+
 Labels, dendrogram on colour matrices
 + Split between struc groups
 
@@ -780,6 +830,7 @@ New programs
 
 ./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[12]_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed -cache sdd_temp
 
-./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell1_100kb_x10.n3d -s /home/tjs23/gh/nuc_tools/n3d/Cell2_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/Oct4_GEO.bed /data/bed/p300_GEO.bed /data/bed/H3K36me3_hap_EDL.bed /data/bed/H3K27ac_GEO.bed -cache sdd_temp
-./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[12]_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/Oct4_GEO.bed /data/bed/p300_GEO.bed /data/bed/H3K36me3_hap_EDL.bed /data/bed/H3K27ac_GEO.bed -cache sdd_temp
+./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[12]_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/Oct4_GEO.bed /data/bed/p300_GEO.bed /data/bed/H3K36me3_hap_EDL.bed -l H3K4me3 H3K27me3 H3K9me3 Oct4 p300 H3K36me3 H3K27ac -cache sdd_temp
+
+./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell1_100kb_x10.n3d -s /home/tjs23/gh/nuc_tools/n3d/Cell2_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/Oct4_GEO.bed /data/bed/p300_GEO.bed /data/bed/H3K36me3_hap_EDL.bed -l H3K4me3 H3K27me3 H3K9me3 Oct4 p300 H3K36me3 H3K27ac -cache sdd_temp
 """
