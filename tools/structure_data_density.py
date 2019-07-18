@@ -25,6 +25,7 @@ COLORMAP_URL = 'https://matplotlib.org/tutorials/colors/colormaps.html'
 MIN_FLOAT = sys.float_info.min
 DENSITY_KEY = '_DENSITY_'
 PDF_DPI = 200
+NUM_BOOTSTRAP = 100
 A4_INCHES = (11.69, 8.27)
   
 @jit(float64[:](int64[:,:], float64[:], int64, int64, int64), cache=True)  
@@ -243,8 +244,9 @@ def get_pde(dens_mat, chromo_limits, anchor_bed_path, density_bed_path, bin_size
   return dens_obs, dens_exp
     
     
-def correlation_plot(n_tracks, dens_exp, data_labels, pdf=None, cmap='Blues', split_idx=None, is_primary=True, max_dens=4.5, hist_bins2d=50):
-  
+def correlation_plot(dens_exp, data_labels, pdf=None, cmap='Blues', split_idx=None, is_primary=True, max_dens=4.5, hist_bins2d=50):
+ 
+  n_tracks = len(data_labels)
   hist_range =  (0.0, max_dens)
   fig, axarr = plt.subplots(n_tracks, n_tracks, sharex=True, sharey=True)
   fig.set_size_inches(*A4_INCHES)
@@ -308,11 +310,11 @@ def correlation_plot(n_tracks, dens_exp, data_labels, pdf=None, cmap='Blues', sp
       axr.set_yticks([])
       axr.set_ylabel(data_labels[row], fontsize=11)
 
-    if (row == n_tracks-1) and (col == int(n_tracks/2)):
-      ax.set_xlabel('Density percentile', fontsize=11)
+    if (row == n_tracks-1) and (col == 0):
+      ax.set_xlabel('Density', fontsize=11)
 
-    if (col == 0) and (row == int(n_tracks/2)):
-      ax.set_ylabel('Density percentile', fontsize=11)
+    if (col == 0) and (row == 0):
+      ax.set_ylabel('Density', fontsize=11)
   
   if pdf:
     pdf.savefig(dpi=PDF_DPI)
@@ -320,14 +322,13 @@ def correlation_plot(n_tracks, dens_exp, data_labels, pdf=None, cmap='Blues', sp
     plt.show()
     
   plt.close()
-  
-  return corr_mat
+
 
 def density_plot(title, mat, val_label, data_labels, cmap, pdf, vmin=None, vmax=None):  
   
-  mh = 0.5
-  bw = 0.1
-  dh = 0.2
+  pw = 0.65
+  bot = 0.15
+  left = 0.15
   
   n_tracks = len(mat)
   
@@ -346,11 +347,11 @@ def density_plot(title, mat, val_label, data_labels, cmap, pdf, vmin=None, vmax=
   plt.suptitle(title)
   plt.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.9, wspace=0.04, hspace=0.04)
   
-  ax1 = fig.add_axes([bw,bw+dh,mh,mh])
+  ax1 = fig.add_axes([left, bot, pw, pw])
   
   dist_mat = distance.pdist(mat)
   linkage = hierarchy.linkage(dist_mat, method='ward', optimal_ordering=True)
-  order = hierarchy.leaves_list(linkage)
+  order = hierarchy.leaves_list(linkage)[::-1]
   
   xylabels = [data_labels[i] for i in order]
   xylabel_pos = np.linspace(0.0, n_tracks-1, n_tracks)
@@ -365,17 +366,17 @@ def density_plot(title, mat, val_label, data_labels, cmap, pdf, vmin=None, vmax=
   ax1.yaxis.set_ticks(xylabel_pos)
   ax1.yaxis.set_tick_params(which='both', direction='out')
 
-  dgax1 = fig.add_axes([bw, bw, mh, dh]) # left, bottom, w, h  
-  ddict = hierarchy.dendrogram(linkage, orientation='bottom', labels=data_labels,
+  dgax1 = fig.add_axes([pw+left, bot, bot, pw]) # left, bottom, w, h  
+  ddict = hierarchy.dendrogram(linkage, orientation='right', labels=data_labels,
                                above_threshold_color='#000000', no_labels=True,
                                link_color_func=lambda k: '#000000', ax=dgax1)
   dgax1.set_xticklabels([])
   dgax1.set_xticks([])
   dgax1.set_axis_off()               
   
-  cbax1 = fig.add_axes([bw+mh+0.05, bw+dh, 0.02, mh]) # left, bottom, w, h
+  cbax1 = fig.add_axes([left, bot-0.05, pw, 0.02]) # left, bottom, w, h
   
-  cbar = plt.colorbar(cax1, cax=cbax1, orientation='vertical')
+  cbar = plt.colorbar(cax1, cax=cbax1, orientation='horizontal')
   cbar.ax.tick_params(labelsize=8)
   cbar.set_label(val_label, fontsize=9)
   
@@ -386,7 +387,417 @@ def density_plot(title, mat, val_label, data_labels, cmap, pdf, vmin=None, vmax=
   
   plt.close()
   
+  return order
+  
 
+def comparison_density_plot(title, mat1, mat2, mat12, order, val_label, data_labels, cmap, cmap2, pdf, vmin=None, vmax=None):  
+  
+  sz = 0.33
+  bot = 0.08
+  left = 0.1
+  mid = bot+sz+left+0.02
+  
+  n_tracks = len(mat1)
+  
+  if vmax is None:
+    vmax = max(mat1.max(), mat2.max())
+  
+  if vmin is None:
+    if mat1.min() < 0:
+      vmin = min(mat1.min(), mat2.min(), -vmax)
+    else:
+      vmin = 0.0
+      
+  fig = plt.figure()    
+  fig.set_size_inches(8, 8)
+  
+  plt.suptitle(title)
+  plt.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.9, wspace=0.04, hspace=0.04)
+  
+  xylabels = [data_labels[i] for i in order]
+  xylabel_pos = np.linspace(0.0, n_tracks-1, n_tracks)
+  
+  ax1 = fig.add_axes([left, mid, sz, sz])
+  ax2 = fig.add_axes([left+sz+left, mid, sz, sz])
+  ax4 = fig.add_axes([left+sz+left, bot, sz, sz])
+    
+  ax1.set_xlabel('Group 1')
+  ax2.set_xlabel('Group 2')
+  ax4.set_xlabel('Difference')
+
+  m1 = mat1[order][:,order]
+  m2 = mat2[order][:,order]
+  cax1 = ax1.matshow(m1, cmap=cmap, aspect='auto', vmin=vmin, vmax=vmax)
+  cax2 = ax2.matshow(m2, cmap=cmap, aspect='auto', vmin=vmin, vmax=vmax)
+  
+  dmax = 0.5 * vmax  
+  cax4 = ax4.matshow(m1-m2, cmap=cmap2, aspect='auto',  vmin=-dmax, vmax=dmax)  
+
+  if mat12 is not None:
+    ax3 = fig.add_axes([left, bot, sz, sz])
+    ax3.set_xlabel('Group 1 vs Group 2')
+    m12 = mat12[order][:,order]
+    cax3 = ax3.matshow(m12, cmap=cmap, aspect='auto')
+    axarr = [ax1, ax2, ax3, ax4]
+  else:
+    axarr = [ax1, ax2, ax4]
+   
+  for ax in axarr:
+    ax.set_xticklabels(xylabels, fontsize=8, rotation=45.0)
+    ax.set_yticklabels(xylabels, fontsize=8)
+
+    ax.xaxis.set_ticks(xylabel_pos)
+    ax.xaxis.set_tick_params(which='both', direction='out')
+ 
+    ax.yaxis.set_ticks(xylabel_pos)
+    ax.yaxis.set_tick_params(which='both', direction='out')
+
+  cbax1 = fig.add_axes([left+left+sz+sz+0.02, mid, 0.02, sz]) # left, bottom, w, h
+  cbax2 = fig.add_axes([left+left+sz+sz+0.02, bot, 0.02, sz]) # left, bottom, w, h
+  
+  cbar1 = plt.colorbar(cax1, cax=cbax1, orientation='vertical')
+  cbar1.ax.tick_params(labelsize=8)
+  cbar1.set_label(val_label, fontsize=9)
+
+  cbar2 = plt.colorbar(cax4, cax=cbax2, orientation='vertical')
+  cbar2.ax.tick_params(labelsize=8)
+  cbar2.set_label('Difference', fontsize=9)
+  
+  if pdf:
+    pdf.savefig(dpi=PDF_DPI)
+  else:
+    plt.show() 
+  
+  plt.close()
+
+
+def _dkl(obs, exp):
+   nz = (obs > 0) & (exp > 0)
+   obs = obs.astype(float)/float(obs.sum())
+   exp = exp.astype(float)/float(exp.sum())
+   return (obs[nz] * np.log(obs[nz]/exp[nz])).sum()
+
+
+def calc_enrichments(n_tracks, struc_paths1, struc_paths2, dens_obs, dens_null,
+                     hist_bins, symm_mat=True, hist_range=(0.0, 100.0), n_bootstrap=NUM_BOOTSTRAP):
+  
+  def _corr(vals_a, vals_b):
+    nz = (vals_a > 0) & (vals_b > 0)
+    vals_a = np.log10(vals_a[nz])
+    vals_b = np.log10(vals_b[nz])
+    r, p = stats.pearsonr(vals_a, vals_b)
+    return r
+    
+  hist_null, hist_obs0, hist_obs1, hist_obs2 = {}, {}, {}, {}
+  err0, err1, err2 = {}, {}, {}
+  
+  js_mat_all = np.zeros((n_tracks, n_tracks))
+  corr_mat_all = np.zeros((n_tracks, n_tracks))
+  
+  if struc_paths2:
+    js_mat1 = np.zeros((n_tracks, n_tracks))
+    js_mat2 = np.zeros((n_tracks, n_tracks))
+    js_mat12 = np.zeros((n_tracks, n_tracks))
+    corr_mat1 = np.zeros((n_tracks, n_tracks))
+    corr_mat2 = np.zeros((n_tracks, n_tracks))
+  else:
+    js_mat1 = js_mat_all
+    js_mat2 = None
+    js_mat12 = None
+    corr_mat1 = None
+    corr_mat2 = None
+ 
+  a = len(struc_paths1)
+    
+  for key in dens_null:
+    i, j = key 
+    
+    # All structs
+    obs0 = np.concatenate(dens_obs[key])
+    bg0 = np.sort(np.concatenate(dens_null[key]))
+    n = float(len(bg0))
+    m = len(obs0)
+     
+    obs0 = np.searchsorted(bg0, obs0).astype(float)
+    obs0 *= 100.0/(n+1.0)
+
+    hist_obs0[key], edges = np.histogram(obs0, bins=hist_bins, range=hist_range)
+    
+    bs_hists = np.zeros((n_bootstrap, hist_bins))
+    for k in range(n_bootstrap):
+      idx = np.random.randint(0, m-1, m)
+      sample_wr = obs0[idx]
+      bs_hists[k], edges = np.histogram(sample_wr, bins=hist_bins, range=hist_range)
+    
+    err0[key] = bs_hists.std(axis=0)
+    
+    if struc_paths2: # Compare two structure groups
+      bg1 = np.sort(np.concatenate(dens_null[key][:a]))
+      obs1 = np.concatenate(dens_obs[key][:a])
+      obs1 = np.searchsorted(bg1, obs1).astype(float)
+      n = float(len(bg1))      
+      obs1 *= 100.0/(n+1.0)
+      m1 = len(obs1)
+      
+      bg2 = np.sort(np.concatenate(dens_null[key][a:]))
+      obs2 = np.concatenate(dens_obs[key][a:])
+      obs2 = np.searchsorted(bg2, obs2).astype(float)
+      n = float(len(bg2))      
+      obs2 *= 100.0/(n+1.0)
+      m2 = len(obs2)
+      
+      hist_obs1[key], edges = np.histogram(obs1, bins=hist_bins, range=hist_range)
+      hist_obs2[key], edges = np.histogram(obs2, bins=hist_bins, range=hist_range)
+      
+      bs_hists1 = np.zeros((n_bootstrap, hist_bins))
+      bs_hists2 = np.zeros((n_bootstrap, hist_bins))
+      for k in range(n_bootstrap):
+        idx = np.random.randint(0, m1-1, m1)
+        bs_hists1[k], edges = np.histogram(obs1[idx], bins=hist_bins, range=hist_range)
+        idx = np.random.randint(0, m2-1, m2)
+        bs_hists2[k], edges = np.histogram(obs2[idx], bins=hist_bins, range=hist_range)
+      
+      err1[key] = bs_hists1.std(axis=0)
+      err2[key] = bs_hists2.std(axis=0)
+      
+    else: # Compare vs random
+      hist_obs1[key] = hist_obs0[key]
+
+    exp = np.linspace(0.0, 100.0, hist_bins) 
+    null, edges = np.histogram(exp, bins=hist_bins, range=hist_range)
+    hist_null[key] = null
+
+    js_mat_all[i,j] = _dkl(hist_obs0[key], null)
+    corr_mat_all[i,j] = _corr(np.concatenate(dens_null[(i,i)]), np.concatenate(dens_null[key]))
+    
+    if struc_paths2:
+      js_mat1[i,j] = _dkl(hist_obs1[key], null)
+      js_mat2[i,j] = _dkl(hist_obs2[key], null)
+      js_mat12[i,j] = _dkl(hist_obs1[key], hist_obs2[key])
+      corr_mat1[i,j] = _corr(np.concatenate(dens_null[(i,i)][:a]), np.concatenate(dens_null[key][:a]))
+      corr_mat2[i,j] = _corr(np.concatenate(dens_null[(i,i)][a:]), np.concatenate(dens_null[key][a:]))
+
+  if symm_mat:
+    js_mat_all += js_mat_all.T
+    js_mat_all /= 2.0
+    
+    if struc_paths2:
+      js_mat1 +=js_mat1.T
+      js_mat2 +=js_mat2.T
+      js_mat12 +=js_mat12.T
+      js_mat1 /= 2.0
+      js_mat2 /= 2.0
+      js_mat12 /= 2.0
+      
+  return hist_null, hist_obs0, hist_obs1, hist_obs2, js_mat_all, js_mat1, js_mat2, js_mat12, corr_mat_all, corr_mat1, corr_mat2, err0, err1, err2
+  
+  
+def plot_enrichment_distribs(data_labels, hist_null, hist_obs0, hist_obs1, hist_obs2, err0, err1, err2, hist_bins, pdf):
+  
+  n_tracks = len(data_labels)
+  
+  fig, axarr = plt.subplots(n_tracks, n_tracks, sharey=True)    
+  fig.set_size_inches(*A4_INCHES)
+  
+  plt.suptitle('Density enrichments')
+  plt.subplots_adjust(left=0.08, bottom=0.08, right=0.95, top=0.9, wspace=0.05, hspace=0.05)
+  
+  hist_range = (0.0, 100.0)
+  exp_val = 1.0/hist_bins
+  
+  
+  for key in hist_null:
+    row, col = key
+    
+    if n_tracks > 1:
+      ax = axarr[row, col]
+    else:
+      ax = axarr
+    
+    if hist_obs2: # Compare two structure groups
+      hist_obs = hist_obs1[key]
+      hist_exp = hist_obs2[key]
+      err1 = err0
+      label1 = 'Group1'
+      label2 = 'Group2'
+      
+    else: # Compare vs random
+      hist_obs = hist_obs0[key]
+      hist_exp = hist_null[key]
+      label1 = 'Obs'
+    
+    n_obs = hist_obs.sum()
+    x_vals = np.linspace(0.0, 100.0, hist_bins) 
+    
+    nz = (hist_obs > 0) & (hist_exp > 0)
+
+    hist_obs = hist_obs[nz].astype(float)
+    hist_exp = hist_exp[nz].astype(float)
+    
+    z, pv = stats.power_divergence(hist_obs, hist_exp*n_obs/hist_exp.sum(), lambda_=0)
+    pv = max(pv, MIN_FLOAT)
+    
+    x_vals = x_vals[nz]
+    
+    s1 = float(hist_obs.sum())
+    s2 = float(hist_exp.sum())
+    
+    hist_obs /= s1
+    hist_exp /= s2
+       
+    ax.plot(x_vals, hist_obs, color='#0080FF', label=label1)
+    ax.errorbar(x_vals, hist_obs, err1[key]/s1, color='#0080FF', label=label1)
+    
+    if hist_obs2:
+      ax.plot(x_vals, hist_exp, color='#808080', label=label2)
+      ax.errorbar(x_vals, hist_exp, err2[key]/s2, color='#808080', label=label2)
+    
+    ax.plot((0.0, 100.0), (exp_val, exp_val), color='#808080', ls='--', alpha=0.5, label='Exp')
+    
+    js = 0.5 * (hist_obs * np.log(hist_obs/hist_exp)).sum()
+    js += 0.5 * (hist_exp * np.log(hist_exp/hist_obs)).sum()
+    y_max = 1.4 * exp_val
+
+    ax.text(0.05, 0.95, 'JS={:.3f}\np={:.3e}'.format(js,pv),
+            color='#404040', verticalalignment='top',
+            alpha=0.5, fontsize=8, transform=ax.transAxes)
+    
+    if row == 0:
+      axr = ax.twiny()
+      axr.set_xticks([])
+      axr.set_xlabel(data_labels[col], fontsize=8)      
+    
+    if row < (n_tracks-1):
+      ax.set_xticks([])
+
+    if (row == n_tracks-1) and (col == 0):
+      ax.set_xlabel('Density percentile', fontsize=11)
+    
+    if col == n_tracks-1:
+      axr = ax.twinx()
+      axr.set_yticks([])
+      axr.set_ylabel('{}\nn={:,}'.format(data_labels[row], n_obs), fontsize=8)
+     
+    if (col == 0) and (row == 0):
+      ax.set_ylabel('Fraction total', fontsize=11)
+  
+  ax = fig.add_axes([0.1, 0.9, 0.1, 0.1])
+  ax.plot([], [], color='#0080FF', label=label1)
+    
+  if hist_obs2:
+    ax.plot([], [], color='#808080', label=label2)
+    
+  ax.plot([], [], color='#808080', ls='--', alpha=0.5, label='Exp')
+  ax.axis('off')
+  ax.legend(fontsize=11, frameon=False, ncol=2)
+    
+  if pdf:
+    pdf.savefig(dpi=PDF_DPI)
+  else:
+    plt.show() 
+  
+  plt.close()
+
+def plot_separate_structures(data_labels, struc_labels, dens_exp, dens_obs, split_idx, pdf, cmap, hist_bins, hist_range=(0.0, 100.0)):
+      
+  fig = plt.figure()    
+  fig.set_size_inches(8, 8)
+  
+  plt.suptitle('Structure density enrichment comparison')
+  plt.subplots_adjust(left=0.08, bottom=0.08, right=0.95, top=0.9, wspace=0.05, hspace=0.05)
+
+  n_tracks = len(data_labels)
+  n_strucs = len(struc_labels)
+  
+  xlabels = []
+  keys = []
+  for i, label1 in enumerate(data_labels):
+    for j, label2 in enumerate(data_labels[i:], i):
+      xlabels.append('%s\n%s' % (label1, label2))
+      keys.append((i,j))
+      
+  n_cols = len(xlabels)
+  
+  ax1 = fig.add_axes([0.2, 0.1, 0.5, 0.7])
+  
+  mat = np.zeros((n_strucs, n_cols))
+  null = np.linspace(0.0, 100.0, hist_bins) 
+  hist_null, edges = np.histogram(null, bins=hist_bins, range=hist_range)
+  is_secondary = []
+  
+  for row in range(n_strucs):
+    for col, key in enumerate(keys):
+      i, j = key
+      bg1  = np.sort(dens_exp[key][row])  # Null
+      obs1 = np.searchsorted(bg1, dens_obs[key][row]).astype(float)  
+      obs1 *= 100.0/(float(len(bg1))+1.0)
+      
+      bg2  = np.sort(dens_exp[(j,i)][row]) # Null
+      obs2 = np.searchsorted(bg2, dens_obs[(j,i)][row]).astype(float)     
+      obs2 *= 100.0/(float(len(bg2))+1.0)
+      
+      hist_obs1, edges = np.histogram(obs1, bins=hist_bins, range=hist_range)
+      hist_obs2, edges = np.histogram(obs2, bins=hist_bins, range=hist_range)
+
+      mat[row, col] =  (_dkl(hist_obs1, hist_null) + _dkl(hist_obs2, hist_null))/2.0
+  
+    if row < split_idx:
+      is_secondary.append(False)
+    else:
+      is_secondary.append(True)
+      
+  dist_mat = distance.pdist(mat)
+  linkage_y = hierarchy.linkage(dist_mat, method='ward', optimal_ordering=True)
+  order_y = hierarchy.leaves_list(linkage_y)[::-1]
+
+  dist_mat = distance.pdist(mat.T)
+  linkage_x = hierarchy.linkage(dist_mat, method='ward', optimal_ordering=True)
+  order_x = hierarchy.leaves_list(linkage_x)[::-1]
+  
+  xlabels = [xlabels[i] for i in order_x]
+  xlabel_pos = np.linspace(0.0, n_cols-1, n_cols)
+  
+  is_secondary = [is_secondary[i] for i in order_y]
+  ylabels = [struc_labels[i] for i in order_y]
+  ylabel_pos = np.linspace(0.0, n_strucs-1, n_strucs)
+  
+  cax = ax1.matshow(mat[order_y][:,order_x], cmap=cmap, aspect='auto', vmin=0.0)
+  
+  ax1.set_xticklabels(xlabels, fontsize=8, rotation=90.0)
+  ax1.set_yticklabels(ylabels, fontsize=8)
+
+  ax1.xaxis.set_ticks(xlabel_pos)
+  ax1.xaxis.set_tick_params(which='both', direction='out')
+ 
+  ax1.yaxis.set_ticks(ylabel_pos)
+  ax1.yaxis.set_tick_params(which='both', direction='out')
+
+  for i, text in enumerate(ax1.get_yticklabels()):
+    if is_secondary[i]:
+      text.set_color('#E00000')
+
+  ax2 = fig.add_axes([0.7, 0.1, 0.2, 0.7]) # Dendrogram  
+  ddict = hierarchy.dendrogram(linkage_y, orientation='right', labels=struc_labels,
+                               above_threshold_color='#000000', no_labels=True,
+                               link_color_func=lambda k: '#000000', ax=ax2)
+  ax2.set_xticklabels([])
+  ax2.set_xticks([])
+  ax2.set_axis_off()               
+  
+  ax3 = fig.add_axes([0.2, 0.05, 0.5, 0.02]) # left, bottom, w, h
+  
+  cbar = plt.colorbar(cax, cax=ax3, orientation='horizontal')
+  cbar.ax.tick_params(labelsize=8)
+  cbar.set_label('JS divergence', fontsize=9)  
+  
+  if pdf:
+    pdf.savefig(dpi=PDF_DPI)
+  else:
+    plt.show() 
+  
+  plt.close()
+  
+ 
 def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=None,
                            out_path=None, screen_gfx=None, radius=DEFAULT_MAX_RADIUS, 
                            min_sep=DEFAULT_MIN_PARTICLE_SEP, dist_pow=DEFAULT_POW,
@@ -504,157 +915,37 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
         dens_exp[key].append(exp)
         
   # Correlations
+  cmap2 = LinearSegmentedColormap.from_list(name='pcm', colors=['#0060E0','#FFFFFF','#E02000'], N=255)    
   
-  hist_bins = 25
+  hist_bins = 20
   hist_bins2d = 50
  
   if struc_paths2:
     split_idx = len(struc_paths1)
-    corr_mat1 = correlation_plot(n_tracks, dens_exp, data_labels, pdf, cmap, split_idx, True)
-    corr_mat2 = correlation_plot(n_tracks, dens_exp, data_labels, pdf, cmap, split_idx, False)
+    correlation_plot(dens_exp, data_labels, pdf, cmap, split_idx, True)
+    correlation_plot(dens_exp, data_labels, pdf, cmap, split_idx, False)
   else:
-    corr_mat1 = correlation_plot(n_tracks, dens_exp, data_labels, pdf, cmap)
+    correlation_plot(dens_exp, data_labels, pdf, cmap)
+    
+  hist_null, hist_obs0, hist_obs1, hist_obs2, js_mat_all, js_mat1, js_mat2, js_mat12, corr_mat_all, corr_mat1, corr_mat2, err0, err1, err2 = calc_enrichments(n_tracks, struc_paths1, struc_paths2, dens_obs, dens_exp, hist_bins)
+  
+  order = density_plot('Density correlation - all sites', corr_mat_all, 'Pearson correlation coefficient', data_labels, cmap, pdf, 0.0, 1.0)
+  
+  if struc_paths2:
+    comparison_density_plot('Density correlation comparison', corr_mat1, corr_mat2, None, order, 'Pearson correlation coefficient', data_labels, cmap, cmap2, pdf)
     
   # Enrichment distribs
   
-  fig, axarr = plt.subplots(n_tracks, n_tracks, sharey=True)    
-  fig.set_size_inches(*A4_INCHES)
-  
-  plt.suptitle('Density enrichments')
-  plt.subplots_adjust(left=0.08, bottom=0.08, right=0.95, top=0.9, wspace=0.05, hspace=0.05)
-  
-  js_mat = np.zeros((n_tracks, n_tracks))
-  pv_mat = np.zeros((n_tracks, n_tracks)) + MIN_FLOAT
-  hist_range = (0.0, 100.0)
-  exp_val = 1.0/hist_bins
-  
-  for key in dens_exp:
-    row, col = key
-    
-    if n_tracks > 1:
-      ax = axarr[row, col]
-    else:
-      ax = axarr
-    
-    if struc_paths2: # Compare two structure groups
-      a = len(struc_paths1)
-      exp1 = np.sort(np.concatenate(dens_exp[key][:a]))
-      obs1 = np.concatenate(dens_obs[key][:a])
-      obs1 = np.searchsorted(exp1, obs1).astype(float)
-      n = float(len(exp1))      
-      obs1 *= 100.0/(n+1.0)
-      
-      exp2 = np.sort(np.concatenate(dens_exp[key][a:]))
-      obs2 = np.concatenate(dens_obs[key][a:])
-      obs2 = np.searchsorted(exp2, obs2).astype(float)
-      n = float(len(exp2))      
-      obs2 *= 100.0/(n+1.0)
-           
-      hist_obs, edges = np.histogram(obs1, bins=hist_bins, range=hist_range)
-      hist_exp, edges = np.histogram(obs2, bins=hist_bins, range=hist_range)
-      
-      label1 = 'Group1'
-      label2 = 'Group2'
-      
-    else: # Compare vs random
-      obs = np.concatenate(dens_obs[key])
-      exp = np.sort(np.concatenate(dens_exp[key]))
-      n = float(len(exp)) 
-      
-      obs = np.searchsorted(exp, obs).astype(float)
-      obs *= 100.0/(n+1.0)
-      
-      exp = np.linspace(0.0, 100.0, hist_bins) 
-      
-      label1 = 'Obs'
-      
-      # Log
-      #obs = np.log10(obs[obs > 0])
-      #exp = np.log10(exp[exp > 0])
- 
-      hist_obs, edges = np.histogram(obs, bins=hist_bins, range=hist_range)
-      hist_exp, edges = np.histogram(exp, bins=hist_bins, range=hist_range)
-    
-    n_obs = hist_obs.sum()
-    x_vals = np.linspace(0.0, 100.0, hist_bins) 
-    
-    nz = (hist_obs > 0) & (hist_exp > 0)
+  plot_enrichment_distribs(data_labels, hist_null, hist_obs0, hist_obs1, hist_obs2, err0, err1, err2, hist_bins, pdf)
 
-    hist_obs = hist_obs[nz].astype(float)
-    hist_exp = hist_exp[nz].astype(float)
-    
-    hist_exp *= n_obs/hist_exp.sum()
-    
-    z, pv = stats.power_divergence(hist_obs, hist_exp, lambda_=0)
-    pv = max(pv, MIN_FLOAT)
-    
-    x_vals = x_vals[nz]
-    
-    hist_obs /= float(hist_obs.sum())
-    hist_exp /= float(hist_exp.sum())
-       
-    ax.plot(x_vals, hist_obs, color='#0080FF', label=label1)
-    
-    if struc_paths2:
-      ax.plot(x_vals, hist_exp, color='#808080', label=label2)
-    
-    ax.plot((0.0, 100.0), (exp_val, exp_val), color='#808080', ls='--', alpha=0.5, label='Exp')
-    
-    js = 0.5 * (hist_obs * np.log(hist_obs/hist_exp)).sum()
-    #js += 0.5 * (hist_exp * np.log(hist_exp/hist_obs)).sum()
-    
-    pv_mat[row, col] = pv
-    js_mat[row, col] = js
-    
-    y_max = 1.4 * exp_val
-
-    ax.text(0.05, 0.95, 'JS={:.3f}\np={:.3e}'.format(js,pv),
-            color='#404040', verticalalignment='top',
-            alpha=0.5, fontsize=8, transform=ax.transAxes)
-    
-    if row == 0:
-      axr = ax.twiny()
-      axr.set_xticks([])
-      axr.set_xlabel(data_labels[col], fontsize=8)      
-    
-    if row < (n_tracks-1):
-      ax.set_xticks([])
-
-    if (row == n_tracks-1) and (col == int(n_tracks/2)):
-      ax.set_xlabel('Density percentile', fontsize=11)
-    
-    if col == n_tracks-1:
-      axr = ax.twinx()
-      axr.set_yticks([])
-      axr.set_ylabel('{}\nn={:,}'.format(data_labels[row], n_obs), fontsize=8)
-     
-    if (col == 0) and (row == int(n_tracks/2)):
-      ax.set_ylabel('Fraction total', fontsize=11)
+  order = density_plot('Density enrichment - all stuctures', js_mat_all, 'Jensen-Shannon divergence', data_labels, cmap, pdf) # , 0.0, 0.1)
   
-  ax = fig.add_axes([0.1, 0.9, 0.1, 0.1])
-  ax.plot([], [], color='#0080FF', label=label1)
-    
   if struc_paths2:
-    ax.plot([], [], color='#808080', label=label2)
+    comparison_density_plot('Density enrichment comparison', js_mat1, js_mat2, js_mat12, order, 'Jensen-Shannon divergence', data_labels, cmap, cmap2, pdf)
+  
+  struc_labels = [os.path.basename(os.path.splitext(path)[0]) for path in struc_paths1+struc_paths2]
     
-  ax.plot([], [], color='#808080', ls='--', alpha=0.5, label='Exp')
-  ax.axis('off')
-  ax.legend(fontsize=11, frameon=False)
-    
-  if pdf:
-    pdf.savefig(dpi=PDF_DPI)
-  else:
-    plt.show() 
-  
-  plt.close()
-
-  cmap2 = LinearSegmentedColormap.from_list(name='pcm', colors=['#0060E0','#FFFFFF','#E02000'], N=255)    
-  
-  js_mat += js_mat.T
-  
-  density_plot('Density enrichment - all stuctures', js_mat, 'Jensen-Shannon divergence', data_labels, cmap2, pdf, 0.0, 0.1)
-
-  density_plot('Density correlation', corr_mat1, 'Pearson correlation coefficient', data_labels, cmap2, pdf, 0.0, 1.0)
+  plot_separate_structures(data_labels, struc_labels, dens_exp, dens_obs, len(struc_paths1), pdf, cmap, hist_bins) 
 
   if pdf:
     pdf.close()
@@ -779,22 +1070,8 @@ if __name__ == "__main__":
 """
 TTD
 ---
-Bootstrap graph errors
-
-Density matrices
-+ all structures vs null (set hier order)
-
-+ g1 vs null, g2 vs null (same order as above)
-  g1 vs g2 (SJ), g1-g2
-
-Labels, dendrogram on colour matrices
-+ Split between struc groups
-
-Structure differences matrix 
-+ hierarchical order
-+ cols from data pairs
-+ separately for two groups
-
+Better null - more local context
+Fig size expands with num tracks etc.
 --
 
 Proper distrib p-values
@@ -833,4 +1110,7 @@ New programs
 ./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[12]_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/Oct4_GEO.bed /data/bed/p300_GEO.bed /data/bed/H3K36me3_hap_EDL.bed -l H3K4me3 H3K27me3 H3K9me3 Oct4 p300 H3K36me3 H3K27ac -cache sdd_temp
 
 ./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell1_100kb_x10.n3d -s /home/tjs23/gh/nuc_tools/n3d/Cell2_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/Oct4_GEO.bed /data/bed/p300_GEO.bed /data/bed/H3K36me3_hap_EDL.bed -l H3K4me3 H3K27me3 H3K9me3 Oct4 p300 H3K36me3 H3K27ac -cache sdd_temp
+
+./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[2358]_100kb_x10.n3d -s /home/tjs23/gh/nuc_tools/n3d/Cell[1467]_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/H3K27ac_GEO.bed -l H3K4me3 H3K27me3 H3K9me3 H3K27ac -cache sdd_temp
+
 """
