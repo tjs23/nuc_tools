@@ -3,7 +3,6 @@ import numpy as np
 from time import time
 from collections import defaultdict
 
-from numba import jit, int32, float64, int64
 from os.path import dirname
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
@@ -26,88 +25,73 @@ MIN_FLOAT = sys.float_info.min
 DENSITY_KEY = '_DENSITY_'
 PDF_DPI = 200
 NUM_BOOTSTRAP = 100
-A4_INCHES = (11.69, 8.27)
-  
-@jit(float64[:](int64[:,:], float64[:], int64, int64, int64), cache=True)  
-def bin_region_values(regions, values, bin_size=1000, start=0, end=-1):
+
+
+def bin_region_values(regions, values, bin_size, start, end):
   """
   Bin input regions and asscociated values into a histogram of new, regular
   regions. Accounts for partial overlap using proportinal allocation.
-  """
-                    
+  """  
   n = values.shape[0]
   
   if len(regions) != n:
     data = (len(regions), n)
     msg = 'Number of regions (%d) does not match number of values (%d)'
-    raise Exception(msg % data) 
+    raise Exception(msg % data)  
   
-  if end < 0:
-    end = bin_size * np.int32(regions.max() / bin_size)
+  np.sort(regions)
+  sort_idx = regions[:,0].argsort()
+  regions = regions[sort_idx]
+  values = values[sort_idx]
+    
+  s = int(start/bin_size)
+  e = int(math.ceil(end/float(bin_size)))
+  n_bins = e-s
+  value_hist = np.zeros(n_bins, float)
   
-  s = start/bin_size
-  e = end/bin_size
-  n_bins = 1+e-s
+  s *= bin_size
+  e *= bin_size   
+  boundaries = np.linspace(s,e,n_bins)
+ 
+  starts = regions[:,0]
+  ends = regions[:,1]  
+  start_bin  = np.searchsorted(boundaries, starts, side='right')
+  end_bin    = np.searchsorted(boundaries, ends, side='right')
   
-  hist = np.zeros(n_bins, float)
-  
-  for i in range(n):
-    v = values[i]
-    
-    if regions[i,0] > regions[i,1]:
-      p1 = regions[i,1] 
-      p2 = regions[i,0]
-    
-    else:
-      p1 = regions[i,0]
-      p2 = regions[i,1]
-    
-    if end < p1:
-      continue
-    
-    if start > p2:
-      continue
-      
-    b1 = p1 / bin_size
-    b2 = p2 / bin_size
-    r = float(p2-p1)
-    
-    if b1 == b2: # All in one bin
-      if b1 < s:
-        continue
-      
-      if b1 > e:
-        continue
-        
-      hist[b1-s] += v
+  keep = (start_bin > 0) & (end_bin < n_bins) # Data often exceeds common structure regions
 
-    else:
-      
-      for b3 in range(b1, b2+1): # Region ovelaps bins
-        if b3 < s:
-          continue
-        
-        if b3 >= e:
-          break  
-        
-        p3 = b3 * bin_size
-        p4 = p3 + bin_size
-        
-        if (p1 >= p3) and (p1 < p4): # Start of region in bin 
-          f = float(p4 - p1) / r 
-        
+  mask = (end_bin == start_bin) & keep
+  value_hist[start_bin[mask]] += values[mask]
+  
+  spanning = (~mask & keep).nonzero()[0]
+  
+  if len(spanning): # Overlapping cases (should be rare)
+    for i in spanning:
+      v = values[i]
+      p1 = starts[i]
+      p2 = ends[i]
+      r = float(p2-p1)
+ 
+      for j in range(start_bin[i], end_bin[i]+1): # Region ovelaps bins 
+        p3 = s + j * bin_size # Bin start pos
+        p4 = p3 + bin_size    # Bin limit
+ 
+        if (p1 >= p3) and (p1 < p4): # Start of region in bin
+          f = float(p4 - p1) / r
+ 
         elif (p2 >= p3) and (p2 < p4): # End of region in bin
-          f = float(p2 - p3) / r 
-          
+          f = float(p2 - p3) / r
+ 
         elif (p1 < p3) and (p2 > p4): # Mid region in bin
           f = bin_size / r
-        
+ 
         else:
           f = 0.0
-        
-        hist[b3-s] += v * f
+ 
+        value_hist[j] += v * f
   
-  return hist
+  return value_hist
+
   
 def get_point_density(d_mat, idx_a, idx_b, values):
 
@@ -216,6 +200,7 @@ def get_pde(dens_mat, chromo_limits, anchor_bed_path, density_bed_path, bin_size
   anch_idx = []
   data_idx = []
   data_values = []
+  #anch_values = []
   
   # Get flat arrays of track data, using same regions as particle arrays
   a = 0
@@ -237,9 +222,18 @@ def get_pde(dens_mat, chromo_limits, anchor_bed_path, density_bed_path, bin_size
   anch_idx = np.concatenate(anch_idx, axis=0)
   data_idx = np.concatenate(data_idx, axis=0)
   
+  #data_values = stats.rankdata(data_values)
+  #data_values /= data_values.max()
+  
   # Calc observed spatial density for this structure's particles
-  dens_obs = get_point_density(dens_mat, anch_idx, data_idx, data_values)
-  dens_exp = get_point_density(dens_mat, None, data_idx, data_values)
+  dens_obs = get_point_density(dens_mat, anch_idx, data_idx, data_values) # A vs B
+  
+  #null_idx = sorted(set(range(len(dens_mat))) - set(anch_idx)) # opposite
+  
+  #null_idx =  set(anch_idx+4) | set(anch_idx-4)
+  #null_idx = sorted(set(range(len(dens_mat))) & null_idx) # opposite
+  
+  dens_exp = get_point_density(dens_mat, None, data_idx, data_values) # All points vs B
 
   return dens_obs, dens_exp
     
@@ -247,9 +241,11 @@ def get_pde(dens_mat, chromo_limits, anchor_bed_path, density_bed_path, bin_size
 def correlation_plot(dens_exp, data_labels, pdf=None, cmap='Blues', split_idx=None, is_primary=True, max_dens=4.5, hist_bins2d=50):
  
   n_tracks = len(data_labels)
-  hist_range =  (0.0, max_dens)
+  hist_range = (0.0, max_dens)
+  plot_size = max(8, n_tracks)
   fig, axarr = plt.subplots(n_tracks, n_tracks, sharex=True, sharey=True)
-  fig.set_size_inches(*A4_INCHES)
+  fig.set_size_inches(plot_size, plot_size)
+  
   plt.subplots_adjust(left=0.1, bottom=0.1, right=0.95, top=0.9, wspace=0.05, hspace=0.05)
   
   corr_mat = np.zeros((n_tracks, n_tracks))
@@ -341,8 +337,9 @@ def density_plot(title, mat, val_label, data_labels, cmap, pdf, vmin=None, vmax=
     else:
       vmin = 0.0
       
+  plot_size = max(8, 0.25*n_tracks)
   fig = plt.figure()    
-  fig.set_size_inches(8, 8)
+  fig.set_size_inches(plot_size, plot_size)
   
   plt.suptitle(title)
   plt.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.9, wspace=0.04, hspace=0.04)
@@ -408,8 +405,9 @@ def comparison_density_plot(title, mat1, mat2, mat12, order, val_label, data_lab
     else:
       vmin = 0.0
       
+  plot_size = max(8, 0.25*n_tracks)
   fig = plt.figure()    
-  fig.set_size_inches(8, 8)
+  fig.set_size_inches(plot_size, plot_size)
   
   plt.suptitle(title)
   plt.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.9, wspace=0.04, hspace=0.04)
@@ -596,15 +594,16 @@ def plot_enrichment_distribs(data_labels, hist_null, hist_obs0, hist_obs1, hist_
   
   n_tracks = len(data_labels)
   
+  plot_width = max(10, 1.25*n_tracks)
+  plot_height = max(8, n_tracks)
   fig, axarr = plt.subplots(n_tracks, n_tracks, sharey=True)    
-  fig.set_size_inches(*A4_INCHES)
+  fig.set_size_inches(plot_width, plot_height)
   
   plt.suptitle('Density enrichments')
   plt.subplots_adjust(left=0.08, bottom=0.08, right=0.95, top=0.9, wspace=0.05, hspace=0.05)
   
   hist_range = (0.0, 100.0)
   exp_val = 1.0/hist_bins
-  
   
   for key in hist_null:
     row, col = key
@@ -617,11 +616,11 @@ def plot_enrichment_distribs(data_labels, hist_null, hist_obs0, hist_obs1, hist_
     if hist_obs2: # Compare two structure groups
       hist_obs = hist_obs1[key]
       hist_exp = hist_obs2[key]
-      err1 = err0
       label1 = 'Group1'
       label2 = 'Group2'
       
     else: # Compare vs random
+      err1 = err0
       hist_obs = hist_obs0[key]
       hist_exp = hist_null[key]
       label1 = 'Obs'
@@ -681,7 +680,7 @@ def plot_enrichment_distribs(data_labels, hist_null, hist_obs0, hist_obs1, hist_
     if (col == 0) and (row == 0):
       ax.set_ylabel('Fraction total', fontsize=11)
   
-  ax = fig.add_axes([0.1, 0.9, 0.1, 0.1])
+  ax = fig.add_axes([0.2, 0.9, 0.1, 0.1])
   ax.plot([], [], color='#0080FF', label=label1)
     
   if hist_obs2:
@@ -699,16 +698,7 @@ def plot_enrichment_distribs(data_labels, hist_null, hist_obs0, hist_obs1, hist_
   plt.close()
 
 def plot_separate_structures(data_labels, struc_labels, dens_exp, dens_obs, split_idx, pdf, cmap, hist_bins, hist_range=(0.0, 100.0)):
-      
-  fig = plt.figure()    
-  fig.set_size_inches(8, 8)
-  
-  plt.suptitle('Structure density enrichment comparison')
-  plt.subplots_adjust(left=0.08, bottom=0.08, right=0.95, top=0.9, wspace=0.05, hspace=0.05)
 
-  n_tracks = len(data_labels)
-  n_strucs = len(struc_labels)
-  
   xlabels = []
   keys = []
   for i, label1 in enumerate(data_labels):
@@ -716,7 +706,17 @@ def plot_separate_structures(data_labels, struc_labels, dens_exp, dens_obs, spli
       xlabels.append('%s\n%s' % (label1, label2))
       keys.append((i,j))
       
+  n_tracks = len(data_labels)
+  n_strucs = len(struc_labels)
   n_cols = len(xlabels)
+      
+  fig = plt.figure()    
+  plot_width = max(8, 0.2*n_cols)
+  plot_height =  max(8, 0.2*n_strucs)
+  
+  fig.set_size_inches(plot_width, plot_height)
+  plt.suptitle('Structure density enrichment comparison')
+  plt.subplots_adjust(left=0.08, bottom=0.08, right=0.95, top=0.9, wspace=0.05, hspace=0.05)
   
   ax1 = fig.add_axes([0.2, 0.1, 0.5, 0.7])
   
@@ -810,7 +810,8 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
     out_path = io.check_file_ext(out_path, '.pdf')
   
   else:
-    file_name = DEFAULT_PDF_OUT.format('m50Qk') # util.get_rand_string(5))
+    #file_name = DEFAULT_PDF_OUT.format('m50Qk')
+    file_name = DEFAULT_PDF_OUT.format(util.get_rand_string(5))
     dir_path = dirname(struc_paths1[0])
     out_path = os.path.join(dir_path, file_name)
   
@@ -819,7 +820,7 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
     util.info(msg.format(len(data_tracks), len(struc_paths1), len(struc_paths2)))
   
   else:
-    msg = 'Analysing {} data tracks with {} structures, using a random background.'
+    msg = 'Analysing {} data tracks with {} structures.'
     util.info(msg.format(len(data_tracks), len(struc_paths1)))
 
   if data_labels:
@@ -1056,6 +1057,12 @@ def main(argv=None):
     if not os.path.exists(in_path):
       util.critical('Input file "{}" could not be found'.format(in_path))
   
+  nl = len(data_labels)
+  nd = len(data_tracks)
+  if nl and  nl > nd:
+    util.warn('Number of data labels (%d) exceeds the number of data track files (%d)' % (nl, nd))
+    data_labels = data_labels[:nd]
+  
   structure_data_density(struc_paths1, struc_paths2,
                          data_tracks, data_labels,
                          out_path, screen_gfx,
@@ -1070,14 +1077,17 @@ if __name__ == "__main__":
 """
 TTD
 ---
+Btter default PDF names
++ job_1, n_structs and d_tracks
+
 Better null - more local context
-Fig size expands with num tracks etc.
++ shuffle data values : keeps the right sites only ?
++ 
+
 --
 
 Proper distrib p-values
 MD5sum caching 
-Reduce memory use
-
 --
 
 
@@ -1085,7 +1095,7 @@ New programs
 
  Compare tracks
  - Correlate region binned data track values
- - Quantile or log norm
+ - Quantile AND log norm
  - Different tracks relative to a reference
    
    + Reference is x-axis
@@ -1093,7 +1103,7 @@ New programs
      Separate sub-plots
      - Density plot
      - Box/violin plot
-     - Scatter
+     - Scatter/density
      Combined plot
      - Lines with errs
 
@@ -1105,11 +1115,11 @@ New programs
  
 ./nuc_tools structure_data_density -h  
 
-./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[12]_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed -cache sdd_temp
+./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[12]_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed  /data/bed/H3K27ac_GEO.bed  -l H3K4me3 H3K27me3 H3K9me3 H3K27ac -cache sdd_temp2
 
 ./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[12]_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/Oct4_GEO.bed /data/bed/p300_GEO.bed /data/bed/H3K36me3_hap_EDL.bed -l H3K4me3 H3K27me3 H3K9me3 Oct4 p300 H3K36me3 H3K27ac -cache sdd_temp
 
-./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell1_100kb_x10.n3d -s /home/tjs23/gh/nuc_tools/n3d/Cell2_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/Oct4_GEO.bed /data/bed/p300_GEO.bed /data/bed/H3K36me3_hap_EDL.bed -l H3K4me3 H3K27me3 H3K9me3 Oct4 p300 H3K36me3 H3K27ac -cache sdd_temp
+./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[23]_100kb_x10.n3d -s /home/tjs23/gh/nuc_tools/n3d/Cell[14]_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/Oct4_GEO.bed /data/bed/p300_GEO.bed /data/bed/H3K36me3_hap_EDL.bed -l H3K4me3 H3K27me3 H3K9me3 Oct4 p300 H3K36me3 -cache sdd_temp
 
 ./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[2358]_100kb_x10.n3d -s /home/tjs23/gh/nuc_tools/n3d/Cell[1467]_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/H3K27ac_GEO.bed -l H3K4me3 H3K27me3 H3K9me3 H3K27ac -cache sdd_temp
 
