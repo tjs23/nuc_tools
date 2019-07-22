@@ -1,7 +1,8 @@
-import os, sys, math
+import os, sys, math, multiprocessing, ctypes
 import numpy as np
 from time import time
 from collections import defaultdict
+from glob import glob
 
 from os.path import dirname
 from matplotlib import pyplot as plt
@@ -11,13 +12,17 @@ from scipy import stats
 from scipy.cluster import hierarchy
 from scipy.spatial import distance
 
+import multiprocessing
+import os
+import subprocess
+
 PROG_NAME = 'structure_data_density'
 VERSION = '1.0.0'
 DESCRIPTION = 'Measure the 3D/spatial density enrichment (eff. non-random clustering) of data ' \
               'tracks superimposed on 3D genome structures'
               
 DEFAULT_MIN_PARTICLE_SEP = 3
-DEFAULT_PDF_OUT = 'sdd_out_{}.pdf'
+DEFAULT_PDF_OUT = 'sdd_out_job{}_{}x{}.pdf'
 DEFAULT_MAX_RADIUS = 5.0
 DEFAULT_POW = 3.0
 COLORMAP_URL = 'https://matplotlib.org/tutorials/colors/colormaps.html'
@@ -25,7 +30,16 @@ MIN_FLOAT = sys.float_info.min
 DENSITY_KEY = '_DENSITY_'
 PDF_DPI = 200
 NUM_BOOTSTRAP = 100
+DEFAULT_OFFSET_NULL = 5
 
+DENS_OBS = 'observed data'
+DENS_ALL = 'all sites'
+DENS_SHU = 'shuffled sites'
+DENS_OFF = 'offset sites'
+DENS_USR = 'user site'
+DENS_KEYS = (DENS_OBS, DENS_ALL, DENS_SHU, DENS_OFF, DENS_USR)
+
+MAX_CPU = multiprocessing.cpu_count()
 
 def bin_region_values(regions, values, bin_size, start, end):
   """
@@ -92,22 +106,66 @@ def bin_region_values(regions, values, bin_size, start, end):
   
   return value_hist
 
-  
-def get_point_density(d_mat, idx_a, idx_b, values):
 
-  if idx_a is not None:
-    d_mat = d_mat[idx_a]
 
-  if idx_b is not None:
-    d_mat = d_mat[:,idx_b]
+def _run_dens_calc(d_mat, vals, num_cpu=MAX_CPU):
+
+  from core.nuc_parallel import run
   
+  weights = vals[None,:] # Size 1 first dim for broadcasting
+  
+  def _job(idx):
+    a, b = idx
+    return (d_mat[a:b] * weights).sum(axis=1) # For each test site multiply individual local density (wrt all data sites) by unversal data site values 
+  
+  n, m = d_mat.shape
+  
+  split_idx = np.linspace(0, n, num_cpu+1).astype(int)
+
+  job_data = [(split_idx[i], split_idx[i+1]) for i in range(num_cpu)]
+  
+  results = run(_job, job_data, num_cpu=num_cpu, verbose=False)
+  
+  return np.concatenate(results)
+        
+  
+def get_point_density(d_mat, anch_idx, off_idx, user_idx, data_idx, data_values, shuff_data_values, num_cpu=MAX_CPU):
+  
+  from core.nuc_parallel import run
+  
+  # First dim is obs or null sites
+  # Second dim is data sites
+ 
+  #t0 = time()
+ 
   na, nb = d_mat.shape
-
-  w_mat = np.ones(na)[:,None] * values
   
-  densities = (d_mat * w_mat).sum(axis=1)
+  d_mat = d_mat[:,data_idx]  # Only where test data is present
   
-  return densities
+  densities = _run_dens_calc(d_mat, data_values)
+ 
+  dens_dict = {}
+  
+  # A points vs B points & values
+  dens_dict[DENS_OBS] = densities[anch_idx]
+  
+  # All points vs B points & values
+  dens_dict[DENS_ALL] = densities
+  
+  # A points vs B points with shuffled B values
+  #dens_dict[DENS_SHU] = (d_mat[anch_idx] * w_mat2).sum(axis=1)
+  dens_dict[DENS_SHU] = _run_dens_calc(d_mat[anch_idx], shuff_data_values)
+  
+  # Offset (from A) points vs B  
+  dens_dict[DENS_OFF] = densities[off_idx]
+  
+  # User specified points vs B
+  if len(user_idx):
+    dens_dict[DENS_USR] = densities[user_idx]
+  
+  #print 'TT: %.3f' % (time()-t0)
+  
+  return dens_dict
 
 
 def get_density_matrix(n3d_path, radius, min_seq_sep, power):
@@ -161,7 +219,8 @@ def get_density_matrix(n3d_path, radius, min_seq_sep, power):
   return d_mat, chromo_limits
 
 
-def get_pde(dens_mat, chromo_limits, anchor_bed_path, density_bed_path, bin_size):
+def get_pde(dens_mat, chromo_limits, anchor_bed_path, density_bed_path,
+            bin_size, null_bed, null_offset, num_cpu):
   """
   """
   from formats import n3d, bed
@@ -177,12 +236,18 @@ def get_pde(dens_mat, chromo_limits, anchor_bed_path, density_bed_path, bin_size
   else:
     data_regions, data_values = bed.load_bed_data_track(density_bed_path)[:2]
   
+  if null_bed:
+    null_regions, null_values = bed.load_bed_data_track(null_bed)[:2]
+  else:
+    null_regions = None
+  
   chromos = sorted(chromo_limits)
       
   # Get binned data track values over universal/max extent chromosome
   
   data_hists = {}
   anch_hists = {}
+  null_hists = {}
   
   # Structures can have a different regions
   
@@ -194,9 +259,14 @@ def get_pde(dens_mat, chromo_limits, anchor_bed_path, density_bed_path, bin_size
     hist = data_values[chromo]
     anch_hists[chromo] = bin_region_values(anch_regions[chromo], anch_values[chromo],
                                            bin_size, start, end)
-                         
+    
+    if null_regions:
+      null_hists[chromo] = bin_region_values(null_regions[chromo], np.ones(len(null_regions[chromo])),
+                                             bin_size, start, end)
+                               
   # Get flat arrays for all particles from separate chromosomes
 
+  user_idx = []
   anch_idx = []
   data_idx = []
   data_values = []
@@ -205,9 +275,11 @@ def get_pde(dens_mat, chromo_limits, anchor_bed_path, density_bed_path, bin_size
   # Get flat arrays of track data, using same regions as particle arrays
   a = 0
   b = 0
+  c = 0
   for chromo in chromos:    
     hist = data_hists[chromo]
     idx  = hist.nonzero()[0]
+    data_values.append( hist[idx] )
     data_idx.append(a + idx)
     a += len(hist)
     
@@ -216,26 +288,26 @@ def get_pde(dens_mat, chromo_limits, anchor_bed_path, density_bed_path, bin_size
     anch_idx.append(b +  idx2)
     b += len(hist2)
     
-    data_values.append( hist[idx] )
-  
+    if null_regions:
+      hist3 = null_hists[chromo]
+      idx3 = hist3.nonzero()[0]
+      user_idx.append(c +  idx3)
+      c += len(hist3)
+    
   data_values = np.concatenate(data_values, axis=0)
   anch_idx = np.concatenate(anch_idx, axis=0)
   data_idx = np.concatenate(data_idx, axis=0)
-  
-  #data_values = stats.rankdata(data_values)
-  #data_values /= data_values.max()
-  
-  # Calc observed spatial density for this structure's particles
-  dens_obs = get_point_density(dens_mat, anch_idx, data_idx, data_values) # A vs B
-  
-  #null_idx = sorted(set(range(len(dens_mat))) - set(anch_idx)) # opposite
-  
-  #null_idx =  set(anch_idx+4) | set(anch_idx-4)
-  #null_idx = sorted(set(range(len(dens_mat))) & null_idx) # opposite
-  
-  dens_exp = get_point_density(dens_mat, None, data_idx, data_values) # All points vs B
+  shuff_data_values = data_values[:]
+  np.random.shuffle(shuff_data_values)
 
-  return dens_obs, dens_exp
+  dens_dict = {}
+  if null_regions:
+    user_idx = np.concatenate(user_idx, axis=0)
+    
+  off_idx = np.unique(np.concatenate([anch_idx+null_offset, anch_idx-null_offset, anch_idx+null_offset-1, anch_idx-null_offset+1], axis=0))
+  dens_dict = get_point_density(dens_mat, anch_idx, off_idx, user_idx, data_idx, data_values, shuff_data_values, num_cpu)      
+
+  return dens_dict
     
     
 def correlation_plot(dens_exp, data_labels, pdf=None, cmap='Blues', split_idx=None, is_primary=True, max_dens=4.5, hist_bins2d=50):
@@ -476,7 +548,7 @@ def _dkl(obs, exp):
    return (obs[nz] * np.log(obs[nz]/exp[nz])).sum()
 
 
-def calc_enrichments(n_tracks, struc_paths1, struc_paths2, dens_obs, dens_null,
+def calc_enrichments(n_tracks, struc_paths1, struc_paths2, dens_obs, dens_all, dens_null,
                      hist_bins, symm_mat=True, hist_range=(0.0, 100.0), n_bootstrap=NUM_BOOTSTRAP):
   
   def _corr(vals_a, vals_b):
@@ -510,16 +582,22 @@ def calc_enrichments(n_tracks, struc_paths1, struc_paths2, dens_obs, dens_null,
   for key in dens_null:
     i, j = key 
     
-    # All structs
     obs0 = np.concatenate(dens_obs[key])
-    bg0 = np.sort(np.concatenate(dens_null[key]))
+    exp0 = np.concatenate(dens_null[key])
+    bg0 = np.sort(np.concatenate(dens_all[key]))
     n = float(len(bg0))
     m = len(obs0)
      
     obs0 = np.searchsorted(bg0, obs0).astype(float)
     obs0 *= 100.0/(n+1.0)
 
-    hist_obs0[key], edges = np.histogram(obs0, bins=hist_bins, range=hist_range)
+    hist_obs0[key], edges = np.histogram(obs0, bins=hist_bins, range=hist_range)    
+
+    exp0 = np.searchsorted(bg0, exp0).astype(float)
+    exp0 *= 100.0/(n+1.0)
+ 
+    null, edges = np.histogram(exp0, bins=hist_bins, range=hist_range)
+    hist_null[key], edges = np.histogram(exp0, bins=hist_bins, range=hist_range)
     
     bs_hists = np.zeros((n_bootstrap, hist_bins))
     for k in range(n_bootstrap):
@@ -561,10 +639,6 @@ def calc_enrichments(n_tracks, struc_paths1, struc_paths2, dens_obs, dens_null,
     else: # Compare vs random
       hist_obs1[key] = hist_obs0[key]
 
-    exp = np.linspace(0.0, 100.0, hist_bins) 
-    null, edges = np.histogram(exp, bins=hist_bins, range=hist_range)
-    hist_null[key] = null
-
     js_mat_all[i,j] = _dkl(hist_obs0[key], null)
     corr_mat_all[i,j] = _corr(np.concatenate(dens_null[(i,i)]), np.concatenate(dens_null[key]))
     
@@ -586,12 +660,19 @@ def calc_enrichments(n_tracks, struc_paths1, struc_paths2, dens_obs, dens_null,
       js_mat1 /= 2.0
       js_mat2 /= 2.0
       js_mat12 /= 2.0
-      
-  return hist_null, hist_obs0, hist_obs1, hist_obs2, js_mat_all, js_mat1, js_mat2, js_mat12, corr_mat_all, corr_mat1, corr_mat2, err0, err1, err2
+  
+  histograms = (hist_null, hist_obs0, hist_obs1, hist_obs2)
+  div_mats = (js_mat_all, js_mat1, js_mat2, js_mat12)
+  corr_mats = (corr_mat_all, corr_mat1, corr_mat2)
+  errors = (err0, err1, err2)
+  
+  return histograms, div_mats, corr_mats, errors
   
   
-def plot_enrichment_distribs(data_labels, hist_null, hist_obs0, hist_obs1, hist_obs2, err0, err1, err2, hist_bins, pdf):
+def plot_enrichment_distribs(title, data_labels, histogrms, errors, hist_bins, pdf):
   
+  hist_null, hist_obs0, hist_obs1, hist_obs2 = histogrms
+  err0, err1, err2 = errors
   n_tracks = len(data_labels)
   
   plot_width = max(10, 1.25*n_tracks)
@@ -599,7 +680,7 @@ def plot_enrichment_distribs(data_labels, hist_null, hist_obs0, hist_obs1, hist_
   fig, axarr = plt.subplots(n_tracks, n_tracks, sharey=True)    
   fig.set_size_inches(plot_width, plot_height)
   
-  plt.suptitle('Density enrichments')
+  plt.suptitle(title)
   plt.subplots_adjust(left=0.08, bottom=0.08, right=0.95, top=0.9, wspace=0.05, hspace=0.05)
   
   hist_range = (0.0, 100.0)
@@ -625,6 +706,7 @@ def plot_enrichment_distribs(data_labels, hist_null, hist_obs0, hist_obs1, hist_
       hist_exp = hist_null[key]
       label1 = 'Obs'
     
+    null = hist_null[key]
     n_obs = hist_obs.sum()
     x_vals = np.linspace(0.0, 100.0, hist_bins) 
     
@@ -632,6 +714,7 @@ def plot_enrichment_distribs(data_labels, hist_null, hist_obs0, hist_obs1, hist_
 
     hist_obs = hist_obs[nz].astype(float)
     hist_exp = hist_exp[nz].astype(float)
+    null = null[nz].astype(float)
     
     z, pv = stats.power_divergence(hist_obs, hist_exp*n_obs/hist_exp.sum(), lambda_=0)
     pv = max(pv, MIN_FLOAT)
@@ -643,15 +726,18 @@ def plot_enrichment_distribs(data_labels, hist_null, hist_obs0, hist_obs1, hist_
     
     hist_obs /= s1
     hist_exp /= s2
+    null /= float(null.sum())
        
     ax.plot(x_vals, hist_obs, color='#0080FF', label=label1)
     ax.errorbar(x_vals, hist_obs, err1[key]/s1, color='#0080FF', label=label1)
     
     if hist_obs2:
-      ax.plot(x_vals, hist_exp, color='#808080', label=label2)
+      ax.plot(x_vals, hist_exp, color='#FF4000', label=label2)
       ax.errorbar(x_vals, hist_exp, err2[key]/s2, color='#808080', label=label2)
     
-    ax.plot((0.0, 100.0), (exp_val, exp_val), color='#808080', ls='--', alpha=0.5, label='Exp')
+    ax.plot(x_vals, null, color='#808080', label='Background')
+    
+    #ax.plot((0.0, 100.0), (exp_val, exp_val), color='#808080', ls='--', alpha=0.5, label='Exp')
     
     js = 0.5 * (hist_obs * np.log(hist_obs/hist_exp)).sum()
     js += 0.5 * (hist_exp * np.log(hist_exp/hist_obs)).sum()
@@ -697,7 +783,7 @@ def plot_enrichment_distribs(data_labels, hist_null, hist_obs0, hist_obs1, hist_
   
   plt.close()
 
-def plot_separate_structures(data_labels, struc_labels, dens_exp, dens_obs, split_idx, pdf, cmap, hist_bins, hist_range=(0.0, 100.0)):
+def plot_separate_structures(title, data_labels, struc_labels, dens_obs, dens_all, dens_exp, split_idx, pdf, cmap, hist_bins, hist_range=(0.0, 100.0)):
 
   xlabels = []
   keys = []
@@ -715,7 +801,7 @@ def plot_separate_structures(data_labels, struc_labels, dens_exp, dens_obs, spli
   plot_height =  max(8, 0.2*n_strucs)
   
   fig.set_size_inches(plot_width, plot_height)
-  plt.suptitle('Structure density enrichment comparison')
+  plt.suptitle(title)
   plt.subplots_adjust(left=0.08, bottom=0.08, right=0.95, top=0.9, wspace=0.05, hspace=0.05)
   
   ax1 = fig.add_axes([0.2, 0.1, 0.5, 0.7])
@@ -728,18 +814,24 @@ def plot_separate_structures(data_labels, struc_labels, dens_exp, dens_obs, spli
   for row in range(n_strucs):
     for col, key in enumerate(keys):
       i, j = key
-      bg1  = np.sort(dens_exp[key][row])  # Null
+      bg1  = np.sort(dens_all[key][row])  # All site normalisation
       obs1 = np.searchsorted(bg1, dens_obs[key][row]).astype(float)  
       obs1 *= 100.0/(float(len(bg1))+1.0)
+      exp1 = np.searchsorted(bg1, dens_exp[key][row]).astype(float)  
+      exp1 *= 100.0/(float(len(bg1))+1.0)
       
-      bg2  = np.sort(dens_exp[(j,i)][row]) # Null
+      bg2  = np.sort(dens_all[(j,i)][row]) # All site normalisation
       obs2 = np.searchsorted(bg2, dens_obs[(j,i)][row]).astype(float)     
       obs2 *= 100.0/(float(len(bg2))+1.0)
+      exp2 = np.searchsorted(bg2, dens_exp[(j,i)][row]).astype(float)  
+      exp2 *= 100.0/(float(len(bg2))+1.0)
       
       hist_obs1, edges = np.histogram(obs1, bins=hist_bins, range=hist_range)
       hist_obs2, edges = np.histogram(obs2, bins=hist_bins, range=hist_range)
+      hist_exp1, edges = np.histogram(exp1, bins=hist_bins, range=hist_range)
+      hist_exp2, edges = np.histogram(exp2, bins=hist_bins, range=hist_range)
 
-      mat[row, col] =  (_dkl(hist_obs1, hist_null) + _dkl(hist_obs2, hist_null))/2.0
+      mat[row, col] =  (_dkl(hist_obs1, hist_exp1) + _dkl(hist_obs2, hist_exp2))/2.0
   
     if row < split_idx:
       is_secondary.append(False)
@@ -796,32 +888,51 @@ def plot_separate_structures(data_labels, struc_labels, dens_exp, dens_obs, spli
     plt.show() 
   
   plt.close()
+
+
+def _shared_mem_array(arry):
+
+  n, m = arry.shape
+  shared = np.ctypeslib.as_array(multiprocessing.Array(ctypes.c_float, n*m).get_obj()).reshape(n, m)
+  shared[:,:] = arry
+  
+  return shared
   
  
 def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=None,
+                           null_bed=None, null_offset=DEFAULT_OFFSET_NULL,
                            out_path=None, screen_gfx=None, radius=DEFAULT_MAX_RADIUS, 
                            min_sep=DEFAULT_MIN_PARTICLE_SEP, dist_pow=DEFAULT_POW,
-                           cmap=plt.get_cmap('Blues'), cache_dir=None):
+                           cmap=plt.get_cmap('Blues'), num_cpu=MAX_CPU, cache_dir=None):
   
   from nuc_tools import io, util
   from formats import n3d
   
-  if out_path:
-    out_path = io.check_file_ext(out_path, '.pdf')
-  
-  else:
-    #file_name = DEFAULT_PDF_OUT.format('m50Qk')
-    file_name = DEFAULT_PDF_OUT.format(util.get_rand_string(5))
-    dir_path = dirname(struc_paths1[0])
-    out_path = os.path.join(dir_path, file_name)
+  struc_paths1 = sorted(struc_paths1)
   
   if struc_paths2:
+    struc_paths2 = sorted(struc_paths2)
     msg = 'Analysing {} data tracks comparing two groups with structures {} and {} respectively.'
     util.info(msg.format(len(data_tracks), len(struc_paths1), len(struc_paths2)))
+    n_structs = len(struc_paths1) + len(struc_paths2)
   
   else:
     msg = 'Analysing {} data tracks with {} structures.'
     util.info(msg.format(len(data_tracks), len(struc_paths1)))
+    n_structs = len(struc_paths1)
+  
+  if out_path:
+    out_path = io.check_file_ext(out_path, '.pdf')
+  
+  else:    
+    dir_path = dirname(struc_paths1[0])
+    
+    job = 1
+    while glob(os.path.join(dir_path, DEFAULT_PDF_OUT.format(job, '*', '*'))):
+      job += 1
+    
+    file_name = DEFAULT_PDF_OUT.format(job, n_structs, len(data_tracks))
+    out_path = os.path.join(dir_path, file_name)
 
   if data_labels:
     for i, label in enumerate(data_labels):
@@ -849,9 +960,7 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
 
   min_seq_sep = min_sep * bin_size
   n_tracks = len(data_tracks)
-
-  dens_obs = defaultdict(list)
-  dens_exp = defaultdict(list)
+  dens_dicts = {k:defaultdict(list) for k in DENS_KEYS}
   
   for n3d_path in struc_paths1 + struc_paths2:
     util.info('Analysing structure {}'.format(os.path.basename(n3d_path)))  
@@ -887,10 +996,10 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
       bed_root1 = io.get_file_root(anchor_bed_path)
       
       for col, density_bed_path in enumerate(data_tracks): # Data
-        key = row, col
-        util.info('  .. compared to {}'.format(os.path.basename(density_bed_path)))
+        data_key = row, col
+        util.info('  .. compared to {}'.format(os.path.basename(density_bed_path)), line_return=True)
         bed_root2 = io.get_file_root(density_bed_path)
-        
+        """
         if cache_dir:
           cache_file =  os.path.join(cache_dir, '{}_{}_{}_sdd.npz'.format(n3d_root, bed_root1, bed_root2))
 
@@ -902,51 +1011,70 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
             
           else:
             obs, exp = get_pde(dens_mat, struc_chromo_lims,
-                               anchor_bed_path, density_bed_path, bin_size)
+                               anchor_bed_path, density_bed_path,
+                               bin_size, null_bed, null_offset)
             
             ddict = {'obs':obs, 'exp':exp}
             np.savez_compressed(cache_file, **ddict) 
             util.info('  .. cached {}'.format(cache_file))
           
-        else:    
-          obs, exp = get_pde(dens_mat, struc_chromo_lims,
-                             anchor_bed_path, density_bed_path, bin_size)
+        else:  """  
+        pde_dict = get_pde(dens_mat, struc_chromo_lims,
+                           anchor_bed_path, density_bed_path,
+                           bin_size, null_bed, null_offset, num_cpu)
  
-        dens_obs[key].append(obs)
-        dens_exp[key].append(exp)
-        
-  # Correlations
+        for typ_key in pde_dict:
+          dens_dicts[typ_key][data_key].append(pde_dict[typ_key])
+
+  struc_labels = [os.path.basename(os.path.splitext(path)[0]) for path in struc_paths1+struc_paths2]
+  
   cmap2 = LinearSegmentedColormap.from_list(name='pcm', colors=['#0060E0','#FFFFFF','#E02000'], N=255)    
   
   hist_bins = 20
   hist_bins2d = 50
  
-  if struc_paths2:
-    split_idx = len(struc_paths1)
-    correlation_plot(dens_exp, data_labels, pdf, cmap, split_idx, True)
-    correlation_plot(dens_exp, data_labels, pdf, cmap, split_idx, False)
-  else:
-    correlation_plot(dens_exp, data_labels, pdf, cmap)
+  for null in (DENS_ALL, DENS_SHU, DENS_OFF, DENS_USR):
+    if not dens_dicts[null]:
+      continue
+      
+    histograms, div_mats, corr_mats, errors = calc_enrichments(n_tracks, struc_paths1, struc_paths2,
+                                                               dens_dicts[DENS_OBS], dens_dicts[DENS_ALL],
+                                                               dens_dicts[null], hist_bins)
+                                                                 
+    if null == DENS_ALL:
+      # Correlations
+      
+      if struc_paths2:
+        split_idx = len(struc_paths1)
+        correlation_plot(dens_dicts[null], data_labels, pdf, cmap, split_idx, True)
+        correlation_plot(dens_dicts[null], data_labels, pdf, cmap, split_idx, False)
+      else:
+        correlation_plot(dens_dicts[null], data_labels, pdf, cmap)
     
-  hist_null, hist_obs0, hist_obs1, hist_obs2, js_mat_all, js_mat1, js_mat2, js_mat12, corr_mat_all, corr_mat1, corr_mat2, err0, err1, err2 = calc_enrichments(n_tracks, struc_paths1, struc_paths2, dens_obs, dens_exp, hist_bins)
-  
-  order = density_plot('Density correlation - all sites', corr_mat_all, 'Pearson correlation coefficient', data_labels, cmap, pdf, 0.0, 1.0)
-  
-  if struc_paths2:
-    comparison_density_plot('Density correlation comparison', corr_mat1, corr_mat2, None, order, 'Pearson correlation coefficient', data_labels, cmap, cmap2, pdf)
+ 
+      order = density_plot('Density correlation - %s' % null, corr_mats[0],
+                           'Pearson correlation coefficient', data_labels, cmap, pdf, 0.0, 1.0)
+ 
+      if struc_paths2:
+        comparison_density_plot('Density correlation comparison', corr_mats[1], corr_mats[2], None, order,
+                                'Pearson correlation coefficient', data_labels, cmap, cmap2, pdf)
     
-  # Enrichment distribs
-  
-  plot_enrichment_distribs(data_labels, hist_null, hist_obs0, hist_obs1, hist_obs2, err0, err1, err2, hist_bins, pdf)
+    # Enrichment distribs
+ 
+    plot_enrichment_distribs('Density enrichments. Background: %s' % null,
+                             data_labels, histograms, errors, hist_bins, pdf)
 
-  order = density_plot('Density enrichment - all stuctures', js_mat_all, 'Jensen-Shannon divergence', data_labels, cmap, pdf) # , 0.0, 0.1)
-  
-  if struc_paths2:
-    comparison_density_plot('Density enrichment comparison', js_mat1, js_mat2, js_mat12, order, 'Jensen-Shannon divergence', data_labels, cmap, cmap2, pdf)
-  
-  struc_labels = [os.path.basename(os.path.splitext(path)[0]) for path in struc_paths1+struc_paths2]
+    order = density_plot('Density enrichment - all stuctures. Background: %s' % null, div_mats[0],
+                         'Jensen-Shannon divergence', data_labels, cmap, pdf) # , 0.0, 0.1)
+ 
+    if struc_paths2:
+      comparison_density_plot('Density enrichment - group comparison. Background: %s' % null,
+                               div_mats[1], div_mats[2], div_mats[3], order,
+                              'Jensen-Shannon divergence', data_labels, cmap, cmap2, pdf)
     
-  plot_separate_structures(data_labels, struc_labels, dens_exp, dens_obs, len(struc_paths1), pdf, cmap, hist_bins) 
+    plot_separate_structures('Structure density enrichment comparison. Background: %s' % null,
+                             data_labels, struc_labels, dens_dicts[DENS_OBS], dens_dicts[DENS_ALL], dens_dicts[null],
+                             len(struc_paths1), pdf, cmap, hist_bins) 
 
   if pdf:
     pdf.close()
@@ -986,26 +1114,30 @@ def main(argv=None):
                          help='Display graphics on-screen using matplotlib, where possible and ' \
                               'do not automatically save graphical output to file.')
 
-  arg_parse.add_argument('-m', '--min_particle-sep', default=DEFAULT_MIN_PARTICLE_SEP,
+  arg_parse.add_argument('-m', '--min-particle-sep', default=DEFAULT_MIN_PARTICLE_SEP,
                          metavar='MIN_PARTICLE_SEP', type=int, dest="m",
                          help='The minimum separation of  structure particles for analysis. ' \
                               'Avoids linear sequence correlation effects and distortions due to the ' \
                               'courseness of the 3D model. Default: %d particles' % DEFAULT_MIN_PARTICLE_SEP)
 
-  arg_parse.add_argument('-r', '--max_radius', default=DEFAULT_MAX_RADIUS,
+  arg_parse.add_argument('-r', '--max-radius', default=DEFAULT_MAX_RADIUS,
                          metavar='MAX_SERACH_RADIUS', type=float, dest="r",
                          help='The maximum search distance within which data densties are calculated ' \
                               'for a genome structure point. Default: %.2f' % DEFAULT_MAX_RADIUS)
 
-  arg_parse.add_argument('-o', '--out_pdf', metavar='OUT_PDF_FILE', default=None, dest='o',
+  arg_parse.add_argument('-n', '--num-cpu', default=1, metavar='CPU_COUNT', dest='n',
+                         type=int, help='Number of CPU cores to use in parallel  for some parts of the density calculation. ' \
+                                        'Default: %d (maximum available)' % MAX_CPU)
+                              
+  arg_parse.add_argument('-o', '--out-pdf', metavar='OUT_PDF_FILE', default=None, dest='o',
                          help='Optional output PDF file name. If not specified, a default will be used.')
 
-  arg_parse.add_argument('-p', '--power_law', default=DEFAULT_POW,
+  arg_parse.add_argument('-p', '--power-law', default=DEFAULT_POW,
                          metavar='POWER_LAW', type=float, dest="p",
                          help='The power law for distance weighting of points in the density ' \
                               'calculation, i.e. the p in 1/dist^p. Default: %.2f' % DEFAULT_POW)
                               
-  arg_parse.add_argument('-cache', '--cache_result_dir', metavar='DIR_NAME', default=None, dest='cache',
+  arg_parse.add_argument('-cache', '--cache-result-dir', metavar='DIR_NAME', default=None, dest='cache',
                          help='If set, saves intermediate results to the specified directory.' \
                               'Makes re-plotting much faster.')
 
@@ -1014,6 +1146,19 @@ def main(argv=None):
                               'or colormap (scheme) name, as used by matplotlib. ' \
                               'Note: #RGB style hex colours must be quoted e.g. "#FF0000,#0000FF" ' \
                               'See: %s This option overrides -b.' % COLORMAP_URL)
+
+  arg_parse.add_argument('-null', '--null-site-bed', metavar='BED_FILE', default=None, dest='null',
+                         help='Optional data track file in BED format to specify comparative regions ' \
+                              ' for the calculation of null/background expectation densities. For example' \
+                              ' the track may be for all A/euchromatin compartment or accessible sites. ' \
+                              'This will augment the all-site, shuffled-site and offset-site null expectations' \
+                              ' that are always calculated')
+   
+  arg_parse.add_argument('-no', '--null-site-offset', default=DEFAULT_OFFSET_NULL,
+                         metavar='NULL_SITE_OFFSET', type=int, dest="no",
+                         help='The sequence offset to use for calculating a local null/backgound structure' \
+                              ' density expectation. Specificied as a number of whole structural particles' \
+                              ' Default: %d particles' % DEFAULT_OFFSET_NULL)
                          
   args = vars(arg_parse.parse_args(argv))
                                 
@@ -1028,6 +1173,9 @@ def main(argv=None):
   power = args['p']
   cmap = args['colors']
   cache_dir = args['cache']
+  null_bed = args['null']
+  null_offset = args['no']
+  num_cpu = args['n']
    
   if not struc_paths1:
     arg_parse.print_help()
@@ -1065,9 +1213,10 @@ def main(argv=None):
   
   structure_data_density(struc_paths1, struc_paths2,
                          data_tracks, data_labels,
+                         null_bed, null_offset,
                          out_path, screen_gfx,
                          radius, min_sep, power,
-                         cmap, cache_dir)
+                         cmap, num_cpu, cache_dir)
   
 if __name__ == "__main__":
   sys.path.append(dirname(dirname(__file__)))
@@ -1077,14 +1226,9 @@ if __name__ == "__main__":
 """
 TTD
 ---
-Btter default PDF names
-+ job_1, n_structs and d_tracks
 
-Better null - more local context
-+ shuffle data values : keeps the right sites only ?
-+ 
-
---
+COLOUR ACCORDING TO SIGN
+LABEL QUERY AXIS on distrib graphs
 
 Proper distrib p-values
 MD5sum caching 
@@ -1121,6 +1265,6 @@ New programs
 
 ./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[23]_100kb_x10.n3d -s /home/tjs23/gh/nuc_tools/n3d/Cell[14]_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/Oct4_GEO.bed /data/bed/p300_GEO.bed /data/bed/H3K36me3_hap_EDL.bed -l H3K4me3 H3K27me3 H3K9me3 Oct4 p300 H3K36me3 -cache sdd_temp
 
-./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[2358]_100kb_x10.n3d -s /home/tjs23/gh/nuc_tools/n3d/Cell[1467]_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/H3K27ac_GEO.bed -l H3K4me3 H3K27me3 H3K9me3 H3K27ac -cache sdd_temp
+./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[2358]_100kb_x10.n3d -s /home/tjs23/gh/nuc_tools/n3d/Cell[1467]_100kb_x10.n3d -null /data/bed/A_comp.bed -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/H3K27ac_GEO.bed -l H3K4me3 H3K27me3 H3K9me3 H3K27ac
 
 """
