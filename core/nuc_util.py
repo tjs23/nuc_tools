@@ -231,3 +231,68 @@ def sort_chromosomes(chromos):
   
   return [x[1] for x in sort_chromos]  
   
+def bin_region_values(regions, values, bin_size, start, end):
+  """
+  Bin input regions and asscociated values into a histogram of new, regular
+  regions. Accounts for partial overlap using proportinal allocation.
+  """  
+  n = values.shape[0]
+  
+  if len(regions) != n:
+    data = (len(regions), n)
+    msg = 'Number of regions (%d) does not match number of values (%d)'
+    raise Exception(msg % data)  
+  
+  np.sort(regions)
+  sort_idx = regions[:,0].argsort()
+  regions = regions[sort_idx]
+  values = values[sort_idx]
+    
+  s = int(start/bin_size)
+  e = 1 + int(end/bin_size) # Limit, not last index
+  n_bins = e-s
+  value_hist = np.zeros(n_bins, float)
+  
+  s *= bin_size
+  e *= bin_size   
+  boundaries = np.linspace(s,e,n_bins+1)
+ 
+  starts = regions[:,0]
+  ends = regions[:,1]  
+  start_bin  = np.searchsorted(boundaries, starts)
+  end_bin    = np.searchsorted(boundaries, ends)
+  
+  keep = (start_bin > 0) & (end_bin < n_bins) # Data often exceeds common structure regions
+
+  mask = (end_bin == start_bin) & keep
+  value_hist[start_bin[mask]] += values[mask]
+  
+  spanning = (~mask & keep).nonzero()[0]
+  
+  if len(spanning): # Overlapping cases (should be rare)
+    for i in spanning:
+      v = values[i]
+      p1 = starts[i]
+      p2 = ends[i]
+      r = float(p2-p1)
+ 
+      for j in range(start_bin[i], end_bin[i]+1): # Region ovelaps bins 
+        p3 = s + j * bin_size # Bin start pos
+        p4 = p3 + bin_size    # Bin limit
+ 
+        if (p1 >= p3) and (p1 < p4): # Start of region in bin
+          f = float(p4 - p1) / r
+ 
+        elif (p2 >= p3) and (p2 < p4): # End of region in bin
+          f = float(p2 - p3) / r
+ 
+        elif (p1 < p3) and (p2 > p4): # Mid region in bin
+          f = bin_size / r
+ 
+        else:
+          f = 0.0
+ 
+        value_hist[j] += v * f
+  
+  return value_hist
+
