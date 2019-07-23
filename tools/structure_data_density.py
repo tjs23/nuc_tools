@@ -22,7 +22,7 @@ DESCRIPTION = 'Measure the 3D/spatial density enrichment (eff. non-random cluste
               'tracks superimposed on 3D genome structures'
               
 DEFAULT_MIN_PARTICLE_SEP = 3
-DEFAULT_PDF_OUT = 'sdd_out_job{}_{}x{}.pdf'
+DEFAULT_PDF_OUT = 'sdd_out_job{}_S{}-D{}.pdf'
 DEFAULT_MAX_RADIUS = 5.0
 DEFAULT_POW = 3.0
 COLORMAP_URL = 'https://matplotlib.org/tutorials/colors/colormaps.html'
@@ -40,72 +40,6 @@ DENS_USR = 'user site'
 DENS_KEYS = (DENS_OBS, DENS_ALL, DENS_SHU, DENS_OFF, DENS_USR)
 
 MAX_CPU = multiprocessing.cpu_count()
-
-def bin_region_values(regions, values, bin_size, start, end):
-  """
-  Bin input regions and asscociated values into a histogram of new, regular
-  regions. Accounts for partial overlap using proportinal allocation.
-  """  
-  n = values.shape[0]
-  
-  if len(regions) != n:
-    data = (len(regions), n)
-    msg = 'Number of regions (%d) does not match number of values (%d)'
-    raise Exception(msg % data)  
-  
-  np.sort(regions)
-  sort_idx = regions[:,0].argsort()
-  regions = regions[sort_idx]
-  values = values[sort_idx]
-    
-  s = int(start/bin_size)
-  e = int(math.ceil(end/float(bin_size)))
-  n_bins = e-s
-  value_hist = np.zeros(n_bins, float)
-  
-  s *= bin_size
-  e *= bin_size   
-  boundaries = np.linspace(s,e,n_bins)
- 
-  starts = regions[:,0]
-  ends = regions[:,1]  
-  start_bin  = np.searchsorted(boundaries, starts, side='right')
-  end_bin    = np.searchsorted(boundaries, ends, side='right')
-  
-  keep = (start_bin > 0) & (end_bin < n_bins) # Data often exceeds common structure regions
-
-  mask = (end_bin == start_bin) & keep
-  value_hist[start_bin[mask]] += values[mask]
-  
-  spanning = (~mask & keep).nonzero()[0]
-  
-  if len(spanning): # Overlapping cases (should be rare)
-    for i in spanning:
-      v = values[i]
-      p1 = starts[i]
-      p2 = ends[i]
-      r = float(p2-p1)
- 
-      for j in range(start_bin[i], end_bin[i]+1): # Region ovelaps bins 
-        p3 = s + j * bin_size # Bin start pos
-        p4 = p3 + bin_size    # Bin limit
- 
-        if (p1 >= p3) and (p1 < p4): # Start of region in bin
-          f = float(p4 - p1) / r
- 
-        elif (p2 >= p3) and (p2 < p4): # End of region in bin
-          f = float(p2 - p3) / r
- 
-        elif (p1 < p3) and (p2 > p4): # Mid region in bin
-          f = bin_size / r
- 
-        else:
-          f = 0.0
- 
-        value_hist[j] += v * f
-  
-  return value_hist
-
 
 
 def _run_dens_calc(d_mat, vals, num_cpu=MAX_CPU):
@@ -128,8 +62,51 @@ def _run_dens_calc(d_mat, vals, num_cpu=MAX_CPU):
   
   return np.concatenate(results)
         
+        
+def get_data_density(d_mat, chromo_limits, data_bed_path, bin_size, num_cpu):
+
+  from formats import bed
+  from nuc_tools import util
+    
+  data_regions, data_values = bed.load_bed_data_track(data_bed_path)[:2]
+  chromos = sorted(chromo_limits)
+      
+  # Get binned data track values over universal/max extent chromosome
   
-def get_point_density(d_mat, anch_idx, off_idx, user_idx, data_idx, data_values, shuff_data_values, num_cpu=MAX_CPU):
+  data_hists = {}
+  
+  # Structures can have a different regions
+  
+  for chromo in chromo_limits:
+    start, end = chromo_limits[chromo]
+    data_hists[chromo] = util.bin_region_values(data_regions[chromo],
+                                                data_values[chromo],
+                                                bin_size, start, end)
+  # Get flat arrays for all particles from separate chromosomes
+
+  data_idx = []
+  data_values = []
+  
+  # Get flat arrays of track data, using same regions as particle arrays
+  a = 0
+  for chromo in chromos:    
+    hist = data_hists[chromo]
+    idx  = hist.nonzero()[0]
+    data_values.append( hist[idx] )
+    data_idx.append(a + idx)
+    a += len(hist)
+    start, end = chromo_limits[chromo]                             
+
+  data_values = np.concatenate(data_values, axis=0)
+  data_idx = np.concatenate(data_idx, axis=0)
+
+  densities = _run_dens_calc(d_mat[:,data_idx], data_values, num_cpu) # densities at all sites
+  densities /= densities.sum()
+  
+  return densities
+  
+  
+def get_point_density(d_mat, anch_idx, off_idx, user_idx, data_idx, data_values, num_cpu=MAX_CPU):
   
   from core.nuc_parallel import run
   
@@ -142,7 +119,7 @@ def get_point_density(d_mat, anch_idx, off_idx, user_idx, data_idx, data_values,
   
   d_mat = d_mat[:,data_idx]  # Only where test data is present
   
-  densities = _run_dens_calc(d_mat, data_values)
+  densities = _run_dens_calc(d_mat, data_values, num_cpu)
  
   dens_dict = {}
   
@@ -154,7 +131,7 @@ def get_point_density(d_mat, anch_idx, off_idx, user_idx, data_idx, data_values,
   
   # A points vs B points with shuffled B values
   #dens_dict[DENS_SHU] = (d_mat[anch_idx] * w_mat2).sum(axis=1)
-  dens_dict[DENS_SHU] = _run_dens_calc(d_mat[anch_idx], shuff_data_values)
+  #dens_dict[DENS_SHU] = _run_dens_calc(d_mat[anch_idx], shuff_data_values)
   
   # Offset (from A) points vs B  
   dens_dict[DENS_OFF] = densities[off_idx]
@@ -182,9 +159,9 @@ def get_density_matrix(n3d_path, radius, min_seq_sep, power):
     pos = seq_pos_dict[chromo]
     particle_size = pos[1] - pos[0]
     start = particle_size * int(pos[0]/particle_size)
-    end   = particle_size * int(math.ceil(pos[-1]/particle_size))
+    end   = particle_size * int(pos[-1]/particle_size)
     chromo_limits[chromo] = (start, end)
-
+    
   chromos = sorted(chromo_limits)
   chr_idx = {chromo:i for i, chromo in enumerate(chromos)}
   
@@ -224,6 +201,7 @@ def get_pde(dens_mat, chromo_limits, anchor_bed_path, density_bed_path,
   """
   """
   from formats import n3d, bed
+  from nuc_tools import util
   from matplotlib import pyplot as plt
   
   # # # particle_size must be checked to be same in all structures
@@ -253,15 +231,15 @@ def get_pde(dens_mat, chromo_limits, anchor_bed_path, density_bed_path,
   
   for chromo in chromo_limits:
     start, end = chromo_limits[chromo]
-    data_hists[chromo] = bin_region_values(data_regions[chromo], data_values[chromo],
+    data_hists[chromo] = util.bin_region_values(data_regions[chromo], data_values[chromo],
                                            bin_size, start, end)
     
     hist = data_values[chromo]
-    anch_hists[chromo] = bin_region_values(anch_regions[chromo], anch_values[chromo],
+    anch_hists[chromo] = util.bin_region_values(anch_regions[chromo], anch_values[chromo],
                                            bin_size, start, end)
     
     if null_regions:
-      null_hists[chromo] = bin_region_values(null_regions[chromo], np.ones(len(null_regions[chromo])),
+      null_hists[chromo] = util.bin_region_values(null_regions[chromo], np.ones(len(null_regions[chromo])),
                                              bin_size, start, end)
                                
   # Get flat arrays for all particles from separate chromosomes
@@ -297,18 +275,94 @@ def get_pde(dens_mat, chromo_limits, anchor_bed_path, density_bed_path,
   data_values = np.concatenate(data_values, axis=0)
   anch_idx = np.concatenate(anch_idx, axis=0)
   data_idx = np.concatenate(data_idx, axis=0)
-  shuff_data_values = data_values[:]
+  #shuff_data_values = data_values[:]
   np.random.shuffle(shuff_data_values)
 
   dens_dict = {}
   if null_regions:
     user_idx = np.concatenate(user_idx, axis=0)
-    
-  off_idx = np.unique(np.concatenate([anch_idx+null_offset, anch_idx-null_offset, anch_idx+null_offset-1, anch_idx-null_offset+1], axis=0))
-  dens_dict = get_point_density(dens_mat, anch_idx, off_idx, user_idx, data_idx, data_values, shuff_data_values, num_cpu)      
+
+  off_idx = np.clip(np.unique(np.concatenate([anch_idx+null_offset, anch_idx-null_offset, anch_idx+null_offset-1, anch_idx-null_offset+1], axis=0)), 0, len(dens_mat)-1)
+  dens_dict = get_point_density(dens_mat, anch_idx, off_idx, user_idx, data_idx, data_values, num_cpu)      
 
   return dens_dict
     
+    
+def overlap_plot(density_dict, data_labels, pdf=None, cmap='Blues', split_idx=None, is_primary=True, n_bins=100):
+ 
+  n_tracks = len(data_labels)
+  plot_size = max(8, n_tracks)
+  fig, axarr = plt.subplots(n_tracks, n_tracks) # , sharex=True, sharey=True)
+  fig.set_size_inches(plot_size, plot_size)
+  
+  plt.subplots_adjust(left=0.1, bottom=0.1, right=0.95, top=0.9, wspace=0.05, hspace=0.05)
+  
+  overlap_mat = np.zeros((n_tracks, n_tracks))
+  
+  if split_idx is None:
+    plt.suptitle('Density co-localization')
+    
+  elif split_idx and is_primary:
+    plt.suptitle('Density co-localization : primary structures')
+    
+  else:
+    plt.suptitle('Density co-localization : secondary structures')
+  
+  for row in range(n_tracks):
+    for col in range(n_tracks):
+      if n_tracks > 1:
+        ax = axarr[row, col]
+      else:
+        ax = axarr
+ 
+      if split_idx is None:
+        dens_a = np.concatenate(density_dict[row])
+        dens_b = np.concatenate(density_dict[col])
+ 
+      elif is_primary:
+        dens_a = np.concatenate(density_dict[row][:split_idx])
+        dens_b = np.concatenate(density_dict[col][:split_idx])
+ 
+      else:
+        dens_a = np.concatenate(density_dict[row][split_idx:])
+        dens_b = np.concatenate(density_dict[col][split_idx:])
+      
+      nz = (dens_a > 0) & (dens_b > 0)
+      
+      ax.scatter(np.log10(dens_a[nz]), np.log10(dens_b[nz]), s=2, alpha=0.3)
+
+      ax.hist2d(x_vals, y_vals,
+              bins=hist_bins2d, range=(hist_range, hist_range),
+              cmap=cmap)      
+      #coloc = np.log10(1.0 + dens_a[nzb])
+
+      #ax.hist(coloc, bins=n_bins, normed=True)
+      
+      #ax.text(0.05, 0.95, '$\\rho$={:.3f}\n$n$={:,}'.format(r,len(x_vals)), transform=ax.transAxes,
+      #        color='#404040', verticalalignment='top', alpha=0.5, fontsize=8)
+
+      if row == 0:
+        axr = ax.twiny()
+        axr.set_xticks([])
+        axr.set_xlabel(data_labels[col], fontsize=11)
+
+      if col == n_tracks-1:
+        axr = ax.twinx()
+        axr.set_yticks([])
+        axr.set_ylabel(data_labels[row], fontsize=11)
+
+      if (row == n_tracks-1) and (col == 0):
+        ax.set_xlabel('Overlap', fontsize=11)
+
+      if (col == 0) and (row == 0):
+        ax.set_ylabel('Probability density', fontsize=11)
+
+  if pdf:
+    pdf.savefig(dpi=PDF_DPI)
+  else:
+    plt.show()
+    
+  plt.close()
     
 def correlation_plot(dens_exp, data_labels, pdf=None, cmap='Blues', split_idx=None, is_primary=True, max_dens=4.5, hist_bins2d=50):
  
@@ -677,7 +731,7 @@ def plot_enrichment_distribs(title, data_labels, histogrms, errors, hist_bins, p
   
   plot_width = max(10, 1.25*n_tracks)
   plot_height = max(8, n_tracks)
-  fig, axarr = plt.subplots(n_tracks, n_tracks, sharey=True)    
+  fig, axarr = plt.subplots(n_tracks, n_tracks, sharey=True, sharex=True)    
   fig.set_size_inches(plot_width, plot_height)
   
   plt.suptitle(title)
@@ -729,13 +783,13 @@ def plot_enrichment_distribs(title, data_labels, histogrms, errors, hist_bins, p
     null /= float(null.sum())
        
     ax.plot(x_vals, hist_obs, color='#0080FF', label=label1)
-    ax.errorbar(x_vals, hist_obs, err1[key]/s1, color='#0080FF', label=label1)
+    #ax.errorbar(x_vals, hist_obs, err1[key]/s1, color='#0080FF', label=label1)
     
     if hist_obs2:
       ax.plot(x_vals, hist_exp, color='#FF4000', label=label2)
-      ax.errorbar(x_vals, hist_exp, err2[key]/s2, color='#808080', label=label2)
+      #ax.errorbar(x_vals, hist_exp, err2[key]/s2, color='#808080', label=label2)
     
-    ax.plot(x_vals, null, color='#808080', label='Background')
+    ax.plot(x_vals, null, color='#808080', alpha=0.5, label='Background')
     
     #ax.plot((0.0, 100.0), (exp_val, exp_val), color='#808080', ls='--', alpha=0.5, label='Exp')
     
@@ -772,9 +826,9 @@ def plot_enrichment_distribs(title, data_labels, histogrms, errors, hist_bins, p
   if hist_obs2:
     ax.plot([], [], color='#808080', label=label2)
     
-  ax.plot([], [], color='#808080', ls='--', alpha=0.5, label='Exp')
+  ax.plot([], [], color='#808080', alpha=0.5, label='Background')
   ax.axis('off')
-  ax.legend(fontsize=11, frameon=False, ncol=2)
+  ax.legend(fontsize=8, frameon=False, ncol=2)
     
   if pdf:
     pdf.savefig(dpi=PDF_DPI)
@@ -962,6 +1016,8 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
   n_tracks = len(data_tracks)
   dens_dicts = {k:defaultdict(list) for k in DENS_KEYS}
   
+  data_density = defaultdict(list)
+  
   for n3d_path in struc_paths1 + struc_paths2:
     util.info('Analysing structure {}'.format(os.path.basename(n3d_path)))  
     n3d_root = io.get_file_root(n3d_path)
@@ -991,6 +1047,13 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
     else:
       dens_mat, struc_chromo_lims = get_density_matrix(n3d_path, radius, min_seq_sep, dist_pow)
     
+    """
+    for i, data_bed_path in enumerate(data_tracks):
+      util.info('  Calculating densities for {}'.format(os.path.basename(data_bed_path)))
+      densties = get_data_density(dens_mat, struc_chromo_lims, data_bed_path, bin_size, num_cpu)
+      data_density[i].append(densties)
+      
+    """
     for row, anchor_bed_path in enumerate(data_tracks): # Anchor
       util.info('  Considering {}'.format(os.path.basename(anchor_bed_path)))
       bed_root1 = io.get_file_root(anchor_bed_path)
@@ -999,41 +1062,27 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
         data_key = row, col
         util.info('  .. compared to {}'.format(os.path.basename(density_bed_path)), line_return=True)
         bed_root2 = io.get_file_root(density_bed_path)
-        """
-        if cache_dir:
-          cache_file =  os.path.join(cache_dir, '{}_{}_{}_sdd.npz'.format(n3d_root, bed_root1, bed_root2))
-
-          if os.path.exists(cache_file):
-            file_dict = np.load(cache_file)
-            obs = file_dict['obs']
-            exp = file_dict['exp']
-            util.info('  .. read {}'.format(cache_file))
-            
-          else:
-            obs, exp = get_pde(dens_mat, struc_chromo_lims,
-                               anchor_bed_path, density_bed_path,
-                               bin_size, null_bed, null_offset)
-            
-            ddict = {'obs':obs, 'exp':exp}
-            np.savez_compressed(cache_file, **ddict) 
-            util.info('  .. cached {}'.format(cache_file))
-          
-        else:  """  
+ 
         pde_dict = get_pde(dens_mat, struc_chromo_lims,
                            anchor_bed_path, density_bed_path,
                            bin_size, null_bed, null_offset, num_cpu)
  
         for typ_key in pde_dict:
           dens_dicts[typ_key][data_key].append(pde_dict[typ_key])
-
+    
   struc_labels = [os.path.basename(os.path.splitext(path)[0]) for path in struc_paths1+struc_paths2]
   
   cmap2 = LinearSegmentedColormap.from_list(name='pcm', colors=['#0060E0','#FFFFFF','#E02000'], N=255)    
   
   hist_bins = 20
   hist_bins2d = 50
- 
-  for null in (DENS_ALL, DENS_SHU, DENS_OFF, DENS_USR):
+  
+  #overlap_plot(data_density, data_labels, pdf, cmap, split_idx=None, is_primary=True, n_bins=50)
+  
+  """
+  """
+  
+  for null in (DENS_ALL, DENS_OFF, DENS_USR): # DENS_SHU
     if not dens_dicts[null]:
       continue
       
@@ -1228,8 +1277,7 @@ TTD
 ---
 
 COLOUR ACCORDING TO SIGN
-LABEL QUERY AXIS on distrib graphs
-
+Measure fraction of co-density - how much of total is shared 
 Proper distrib p-values
 MD5sum caching 
 --
