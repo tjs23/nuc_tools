@@ -4,27 +4,10 @@ from os.path import dirname
 
 PROG_NAME = 'data_track_filter'
 VERSION = '1.0.0'
-DESCRIPTION = 'Combine data tracks in BED format according to intersections and differences etc.'
+DESCRIPTION = 'Filter data tracks in BED format according to quantile values and/or intersections and differences to other data tracks'
 DEFAULT_QUANTILE_MIN = 0.0
 DEFAULT_QUANTILE_MAX = 100.0
 DEFAULT_SEP = 10000
-
-def points_region_interset(pos, regions):
-  
-  starts = np.array(regions[:,0])
-  ends = np.array(regions[:,1])
-  
-  idx = np.argsort(starts)
-
-  starts = starts[idx]
-  ends = ends[idx]
-  
-  before_end = np.searchsorted(ends, pos)
-  after_start = np.searchsorted(starts, pos)-1
-  
-  intersection = after_start == before_end
-  
-  return intersection
 
   
 def data_track_filter(bed_data_path, out_bed_path, include_paths, exclude_paths, quantile_lower=DEFAULT_QUANTILE_MAX,
@@ -102,7 +85,7 @@ def data_track_filter(bed_data_path, out_bed_path, include_paths, exclude_paths,
         e = intersect_regions[chromo][:,0]
         idx = s.argsort()
         
-        f = points_region_interset(centers, filter_regions)
+        f = util.points_region_intersect(centers, filter_regions)
         
         keep += f.astype(int)
         
@@ -129,7 +112,7 @@ def data_track_filter(bed_data_path, out_bed_path, include_paths, exclude_paths,
 
         width = exclude_seps[i]
         filter_regions = intersect_regions[chromo] + np.array([-width, width])
-        excl += points_region_interset(centers, filter_regions).astype(int)
+        excl += util.points_region_intersect(centers, filter_regions).astype(int)
       
       if exclude_any: # Excluded by any 
         excl = excl > 0
@@ -236,11 +219,10 @@ def main(argv=None):
   
   if not (include_paths or exclude_paths):
     if (quantile_lower == 0.0) and (quantile_upper == 100.0):
-      util.critical('No include files (-y) or exclude files (-n) or quantile limits (-ql, qu) specified')
+      util.critical('No include files (-y) or exclude files (-n) or quantile limits (-ql, -qu) specified')
     
   for in_path in [data_path] + include_paths + exclude_paths:
-    if not os.path.exists(in_path):
-      util.critical('Input data track file "{}" could not be found'.format(in_path))
+    io.check_invalid_file(in_path)
   
   if not (0.0 <= quantile_lower <= 100.0):
     util.critical('Lower quantile limit must be between 0.0 and 100.0')
@@ -249,10 +231,10 @@ def main(argv=None):
     util.critical('Upper quantile limit must be between 0.0 and 100.0')
   
   if len(include_seps) not in (1, len(include_paths)):
-    util.critical('The number of inclusion region separations (-sy)  must match the number of inclusion region files (-y) or contain only a single value')
+    util.critical('The number of inclusion region separations (-sy) must match the number of inclusion region files (-y) or contain only a single value')
     
   if len(exclude_seps) not in (1, len(exclude_paths)):
-    util.critical('The number of exclusion region separations (-sn)  must match the number of inclusion region files (-n) or contain only a single value')
+    util.critical('The number of exclusion region separations (-sn) must match the number of inclusion region files (-n) or contain only a single value')
     
   data_track_filter(data_path, out_path, include_paths, exclude_paths, quantile_lower, quantile_upper, include_seps, exclude_seps, include_any, exclude_any)
   

@@ -1,6 +1,6 @@
 import datetime
 import numpy as np
-import os, sys, re
+import os, sys, re, math
 
 from math import ceil, floor
 from collections import defaultdict
@@ -25,6 +25,142 @@ MIN_REGION_BINS = 10
 
 import warnings
 warnings.filterwarnings("ignore")
+
+def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=None,
+                       new_bin_size=None, compare_trans=False, clip=0.1, store_sparse=True):
+  """
+  For now dict is changed in-place to keep memory use down.
+  """
+  from nuc_tools import util, io
+  
+  if not new_bin_size:
+    new_bin_size = bin_size
+  
+  if not new_chromo_limits:
+    new_chromo_limits = chromo_limits
+  
+  chromo_sizes = {}
+  contact_scale = {}
+  chromo_offsets = {}
+  
+  chromos = sorted(new_chromo_limits) # contact dict pair keys will always be in alphabetic order
+
+  for chr_a in chromos:
+    s, e = chromo_limits[chr_a]
+    off = int(s/bin_size) # Offset in the original data
+    chromo_offsets[chr_a] = off
+    
+    s, e = new_chromo_limits[chr_a] # Range in new data
+    num_bins = int(math.ceil(e/bin_size)) 
+    contact_scale[chr_a] = np.zeros(num_bins, float) # Always start from zero
+    chromo_sizes[chr_a] = num_bins
+     
+  # Get row sums over whole map
+  
+  util.info(' .. fetch scalings', line_return=True)
+  pairs = []
+  
+  for k, chr_a in enumerate(chromos):
+    for chr_b in chromos[k:]:
+      pair = (chr_a, chr_b)
+      orig_mat = contact_dict.get(pair)
+      
+      if orig_mat is None:
+        continue
+  
+      if hasattr(orig_mat, 'toarray'):
+        orig_mat = orig_mat.toarray()
+          
+      a, b = orig_mat.shape
+      pairs.append(pair)
+      off_a = chromo_offsets[chr_a]
+      off_b = chromo_offsets[chr_b]
+     
+      contact_scale[chr_a][off_a:off_a+a] += orig_mat.sum(axis=1)
+      contact_scale[chr_b][off_b:off_b+b] += orig_mat.sum(axis=0)
+  
+  # Make reciprocal and remove void regions
+        
+  for chr_a in contact_scale:
+    scale = contact_scale[chr_a]
+    med = np.median(scale)
+    
+    too_small = scale < (clip*med)
+    too_large = scale > (med/clip)
+    
+    scale[scale == 0] = 1.0
+    scale = 1.0/scale
+ 
+    scale[too_small] = 0.0
+    scale[too_large] = 0.0
+    
+    contact_scale[chr_a] = scale    
+  
+  for chr_a, chr_b in pairs: # Sorted and avliable
+    is_cis = chr_a == chr_b
+    
+    if (not compare_trans) and (not is_cis):
+      del contact_dict[(chr_a, chr_b)]
+      continue
+    
+    util.info(' .. {} {}   '.format(chr_a, chr_b), line_return=True)
+    mat = contact_dict[(chr_a, chr_b)]
+    
+    if hasattr(mat, 'toarray'):
+      mat = mat.toarray()
+    
+    mat = mat.astype(np.float32)
+    a, b = mat.shape
+    off_a = chromo_offsets[chr_a]
+    lim_a = chromo_sizes[chr_a]
+    off_b = chromo_offsets[chr_b]
+    lim_b = chromo_sizes[chr_b]
+    
+    if off_a or off_b or (lim_a-a-off_a) or (lim_b-b-off_b):
+      # all pairs use full range from zero
+      mat = np.pad(mat, [(off_a,lim_a-a-off_a), (off_b,lim_b-b-off_b)], 'constant') # will ensure square cis (it needn't be when only storing upper matrix)
+      a, b = mat.shape
+
+    if is_cis:
+      mat -= np.diag(np.diag(mat))
+      
+      for i in range(1,a):
+        if mat[i,i-1]: # Check data is present below the diagonal
+          contact_scale[chr_a] *= 2 # Everything was counted twice : divide by double the amount
+          break
+      
+      else:
+        mat += mat.T
+        
+    scale_a = contact_scale[chr_a].astype(np.float32)
+    scale_b = contact_scale[chr_b].astype(np.float32)
+    
+    mat *= np.sqrt(np.outer(scale_a, scale_b))
+    
+    nnz = np.sqrt(len(scale_a.nonzero()[0]) * len(scale_b.nonzero()[0]))
+    
+    msum = mat.sum()
+    
+    if not msum:
+      continue
+    
+    mat *= nnz/msum # The counts scale with the chromosome sizes
+    
+    if new_bin_size > bin_size: # i.e. do nothing if smaller or equal (smaller is not valid)
+      ratio = bin_size / float(new_bin_size)
+      p = int(math.ceil(a * ratio))
+      q = int(math.ceil(b * ratio))
+      mat = util.downsample_matrix(mat, (p, q))
+       
+    if store_sparse:
+      if is_cis:
+        mat = sparse.csr_matrix(mat)
+      else:
+        mat = sparse.coo_matrix(mat)
+    
+    contact_dict[(chr_a, chr_b)] = mat
+  
+  util.info(' .. normalised {} chromosomes/pairs'.format(len(pairs)), line_return=True)
 
 def _downsample_matrix(in_array, new_shape, as_mean=False):
     
@@ -490,7 +626,7 @@ def _get_tick_delta(n, bin_size, max_ticks=10, unit=1e6):
   
   step = round(step, -sf)
     
-  while step % (5*inc) != 0:
+  while (step % (5*inc) != 0) and (step < bin_size):
     step += inc
  
   tick_delta = step/bin_size
@@ -771,7 +907,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
     if nax == 1:
       axarr = [axarr]
     
-    kw = {'interpolation':'none', 'norm':norm, 'origin':'lower',
+    kw = {'interpolation':'None', 'norm':norm, 'origin':'lower',
           'vmin':v_min, 'vmax':v_max}
     
     if do_ambig:
@@ -865,7 +1001,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       ax.hlines(grid-0.5, -0.5, float(b), color='#B0B0B0', alpha=0.5, linewidth=0.1)
       ax.vlines(grid, float(a), -0.5, color='#B0B0B0', alpha=0.5, linewidth=0.1)
       
-    kw = {'interpolation':'none', 'norm':norm, 'origin':'upper',
+    kw = {'interpolation':'None', 'norm':norm, 'origin':'upper',
           'vmin':v_min, 'vmax':v_max}
     if do_ambig:
       cax2 = ax.matshow(ambig_matrix, cmap=cmap2, **kw)
@@ -1002,11 +1138,16 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
   
   if io.is_ncc(in_path):
     file_bin_size = None
+    util.info('Loading NCC format contact data')
     chromosomes, chromo_limits, contacts = ncc.load_file(in_path)
     
   else:
+    util.info('Loading NPZ format contact data')
     file_bin_size, chromo_limits, contacts = npz.load_npz_contacts(in_path)
-  
+      
+    #normalize_contacts(contacts, chromo_limits, file_bin_size, store_sparse=False)
+            
+
   if in_path2:
     if io.is_ncc(in_path2):
       file_bin_size2 = None
@@ -1017,7 +1158,6 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
       
       if file_bin_size and (file_bin_size2 != file_bin_size):
         util.critical('Input contact datsets are binned at different resolutions')
-            
   else:
     contacts2 = None
       
@@ -1148,7 +1288,9 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
           continue
 
       chromos.append(chromo)
-
+      
+    util.info('Considering {:,} chromosomes/contigs'.format(len(chromos)))
+    
   if skipped:
     util.info('Skipped {:,} small chromosomes/contigs < {:,} bp'.format(len(skipped), min_contig_size))
 
@@ -1637,7 +1779,7 @@ def main(argv=None):
                               'Regions should be specified as chromosome:start-end with positions in Mb, ' \
                               'e.g. "chr3:5.35-10.35". Overrides -chr, -t and -m options.')
 
-  arg_parse.add_argument('-g', default=False, action='store_true',
+  arg_parse.add_argument('-g', '--screen-gfx', default=False, action='store_true', dest='g',
                          help='Display graphics on-screen using matplotlib, where possible and do not automatically save output.')
 
   arg_parse.add_argument('-s1', '--bin-size-main', default=None, metavar='BIN_SIZE', type=float, dest="s1",
@@ -1724,20 +1866,7 @@ def main(argv=None):
       util.critical('Input contact file could not be found at "{}"'.format(in_path))
   
   if cmap:
-    if ',' in cmap:
-      colors = cmap.split(',')
-      try:
-        cmap = LinearSegmentedColormap.from_list(name='pcm', colors=colors, N=255)    
-      except ValueError as err:
-        util.warn(err)
-        util.critical('Invalid colour specification')
-      
-    else:
-      try:
-        cmap = plt.get_cmap(cmap)
-      except ValueError as err:
-        util.warn(err)
-        util.critical('Invalid colourmap name. See: %s' % COLORMAP_URL)
+    cmap = util.string_to_colormap(cmap)
   
   if regions:
     sep_trans = False
@@ -1762,6 +1891,9 @@ def main(argv=None):
         util.critical(msg % (chromo, start, end, MIN_REGION_BINS, nbins))
       
       region_dict[chromo].append((start, end))
+  
+  else:
+    region_dict = {}
       
   contact_map(in_paths, out_path, bin_size, bin_size2, bin_size3,
               no_sep_cis, sep_trans, chromos, region_dict,

@@ -6,11 +6,15 @@ from scipy import stats
 from collections import defaultdict
 
 import math
-import nuc_util as util
+from nuc_tools import util
+from formats import bed, n3d
 import numpy as np
 import os
 
 from matplotlib import pyplot as plt
+
+from matplotlib.colors import LinearSegmentedColormap
+CMAP = LinearSegmentedColormap.from_list(name='R1', colors=[ '#FFFFFF','#909090','#FF0000','#FFFF00'], N=51)
 
 @jit(int64[:](int64[:], int64[:,:], int64), cache=True)  
 def points_region_interset(pos, regions, exclude=0):
@@ -330,10 +334,10 @@ def calc_point_density_enrichment(input_paths, a_comp_bed_path, b_comp_bed_path,
   
   bed_data_path, n3d_coord_path = input_paths
   
-  region_dict, value_dict, label_dict = util.load_bed_data_track(bed_data_path) 
+  region_dict, value_dict, label_dict = bed.load_bed_data_track(bed_data_path) 
   
-  a_region_dict, a_value_dict, a_label_dict = util.load_bed_data_track(a_comp_bed_path)
-  b_region_dict, b_value_dict, b_label_dict = util.load_bed_data_track(b_comp_bed_path)
+  a_region_dict, a_value_dict, a_label_dict = bed.load_bed_data_track(a_comp_bed_path)
+  b_region_dict, b_value_dict, b_label_dict = bed.load_bed_data_track(b_comp_bed_path)
   
   util.info('Working on structure %s' % n3d_coord_path)
   
@@ -348,7 +352,7 @@ def calc_point_density_enrichment(input_paths, a_comp_bed_path, b_comp_bed_path,
     util.info('  .. found %s' % out_bed_path)
     return out_bed_path
   
-  seq_pos_dict, coords_dict = util.load_n3d_coords(n3d_coord_path)
+  seq_pos_dict, coords_dict = n3d.load_n3d_coords(n3d_coord_path)
   
   particle_regions, chromo_enrich = get_point_density_enrichment(region_dict, value_dict, seq_pos_dict,
                                                                  coords_dict, a_region_dict, b_region_dict,
@@ -370,7 +374,7 @@ def get_structure_chromo_limits(n3d_coord_paths):
   bin_size = None
   
   for n3d_coord_path in n3d_coord_paths:
-    seq_pos_dict, coords_dict = util.load_n3d_coords(n3d_coord_path)
+    seq_pos_dict, coords_dict = n3d.load_n3d_coords(n3d_coord_path)
   
     for chromo in seq_pos_dict:
       if not bin_size:
@@ -444,7 +448,7 @@ def plot_data_track_correlations(paired_bed_files, ab_group_dict, bin_size=10000
         if bed_data_path in data_dict:
           continue
  
-        region_dict, value_dict, label_dict = util.load_bed_data_track(bed_data_path)
+        region_dict, value_dict, label_dict = bed.load_bed_data_track(bed_data_path)
         chromos.update(region_dict.keys())
         data_dict[bed_data_path] = (region_dict, value_dict)
  
@@ -460,7 +464,7 @@ def plot_data_track_correlations(paired_bed_files, ab_group_dict, bin_size=10000
             chromo_limits[chromo] = min(a, c), max(b, d)
           else:
             chromo_limits[chromo] = a, b
-   
+  
   # Group data into consistent bins spanning all chromsomes
   # - won't affect data that is aready binned at the same resolution
   # - but ensures all start and end positions are the same across all
@@ -650,7 +654,7 @@ def plot_data_track_correlations(paired_bed_files, ab_group_dict, bin_size=10000
         ax_quantplot(ax, box_data, j, n_groups, corr_text)
  
       else:
-        ax.hexbin(x_data, y_data, cmap='Blues', bins='log', gridsize=50)
+        ax.hexbin(x_data, y_data, cmap=CMAP, gridsize=50)
         ax.text(-9.0, 4.0, corr_text)
         
     ax.set_title(tf_name)
@@ -732,7 +736,7 @@ def plot_data_track_correlations(paired_bed_files, ab_group_dict, bin_size=10000
  
     else:
       ax.set_xlim([0.0, 1.0])
-      ax.set_ylim([-4.0, 5.0])
+      ax.set_ylim([-3.0, 5.0])
  
       if row == n_rows-1:
         ax.set_xlabel('Sequence density rank')
@@ -777,10 +781,10 @@ def plot_data_track_correlations(paired_bed_files, ab_group_dict, bin_size=10000
         ax_quantplot(ax, box_data, j, n_groups, corr_text)
  
       else:
-        hb = ax.hexbin(x_data, y_data, cmap='Blues', bins='log', label=group_name, gridsize=50)
+        hb = ax.hexbin(x_data, y_data, cmap=CMAP, label=group_name, gridsize=50)
         ax.text(0.7, 4.0, corr_text)
         cb = fig.colorbar(hb, ax=ax)
-        cb.set_label('$log_{10}(count)$')
+        cb.set_label('Count')
     
     ax.set_title(ab_group_name)
     
@@ -814,22 +818,22 @@ def bin_data_track(bed_data_path, chromo_limits, out_dir, bin_size, smooth=False
     out_bed_path = '%s_%dkb_bin.bed' % (file_root, int(bin_size/1000))
     out_bed_path = os.path.join(out_dir, out_bed_path)
   
-  region_dict, value_dict, label_dict = util.load_bed_data_track(bed_data_path) 
+  region_dict, value_dict, label_dict = bed.load_bed_data_track(bed_data_path) 
   bin_region_dict = {}
   bin_value_dict = {}
   delta = bin_size-1
   hist_data = []
   half_bin = bin_size/2
   
-  for chromo in region_dict:
+  for chromo in sorted(region_dict):
     start, end = chromo_limits[chromo]
     
     regions = np.array(region_dict[chromo])
     values = value_dict[chromo]
     
     if include_regions:
-      # Keep only data points which intersect these regions
-    
+      # Keep only data points which intersect these regions   
+           
       for intersect_regions in include_regions:
         filter_regions = intersect_regions[chromo] + np.array([-intersect_width, intersect_width])
         idx = points_region_interset(regions.mean(axis=1), filter_regions)
@@ -860,7 +864,7 @@ def bin_data_track(bed_data_path, chromo_limits, out_dir, bin_size, smooth=False
   
   hist_data = np.concatenate(hist_data, axis=0)
   
-  util.save_bed_data_track(out_bed_path, bin_region_dict, bin_value_dict)
+  bed.save_bed_data_track(out_bed_path, bin_region_dict, bin_value_dict)
   util.info('  .. saved %s' % out_bed_path)
   
   return out_bed_path
@@ -868,7 +872,8 @@ def bin_data_track(bed_data_path, chromo_limits, out_dir, bin_size, smooth=False
 
 if __name__ == '__main__':
   
-   
+  import sys
+  sys.path.append(os.path.dirname(__file__))
   
   # # #  Some constants
 
@@ -910,7 +915,7 @@ if __name__ == '__main__':
   for file_path in comb_bed_paths:
     file_name = os.path.splitext(os.path.basename(file_path))[0]
     group_name = file_name[8:]
-    region_dict, value_dict, label_dict = util.load_bed_data_track(file_path) 
+    region_dict, value_dict, label_dict = bed.load_bed_data_track(file_path) 
     
     names = set()
     for chromo in label_dict:
@@ -921,9 +926,9 @@ if __name__ == '__main__':
 
   # # # Load BED files used for overlapping with TF sites
   
-  prom_regions, prom_values, null = util.load_bed_data_track('bed/Promoters.bed') 
-  k4me3_regions, k4me3_values, null = util.load_bed_data_track('bed/H3K4me3_hap_EDL.bed') 
-  k4me1_regions, k4me1_values, null = util.load_bed_data_track('bed/H3K4me1_GEO.bed') 
+  prom_regions, prom_values, null = bed.load_bed_data_track('bed/Promoters.bed') 
+  k4me3_regions, k4me3_values, null = bed.load_bed_data_track('bed/H3K4me3_hap_EDL.bed') 
+  k4me1_regions, k4me1_values, null = bed.load_bed_data_track('bed/H3K4me1_GEO.bed') 
   
   
   

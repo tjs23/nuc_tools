@@ -6,7 +6,7 @@ CHR_KEY_SEP = ' '
 
 def load_npz_contacts(file_path, trans=True, store_sparse=False):
   
-  file_dict = np.load(file_path)
+  file_dict = np.load(file_path, allow_pickle=True)
   
   chromo_limits = {}
   contacts = {}

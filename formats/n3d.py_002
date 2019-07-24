@@ -1,37 +1,6 @@
 import numpy as np
-import math
 
-def get_chromo_limits(n3d_paths):
-  """
-  Get the sequence limits and bin size of particles for chromosomes
-  in multiple structures.
-  """
-  
-  chromo_limits = {}
-  bin_size = None
-  
-  for n3d_coord_path in n3d_paths:
-    seq_pos_dict, coords_dict = load_n3d_coords(n3d_coord_path)
-  
-    for chromo in seq_pos_dict:
-      if not bin_size:
-        a, b, = seq_pos_dict[chromo][:2]
-        bin_size = b-a
- 
-      p1 = seq_pos_dict[chromo].min()
-      p2 = seq_pos_dict[chromo].max()
-      p1 = bin_size * int(p1/bin_size)
-      p2 = bin_size * (1+int(math.ceil(p2/float(bin_size))))
- 
-      if chromo in chromo_limits:
-        q1, q2 = chromo_limits[chromo]
-        chromo_limits[chromo] = min(p1, q1), max(p2, q2)
-      else:
-        chromo_limits[chromo] = p1, p2
-      
-  return chromo_limits, bin_size
-  
-  
+
 def export_n3d_coords(file_path, coords_dict, seq_pos_dict):
   
   return save_n3d_coords(file_path, coords_dict, seq_pos_dict)
@@ -90,7 +59,7 @@ def load_n3d_coords(file_path):
   
   """  
   
-  import core.nuc_io as io
+  from nuc_tools import io
 
   seq_pos_dict = {}
   coords_dict = {}  
@@ -112,8 +81,8 @@ def load_n3d_coords(file_path):
       elif n_items == 3:
         chromo, n_coords, n_models = data
         
-        #if chromo.lower()[:3] == 'chr':
-        #  chromo = chromo[3:]
+        if chromo.lower()[:3] == 'chr':
+          chromo = chromo[3:]
         
         n_coords = int(n_coords)
         n_models = int(n_models)

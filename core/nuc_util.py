@@ -55,6 +55,40 @@ def info(msg, prefix='INFO', line_return=False):
 
   report('%s: %s' % (prefix, msg), line_return)
 
+# # Matplotlib # # 
+
+COLORMAP_URL = 'https://matplotlib.org/tutorials/colors/colormaps.html'
+
+def string_to_colormap(color_spec, cmap_name='user', n=255):
+  
+  if isinstance(color_spec, (list,tuple)):
+    colors = color_ssr.split(',')
+    try:
+      cmap = LinearSegmentedColormap.from_list(name=cmap_name, colors=colors, N=n)    
+    
+    except ValueError as err:
+      util.warn(err)
+      util.critical('Invalid colour specification')
+  
+  elif ',' in color_spec:
+    colors = color_ssr.split(',')
+    try:
+      cmap = LinearSegmentedColormap.from_list(name=cmap_name, colors=colors, N=n)    
+    
+    except ValueError as err:
+      util.warn(err)
+      util.critical('Invalid colour specification')
+    
+  else:
+    try:
+      cmap = plt.get_cmap(cmap)
+      
+    except ValueError as err:
+      util.warn(err)
+      util.critical('Invalid colourmap name. See: %s' % COLORMAP_URL)
+  
+  return cmap
+  
 
 # #  Run  # # 
      
@@ -230,6 +264,25 @@ def sort_chromosomes(chromos):
   sort_chromos.sort()
   
   return [x[1] for x in sort_chromos]  
+
+
+def points_region_intersect(pos, regions):
+  
+  starts = np.array(regions[:,0])
+  ends = np.array(regions[:,1])
+  
+  idx = np.argsort(starts)
+
+  starts = starts[idx]
+  ends = ends[idx]
+  
+  before_end = np.searchsorted(ends, pos)
+  after_start = np.searchsorted(starts, pos)-1
+  
+  intersection = after_start == before_end
+  
+  return intersection
+  
   
 def bin_region_values(regions, values, bin_size, start, end):
   """
