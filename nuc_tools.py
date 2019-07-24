@@ -20,7 +20,10 @@ TOOLS = {'adapt': 'tools.nuc_adapt',
          'contact_pair_points': 'tools.contact_pair_points',
          'ncc_filter': 'tools.ncc_filter',
          'ncc_bin': 'tools.ncc_bin',
-         'cs_process': 'tools.cs_process'}
+         'cs_process': 'tools.cs_process',
+         'structure_data_density': 'tools.structure_data_density',
+         'data_track_filter': 'tools.data_track_filter',
+         }
 
 def main(argv=None):
   from argparse import ArgumentParser

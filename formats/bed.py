@@ -5,21 +5,25 @@ from core.nuc_io import open_file
 def load_bed_data_track(file_path):
 
   name = None
-  region_dict = defaultdict(list)
-  value_dict  = defaultdict(list)
-  label_dict  = defaultdict(list)
+  sort_dict = defaultdict(set)
   
-  with open_file(file_path) as file_obj:
+  with open_file(file_path, partial=True) as file_obj:
+    file_pos = 0
     line = file_obj.readline()
     
     while line.startswith('browser') or line.startswith('track'):
-      line = file_obj.readline()
-
-    file_obj.seek(0)
+      file_pos = file_obj.tell() # before a non-header line
+      line = file_obj.readline()    
+    
+    while line[0] == '#':
+      line = file_obj.readline() 
+    
     n_fields = len(line.split())
     have_anno = n_fields > 3
     have_val = n_fields > 4
     have_strand = n_fields > 5
+      
+  with open_file(file_path) as file_obj:
 
     for i, line in enumerate(file_obj):
       if line[0] == '#':
@@ -54,30 +58,37 @@ def load_bed_data_track(file_path):
           if start > end:
             start, end = end, start
             
-      region_dict[chromo].append((start, end))
-      value_dict[chromo].append(score)
-      label_dict[chromo].append(label)
+      sort_dict[chromo].add(((start, end), score, label))
 
+  region_dict = defaultdict(list)
+  value_dict  = defaultdict(list)
+  label_dict  = defaultdict(list)
   max_vals = []
   
-  for chromo in region_dict:
-    region_dict[chromo] = np.array(region_dict[chromo])
-    value_dict[chromo] = np.array(value_dict[chromo], float)
+  for chromo in sort_dict:
+    data = sorted(sort_dict[chromo])
+    
+    regions, scores, labels = zip(*data)
+    region_dict[chromo] = np.array(regions)
+    value_dict[chromo] = np.array(scores, float)
+    label_dict[chromo] = labels
+    
     max_vals.append(value_dict[chromo].max())
-  
+ 
   return region_dict, value_dict, label_dict
 
   
 
 def save_bed_data_track(file_path, region_dict, value_dict, label_dict=None, scale=1.0):
   
-  #template = 'chr%s\t%d\t%d\t%s\t%.7e\t%s\n' # chr, start, end, label, score, strand
-  template = '%s\t%d\t%d\t%s\t%.7e\t%s\n' # chr, start, end, label, score, strand
+  from nuc_tools import util
   
+  #template = 'chr%s\t%d\t%d\t%s\t%.7e\t%s\n' # chr, start, end, label, score, strand
+  template = '%s\t%d\t%d\t%s\t%d\t%s\n' # chr, start, end, label, score, strand
   with open(file_path, 'w') as file_obj:
     write = file_obj.write
 
-    for chromo in region_dict:
+    for chromo in util.sort_chromosomes(region_dict):
       regions = region_dict[chromo]
       values = value_dict[chromo]
       n = len(regions)
@@ -98,7 +109,11 @@ def save_bed_data_track(file_path, region_dict, value_dict, label_dict=None, sca
  
         else:
           strand = '+'
-
+        
+        if value < 0:
+          value = - value
+          strand = '-'
+        
         score = value * scale
  
         line = template % (chromo, start, end, label, score, strand)
