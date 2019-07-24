@@ -54,14 +54,15 @@ def contact_insulation(region_path, contact_paths, pdf_path, bin_size=DEFAULT_BI
   for i, in_path in enumerate(contact_paths):
     
     if io.is_ncc(in_path):
-       file_bin_size = None
+       is_ncc = True
        chromosomes, chromo_limits, contacts = ncc.load_file(in_path, trans=False)
        
        # TBD bin_contacts
         
     else:
-       file_bin_size, chromo_limits, contacts = npz.load_npz_contacts(in_path, trans=False)
-       normalize_contacts(contacts, chromo_limits, file_bin_size, store_sparse=False)
+       is_ncc = False
+       bin_size, chromo_limits, contacts = npz.load_npz_contacts(in_path, trans=False)
+       normalize_contacts(contacts, chromo_limits, bin_size, store_sparse=False)
     
     chromos = util.sort_chromosomes([x[0] for x in contacts])
     ratios = []
@@ -73,7 +74,7 @@ def contact_insulation(region_path, contact_paths, pdf_path, bin_size=DEFAULT_BI
       if not len(regions):
         continue
               
-      if file_bin_size:
+      if not is_ncc:
         start = 0
       else:
         start, end = chromo_limits[chr_a]     
@@ -105,12 +106,12 @@ def contact_insulation(region_path, contact_paths, pdf_path, bin_size=DEFAULT_BI
         if (pos - prev_pos) < MIN_BOUNDARY_SEP:
           continue
       
-        bin = (pos-start)/bin_size
-        bin_a = max(0, bin-dbin)
-        bin_b = min(n-1, bin+dbin)
+        bin_0 = (pos-start)/bin_size
+        bin_a = max(0, bin_0-dbin)
+        bin_b = min(n-1, bin_0+dbin)
         
         sub_mat = mat[bin_a:bin_b+1,bin_a:bin_b+1]
-        mid = bin-bin_a # Index of boundary bin in sub-array
+        mid = bin_0-bin_a # Index of boundary bin in sub-array
         idx = np.indices(sub_mat.shape)
         rows, cols = idx
         

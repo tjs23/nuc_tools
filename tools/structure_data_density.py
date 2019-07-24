@@ -1,4 +1,4 @@
-import os, sys, math, multiprocessing, ctypes
+import os, sys, math, multiprocessing, ctypes, subprocess
 import numpy as np
 from time import time
 from collections import defaultdict
@@ -12,9 +12,6 @@ from scipy import stats
 from scipy.cluster import hierarchy
 from scipy.spatial import distance
 
-import multiprocessing
-import os
-import subprocess
 
 PROG_NAME = 'structure_data_density'
 VERSION = '1.0.0'
@@ -25,7 +22,6 @@ DEFAULT_MIN_PARTICLE_SEP = 3
 DEFAULT_PDF_OUT = 'sdd_out_job{}_S{}-D{}.pdf'
 DEFAULT_MAX_RADIUS = 5.0
 DEFAULT_POW = 3.0
-COLORMAP_URL = 'https://matplotlib.org/tutorials/colors/colormaps.html'
 MIN_FLOAT = sys.float_info.min
 DENSITY_KEY = '_DENSITY_'
 PDF_DPI = 200
@@ -1194,7 +1190,7 @@ def main(argv=None):
                          help='Optional scale colours as a comma-separated list, e.g. "white,blue,red".' \
                               'or colormap (scheme) name, as used by matplotlib. ' \
                               'Note: #RGB style hex colours must be quoted e.g. "#FF0000,#0000FF" ' \
-                              'See: %s This option overrides -b.' % COLORMAP_URL)
+                              'See: %s This option overrides -b.' % util.COLORMAP_URL)
 
   arg_parse.add_argument('-null', '--null-site-bed', metavar='BED_FILE', default=None, dest='null',
                          help='Optional data track file in BED format to specify comparative regions ' \
@@ -1229,30 +1225,16 @@ def main(argv=None):
   if not struc_paths1:
     arg_parse.print_help()
     sys.exit(1)  
-
+  
   if cmap:
-    if ',' in cmap:
-      colors = cmap.split(',')
-      try:
-        cmap = LinearSegmentedColormap.from_list(name='pcm', colors=colors, N=255)    
-      except ValueError as err:
-        util.warn(err)
-        util.critical('Invalid colour specification')
-      
-    else:
-      try:
-        cmap = plt.get_cmap(cmap)
-      except ValueError as err:
-        util.warn(err)
-        util.critical('Invalid colourmap name. See: %s' % COLORMAP_URL)
+    cmap = util.string_to_colormap(cmap)
   
   if out_path and screen_gfx:
     util.warn('Output file will not be written in screen graphics (-g) mode')
     out_path = None
   
   for in_path in struc_paths1 + struc_paths2 + data_tracks:
-    if not os.path.exists(in_path):
-      util.critical('Input file "{}" could not be found'.format(in_path))
+    io.check_invalid_file(in_path)
   
   nl = len(data_labels)
   nd = len(data_tracks)
@@ -1282,27 +1264,6 @@ Proper distrib p-values
 MD5sum caching 
 --
 
-
-New programs
-
- Compare tracks
- - Correlate region binned data track values
- - Quantile AND log norm
- - Different tracks relative to a reference
-   
-   + Reference is x-axis
-   + Y-axis distribution of others
-     Separate sub-plots
-     - Density plot
-     - Box/violin plot
-     - Scatter/density
-     Combined plot
-     - Lines with errs
-
- - Measure sequential overlap
- 
- Combine tracks
- 
  Structure-derived tracks
  
 ./nuc_tools structure_data_density -h  

@@ -137,7 +137,7 @@ def contact_probability(contact_paths, pdf_path=None, region_path=None, bin_size
         seq_pos_b = np.concatenate(seq_pos_b)
        
       else:
-        contact_array = contacts[chromo]
+        contact_array = contacts[chromo_pair]
         seq_pos_a = contact_array[:,0]
         seq_pos_b = contact_array[:,1]
         
@@ -145,7 +145,7 @@ def contact_probability(contact_paths, pdf_path=None, region_path=None, bin_size
         indices = seps.nonzero()
         seps = seps[indices]
 
-        p_start, p_end = chromo_limits[chromo]
+        p_start, p_end = chromo_limits[chr_a]
         size = float(p_end-p_start+1)
 
         prob = (size/(size-seps)) # From fraction of chromosome that could give rise to each separation

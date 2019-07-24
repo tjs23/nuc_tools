@@ -16,9 +16,11 @@ DEFAULT_FORMAT = 'NPZ'
 DEFAULT_BIN_SIZE = 50.0
 DEFAULT_MIN_BINS = 2
 M_SIZE = 500 # Size of submatrices in loading dict
+PRINT_FREQ = 200000
+MIN_TRANS_COUNT = 5
 
 def bin_ncc(ncc_in, out_file=None, bin_size=DEFAULT_BIN_SIZE, format=DEFAULT_FORMAT,
-            min_bins=DEFAULT_MIN_BINS, dtype=np.uint8):
+            min_bins=DEFAULT_MIN_BINS, min_trans=MIN_TRANS_COUNT, dtype=np.uint8):
 
   from nuc_tools import util, io
   
@@ -38,6 +40,7 @@ def bin_ncc(ncc_in, out_file=None, bin_size=DEFAULT_BIN_SIZE, format=DEFAULT_FOR
   
   key_bin_size = M_SIZE * bin_bp
   n_contacts = 0
+  exclude_contigs = set()
   min_bin = {}
   max_bin = defaultdict(int)
   get_min_bin = min_bin.get
@@ -46,14 +49,65 @@ def bin_ncc(ncc_in, out_file=None, bin_size=DEFAULT_BIN_SIZE, format=DEFAULT_FOR
   t0 = time.time()
   
   if format == 'NPZ':
+    # Pre-read check to filter very small contigs
+    
     with io.open_file(ncc_in) as in_file_obj:
- 
-      for line in in_file_obj:
-        n_contacts += 1
-
+      for i, line in enumerate(in_file_obj):
+        if (i == 1e5) and (len(max_bin) < 200):
+          break
+          
         chr_a, start_a, end_a, f_start_a, f_end_a, strand_a, \
           chr_b, start_b, end_b, f_start_b, f_end_b, strand_b, \
           ambig_group, pair_id, swap_pair = line.split()      
+
+        pos_a = int(f_start_a) if strand_a == '+' else int(f_end_a)
+        pos_b = int(f_start_b) if strand_b == '+' else int(f_end_b)
+          
+        bin_a = int(pos_a/bin_bp)
+        bin_b = int(pos_b/bin_bp)
+
+        if bin_a < get_min_bin(chr_a, inf):
+          min_bin[chr_a] = bin_a
+
+        if bin_b < get_min_bin(chr_b, inf):
+          min_bin[chr_b] = bin_b              
+
+        if bin_a > max_bin[chr_a]:
+          max_bin[chr_a] = bin_a
+
+        if bin_b > max_bin[chr_b]:
+          max_bin[chr_b] = bin_b
+
+        if i % PRINT_FREQ == 0:
+          util.info("  Inspected {:,} lines, found {:,} chromosomes/contigs in {:.2f} s ".format(i, len(min_bin), time.time()-t0), line_return=True)
+    
+      else:
+        util.info("  Inspected {:,} lines, found {:,} chromosomes/contigs in {:.2f} s ".format(i, len(min_bin), time.time()-t0), line_return=True)
+        
+        for chromo in min_bin:
+          if (max_bin[chromo] - min_bin[chromo]) < min_bins:
+            exclude_contigs.add(chromo)
+          
+        util.info('Excluding {:,} small contigs from {:,}'.format(len(exclude_contigs), len(min_bin)))
+        min_bin = {}
+        max_bin = defaultdict(int)
+        get_min_bin = min_bin.get
+        t0 = time.time() 
+          
+    with io.open_file(ncc_in) as in_file_obj:
+ 
+      for line in in_file_obj:
+        chr_a, start_a, end_a, f_start_a, f_end_a, strand_a, \
+          chr_b, start_b, end_b, f_start_b, f_end_b, strand_b, \
+          ambig_group, pair_id, swap_pair = line.split()      
+        
+        if chr_a in exclude_contigs:
+          continue
+        
+        if chr_b in exclude_contigs:
+          continue
+        
+        n_contacts += 1
 
         pos_a = int(f_start_a) if strand_a == '+' else int(f_end_a)
         pos_b = int(f_start_b) if strand_b == '+' else int(f_end_b)
@@ -97,10 +151,10 @@ def bin_ncc(ncc_in, out_file=None, bin_size=DEFAULT_BIN_SIZE, format=DEFAULT_FOR
             mat = sparse.dok_matrix((M_SIZE, M_SIZE), dtype=dtype)
           
           contact_blocks[chromo_key][bin_key] = mat
+         
           
-        if n_contacts % 100000 == 0:
-          stdout.write("\r  Processed {:,} contacts in {:.2f} s ".format(n_contacts, time.time()-t0))
-          stdout.flush()
+        if n_contacts % PRINT_FREQ == 0:
+          util.info("  Processed {:,} contacts for {:,} chromosomes/contigs in {:.2f} s ".format(n_contacts, len(min_bin), time.time()-t0), line_return=True)
         
         c = mat[bin_a, bin_b]
         
@@ -119,16 +173,17 @@ def bin_ncc(ncc_in, out_file=None, bin_size=DEFAULT_BIN_SIZE, format=DEFAULT_FOR
         mat[bin_a, bin_b] = c + 1
         counts[chromo_key] += 1
     
-    stdout.write("\r  Processed {:,} contacts in {:.2f} s\n".format(n_contacts, time.time()-t0))
-    stdout.flush()
+    util.info("  Processed {:,} contacts for {:,} chromosomes/contigs in {:.2f} s ".format(n_contacts, len(min_bin), time.time()-t0), line_return=True)
     
     util.info('Saving data')
     contacts = {}
+    n_exc_trans = 0
     
     for chromo_key in sorted(counts):
       chr_a, chr_b = chromo_key
       min_a, max_a = min_bin[chr_a], max_bin[chr_a]
       min_b, max_b = min_bin[chr_b], max_bin[chr_b]
+      min_a = min_b = 0
       a = 1 + max_a - min_a
       b = 1 + max_b - min_b
      
@@ -174,6 +229,11 @@ def bin_ncc(ncc_in, out_file=None, bin_size=DEFAULT_BIN_SIZE, format=DEFAULT_FOR
         
       del contact_blocks[chromo_key]
       
+      if chr_a != chr_b and min_trans and  mat.sum() < min_trans:
+        del mat
+        n_exc_trans += 1
+        continue
+      
       key = chr_a + CHR_KEY_SEP + chr_b
       
       if chr_a == chr_b:
@@ -190,6 +250,9 @@ def bin_ncc(ncc_in, out_file=None, bin_size=DEFAULT_BIN_SIZE, format=DEFAULT_FOR
     contacts['params'] = np.array([bin_size, min_bins])  
      
     np.savez_compressed(out_file, **contacts)    
+  
+  if n_exc_trans:
+    util.info('Excluded {:,} inter-chromosome pairs due to low contact counts (< {:,})'.format(n_exc_trans, min_trans))    
   
   util.info('Written {:,} contacts to {}'.format(n_contacts,out_file))
   
@@ -224,16 +287,20 @@ def main(argv=None):
   #arg_parse.add_argument('-f', metavar='OUT_FORMAT', default=DEFAULT_FORMAT, dest='f',
   #                       help='Output file format. Default: %s. Available: %s' % (DEFAULT_FORMAT, avail_fmts))
 
-  arg_parse.add_argument('-m', default=DEFAULT_MIN_BINS, metavar='MIN_BINS', type=int, dest='m',
+  arg_parse.add_argument('-m', '--min-bin-count', default=DEFAULT_MIN_BINS, metavar='MIN_BINS', type=int, dest='m',
                          help='The minimum number of bins for chromosomes/contigs; those with fewer than this are excluded from output')
+
+  arg_parse.add_argument('-t', '--min-trans-count', default=MIN_TRANS_COUNT, metavar='MIN_TRANS_COUNT', type=int, dest='t',
+                         help='The minimum number contacts for inter-chromosomal contact matrices; those with fewer than this are excluded from output')
 
   args = vars(arg_parse.parse_args(argv))
 
   in_file  = args['i'][0]
   out_file = args['o']
   bin_size = args['s']
-  format   = DEFAULT_FORMAT # args['f'].upper()  
+  fmt   = DEFAULT_FORMAT # args['f'].upper()  
   min_bins = args['m']
+  min_trans = args['t']
   
   invalid_msg = io.check_invalid_file(in_file)
   
@@ -243,11 +310,11 @@ def main(argv=None):
   if out_file and io.is_same_file(in_file, out_file):
     util.critical('Input file cannot be the same as the output file')
 
-  if format not in OUT_FORMATS:
-    msg = 'Output file format "%s" not known. Available: %s.' % (format, ', '.join(sorted(OUT_FORMATS)))
+  if fmt not in OUT_FORMATS:
+    msg = 'Output file format "%s" not known. Available: %s.' % (fmt, ', '.join(sorted(OUT_FORMATS)))
     util.critical(msg)  
     
-  bin_ncc(in_file, out_file, bin_size, format, min_bins)
+  bin_ncc(in_file, out_file, bin_size, fmt, min_bins, min_trans)
  
 
 if __name__ == '__main__':
