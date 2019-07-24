@@ -51,6 +51,11 @@ def get_file_ext(file_path):
   return file_ext
 
 
+def get_file_root(file_path):
+  
+  return  os.path.splitext(os.path.basename(file_path))[0]
+
+
 def get_safe_file_path(path_name, file_name=None):
    
   if file_name:
@@ -211,7 +216,7 @@ def compress_file(file_path):
   return out_file_path
 
     
-def open_file(file_path, mode=None, buffer_size=FILE_BUFFER_SIZE, gzip_exts=('.gz','.gzip')):
+def open_file(file_path, mode=None, buffer_size=FILE_BUFFER_SIZE, gzip_exts=('.gz','.gzip'), partial=False):
   """
   GZIP agnostic file opening
   """
@@ -220,10 +225,14 @@ def open_file(file_path, mode=None, buffer_size=FILE_BUFFER_SIZE, gzip_exts=('.g
     if mode and 'w' in mode:
       file_obj = BufferedWriter(gzip.open(file_path, mode), buffer_size)
     else:
-      try:
-        file_obj = subprocess.Popen(['zcat', file_path], stdout=subprocess.PIPE).stdout
-      except OSError: 
+      if partial:
         file_obj = BufferedReader(gzip.open(file_path, mode or 'rt'), buffer_size)
+        
+      else:
+        try:
+          file_obj = subprocess.Popen(['zcat', file_path], stdout=subprocess.PIPE).stdout
+        except OSError:
+          file_obj = BufferedReader(gzip.open(file_path, mode or 'rt'), buffer_size)
  
   else:
     file_obj = open(file_path, mode or 'rU', buffer_size)
