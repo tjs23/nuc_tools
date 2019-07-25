@@ -23,6 +23,7 @@ TOOLS = {'adapt': 'tools.nuc_adapt',
          'cs_process': 'tools.cs_process',
          'structure_data_density': 'tools.structure_data_density',
          'data_track_filter': 'tools.data_track_filter',
+         'data_track_compare': 'tools.data_track_compare',
          }
 
 def main(argv=None):

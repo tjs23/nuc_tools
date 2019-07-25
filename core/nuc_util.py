@@ -61,8 +61,10 @@ COLORMAP_URL = 'https://matplotlib.org/tutorials/colors/colormaps.html'
 
 def string_to_colormap(color_spec, cmap_name='user', n=255):
   
+  from matplotlib.colors import LinearSegmentedColormap
+  
   if isinstance(color_spec, (list,tuple)):
-    colors = color_ssr.split(',')
+    colors = color_spec.split(',')
     try:
       cmap = LinearSegmentedColormap.from_list(name=cmap_name, colors=colors, N=n)    
     
@@ -71,7 +73,7 @@ def string_to_colormap(color_spec, cmap_name='user', n=255):
       util.critical('Invalid colour specification')
   
   elif ',' in color_spec:
-    colors = color_ssr.split(',')
+    colors = color_spec.split(',')
     try:
       cmap = LinearSegmentedColormap.from_list(name=cmap_name, colors=colors, N=n)    
     
@@ -289,22 +291,25 @@ def bin_region_values(regions, values, bin_size, start, end):
   Bin input regions and asscociated values into a histogram of new, regular
   regions. Accounts for partial overlap using proportinal allocation.
   """  
-  n = values.shape[0]
+  n = len(values)
   
   if len(regions) != n:
     data = (len(regions), n)
     msg = 'Number of regions (%d) does not match number of values (%d)'
     raise Exception(msg % data)  
-  
-  np.sort(regions)
-  sort_idx = regions[:,0].argsort()
-  regions = regions[sort_idx]
-  values = values[sort_idx]
     
   s = int(start/bin_size)
   e = 1 + int(end/bin_size) # Limit, not last index
   n_bins = e-s
   value_hist = np.zeros(n_bins, float)
+  
+  if not len(regions):
+    return value_hist
+  
+  np.sort(regions)
+  sort_idx = regions[:,0].argsort()
+  regions = regions[sort_idx]
+  values = values[sort_idx]
   
   s *= bin_size
   e *= bin_size   
