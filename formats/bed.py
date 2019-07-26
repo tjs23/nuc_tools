@@ -79,12 +79,16 @@ def load_bed_data_track(file_path):
 
   
 
-def save_bed_data_track(file_path, region_dict, value_dict, label_dict=None, scale=1.0):
+def save_bed_data_track(file_path, region_dict, value_dict, label_dict=None, scale=1.0, as_float=False):
   
   from nuc_tools import util
   
-  #template = 'chr%s\t%d\t%d\t%s\t%.7e\t%s\n' # chr, start, end, label, score, strand
-  template = '%s\t%d\t%d\t%s\t%d\t%s\n' # chr, start, end, label, score, strand
+  if as_float:
+    template = '%s\t%d\t%d\t%s\t%.7f\t%s\n' # chr, start, end, label, score, strand
+  
+  else:
+    template = '%s\t%d\t%d\t%s\t%d\t%s\n' # chr, start, end, label, score, strand
+    
   with open(file_path, 'w') as file_obj:
     write = file_obj.write
 

@@ -12,9 +12,11 @@ DEFAULT_BIN_SIZE = 100
 #DEFAULT_BOOTSTRAP_SAMPLES = 1000
 DEFAULT_KB_MAX_SEQ_SEP = 2000
 MIN_BOUNDARY_SEP = 100 # Ignore close boundaries
+FILE_TAG = 'hi-c_insulation'
   
 def contact_insulation(region_path, contact_paths, pdf_path, bin_size=DEFAULT_BIN_SIZE, labels=None,
-                       max_sep=DEFAULT_KB_MAX_SEQ_SEP, use_starts=True, use_ends=True, screen_gfx=False):
+                       max_sep=DEFAULT_KB_MAX_SEQ_SEP, use_starts=True, use_ends=True, screen_gfx=False,
+                       write_bed=False):
 
   from nuc_tools import util, io
   from formats import bed, ncc, npz  
@@ -24,7 +26,7 @@ def contact_insulation(region_path, contact_paths, pdf_path, bin_size=DEFAULT_BI
   bin_size *= 1000
   
   if not pdf_path:
-    pdf_path = os.path.splitext(region_path)[0] + '_hi-c_insulation.pdf' 
+    pdf_path = '%s_%s.pdf' % (os.path.splitext(contact_paths[0])[0], FILE_TAG)
     
   pdf_path = io.check_file_ext(pdf_path, '.pdf')
 
@@ -66,10 +68,13 @@ def contact_insulation(region_path, contact_paths, pdf_path, bin_size=DEFAULT_BI
     
     chromos = util.sort_chromosomes([x[0] for x in contacts])
     ratios = []
+    out_region_dict = {}
+    out_value_dict = {}
     
     for chr_a in chromos:
       chromo_pair = (chr_a, chr_a)
       regions = region_dict[chr_a]
+      chromo_ratios = []
       
       if not len(regions):
         continue
@@ -101,8 +106,9 @@ def contact_insulation(region_path, contact_paths, pdf_path, bin_size=DEFAULT_BI
         boundaries = regions[:,1]
       
       prev_pos = -10 * MIN_BOUNDARY_SEP
+      valid = []
       
-      for pos in boundaries:
+      for i, pos in enumerate(boundaries):
         if (pos - prev_pos) < MIN_BOUNDARY_SEP:
           continue
       
@@ -130,13 +136,28 @@ def contact_insulation(region_path, contact_paths, pdf_path, bin_size=DEFAULT_BI
           else:
             ratio = 0.0
             
-          ratios.append(ratio)
+          chromo_ratios.append(ratio)
+          valid.append(i)
         
         prev_pos = pos
+      
+      ratios += chromo_ratios
+      
+      if write_bed:
+        pos = boundaries[valid]
+        out_region_dict[chr_a] = np.array([pos,pos+1]).T
+        out_value_dict[chr_a] = np.array(chromo_ratios)
+        
+        print chr_a, np.mean(chromo_ratios), max(chromo_ratios), min(chromo_ratios)
         
     ratios = np.array(ratios)
     all_ratios.append(np.log10(1.0 + ratios))
- 
+    
+    if write_bed:
+      bed_path = '%s_%s_%s.bed' % (os.path.splitext(in_path)[0], os.path.splitext(os.path.basename(region_path))[0], FILE_TAG)
+      bed.save_bed_data_track(bed_path, out_region_dict, out_value_dict, as_float=True)
+      util.info('Written {}'.format(bed_path))
+    
   from colorsys import hsv_to_rgb
   
   if screen_gfx:
@@ -206,6 +227,9 @@ def main(argv=None):
   arg_parse.add_argument('-o', '--out-pdf', metavar='PDF_FILE', default=None, dest="o",
                          help='Output PDF format file. If not specified, a default based on the input file name(s).')
 
+  arg_parse.add_argument('-b', '--write-bed', action='store_true', dest="b",
+                         help='Write out insulation scores for each input contat file as a BED format file.')
+
   arg_parse.add_argument('-g', '--gfx', default=False, action='store_true', dest="g",
                          help='Display graphics on-screen using matplotlib and do not automatically save output.')
 
@@ -244,6 +268,7 @@ def main(argv=None):
   use_ends = args['start']
   max_sep = args['m']
   screen_gfx = args['g']
+  write_bed = args['b']
   
   #num_bootstrap = args['nb']
   #num_null = args['nn']
@@ -256,7 +281,7 @@ def main(argv=None):
     pdf_path = None
      
   contact_insulation(region_path, contact_paths, pdf_path, bin_size,
-                     labels, max_sep, use_starts, use_ends, screen_gfx)
+                     labels, max_sep, use_starts, use_ends, screen_gfx, write_bed)
   
 
 if __name__ == "__main__":
