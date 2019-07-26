@@ -9,11 +9,21 @@ DESCRIPTION = 'Plot and measure similarities between data tracks in BED format'
 
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
-from matplotlib.colors import LinearSegmentedColormap, ListedColormap, LogNorm, Colormap
+from matplotlib.cm import ScalarMappable, get_cmap
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap, LogNorm, Colormap, Normalize
 
 DEFAULT_PDF_OUT = 'dtc_out_job{}_D{}x{}.pdf'
 DEFAULT_BIN_KB  = 20.0
+DEFAULT_SEQ_REG_KB = 10
 PDF_DPI = 200
+  
+HIST_BINS2D = 50
+
+LOG_THRESH = 4
+
+NUM_QUANT_BINS = 10
+
+PLOT_CMAP = LinearSegmentedColormap.from_list(name='PLOT_CMAP', colors=['#00C0C0','#0040FF','#FF0000','#C0C000','#808080'], N=255)   
 
 def _load_bin_data(data_paths, bin_size):
   
@@ -64,17 +74,9 @@ def _load_bin_data(data_paths, bin_size):
     binned_data_dict[data_bed_path] = np.concatenate(hists, axis=0)
     util.info(' .. bin {}'.format(data_bed_path), line_return=True)
   
-  util.info('Binned data tracks into {:,} regions'.format(len(data_dict[data_bed_path])))
+  util.info('Binned data tracks into {:,} regions'.format(len(binned_data_dict[data_bed_path])))
                                                    
-  return binned_data_dict, data_dict
-  
-HIST_BINS2D = 50
-
-LOG_THRESH = 4
-
-NUM_QUANT_BINS = 10
-
-COLORS = ['#FF8080','#FFC060','#60C0F0','#808080','#80E080','#E080E0','#80E0E0']
+  return binned_data_dict, data_dict, chromo_limits
 
 def plot_data_line_correlations(data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, pdf):
 
@@ -151,11 +153,9 @@ def plot_data_line_correlations(data_dict, ref_data_paths, comp_data_paths, ref_
       #y_q25 = [np.percentile(d, 25.0) for d in y_split]
       #y_q75 = [np.percentile(d, 75.0) for d in y_split]
       
-      color = COLORS[j % len(COLORS)]
-      
       #ax.plot(x_pos, y_med, label=comp_labels[col], alpha=0.5)
 
-      ax.errorbar(x_pos, y_med, y_sem, linewidth=1, alpha=0.67, color=color, label=comp_labels[j], zorder=j+n_comp)
+      ax.errorbar(x_pos, y_med, y_sem, linewidth=1, alpha=0.67, color=PLOT_CMAP(j/float(n_comp-1)), label=comp_labels[j], zorder=j+n_comp)
       
       #ax.fill_between(x_pos, y_q25, y_q75, linewidth=0, alpha=0.2, color=color, zorder=j)
       
@@ -186,7 +186,7 @@ def plot_data_line_correlations(data_dict, ref_data_paths, comp_data_paths, ref_
     i += 1
 
   
-  fig.text(0.05, 0.5, 'Mean $log_{10}$(Data value)', color='#000000',
+  fig.text(0.025, 0.5, 'Mean $log_{10}$(Data value)', color='#000000',
            horizontalalignment='center',
            verticalalignment='center', rotation=90,
            fontsize=13, transform=fig.transFigure)
@@ -207,11 +207,11 @@ def plot_data_correlations(title, data_dict, ref_data_paths, comp_data_paths, re
   n_ref = len(ref_data_paths)
   n_comp = len(comp_data_paths)
   
-  fig, axarr = plt.subplots(n_ref, n_comp, squeeze=False) # , sharex=True, sharey=True)
+  fig, axarr = plt.subplots(n_ref, n_comp, squeeze=False)
   
   fig.set_size_inches(max(8, 2*n_comp), max(8, 2*n_ref))
   
-  plt.subplots_adjust(left=0.1, bottom=0.1, right=0.95, top=0.9, wspace=0.08, hspace=0.08)
+  plt.subplots_adjust(left=0.1, bottom=0.1, right=0.90, top=0.9, wspace=0.08, hspace=0.08)
 
   fig.text(0.5, 0.95, 'Data value {} plots ({:,} kb bins)'.format(title, bin_size/1e3), color='#000000',
           horizontalalignment='center',
@@ -287,6 +287,7 @@ def plot_data_correlations(title, data_dict, ref_data_paths, comp_data_paths, re
         y_vals /= float(len(y_vals))
 
       if violin or boxplot:
+        color = PLOT_CMAP(col/float(n_comp-1))
         x_vals = stats.rankdata(x_vals)
         x_vals /= float(len(x_vals))
         idx = x_vals.argsort()
@@ -305,7 +306,6 @@ def plot_data_correlations(title, data_dict, ref_data_paths, comp_data_paths, re
           ax.set_xticks(np.arange(0, NUM_QUANT_BINS+1)-0.5)
           ax.set_xticklabels(bw*np.arange(0, NUM_QUANT_BINS+1), rotation=90.0)
           
-          color = COLORS[col % len(COLORS)]
           for i, a in enumerate(vp['bodies']):
             a.set_facecolor(color)
             a.set_edgecolor('black')
@@ -313,7 +313,6 @@ def plot_data_correlations(title, data_dict, ref_data_paths, comp_data_paths, re
           vp['cmedians'].set_color('black')
           
         else:
-          color = COLORS[col % len(COLORS)]
           bp = ax.boxplot(y_split, notch=True, sym=',', widths=0.8, whis=[10,90],
                           boxprops={'color':color},
                           capprops={'color':color},
@@ -324,7 +323,9 @@ def plot_data_correlations(title, data_dict, ref_data_paths, comp_data_paths, re
           ax.set_xlim((0, NUM_QUANT_BINS+1))
           ax.set_xticks(0.5 + np.arange(0, NUM_QUANT_BINS+1))
           ax.set_xticklabels(bw*np.arange(0, NUM_QUANT_BINS+1), rotation=90.0)
-                   
+        
+        cax = None
+                     
       else:
 
         if log_x:
@@ -333,9 +334,9 @@ def plot_data_correlations(title, data_dict, ref_data_paths, comp_data_paths, re
           x_vals = 100 * stats.rankdata(x_vals)
           x_vals /= float(len(x_vals))
           
-        ax.hist2d(x_vals, y_vals,
+        ax.hist2d(x_vals, y_vals, 
                   bins=HIST_BINS2D, range=(x_lim, y_lim),
-                  cmap=colors)
+                  cmap=colors, vmin=0.0)
  
        
         ax.set_xlim(*x_lim)
@@ -346,7 +347,10 @@ def plot_data_correlations(title, data_dict, ref_data_paths, comp_data_paths, re
         ax.set_xlabel(comp_labels[col], fontsize=9)
       else:
         ax.set_xticks([])
-      
+       
+      if row == 0:
+        ax.set_title(comp_labels[col], fontsize=9)
+             
       if col == 0:
         ax.set_ylabel(ref_labels[row], fontsize=9)
       else:
@@ -355,14 +359,26 @@ def plot_data_correlations(title, data_dict, ref_data_paths, comp_data_paths, re
       ax.text(0.05, 0.95, 'n={:,}\nr={:.2f}\n$\\rho$={:.2f}'.format(n,r,rho),
               color='#202020', verticalalignment='top',
               alpha=1.0, fontsize=8, transform=ax.transAxes)
+  
+  
+  if not (violin or boxplot):
+    cbax1 = fig.add_axes([0.91, 0.6, 0.02, 0.3]) # left, bottom, w, h
+    norm = Normalize(vmin=0.0, vmax=1.0)
+    sm = ScalarMappable(norm=norm, cmap=colors)
+    sm.set_array(np.linspace(0.0, 1.0, 10))
+    
+    cbar1 = plt.colorbar(sm, cax=cbax1, orientation='vertical')
+  
+    cbar1.ax.tick_params(labelsize=8)
+    cbar1.set_label('Count/maximum', fontsize=9)
  
 
-  fig.text(0.5, 0.05, fig_xlabel, color='#000000',
+  fig.text(0.5, 0.025, fig_xlabel, color='#000000',
            horizontalalignment='center',
            verticalalignment='center',
            fontsize=13, transform=fig.transFigure)
 
-  fig.text(0.05, 0.5, fig_ylabel, color='#000000',
+  fig.text(0.025, 0.5, fig_ylabel, color='#000000',
            horizontalalignment='center',
            verticalalignment='center', rotation=90,
            fontsize=13, transform=fig.transFigure)
@@ -376,8 +392,205 @@ def plot_data_correlations(title, data_dict, ref_data_paths, comp_data_paths, re
   plt.close()  
 
 
-def plot_seq_sep_distribs(raw_data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, pdf)
+def _get_anchor_mat(ref_region_dict, track_hist_dict, chromo_limits, bin_size, n_bins):
+  
+  
+  hist_mat = []
+  scores = []  
+  
+  hw = int(n_bins/2)
+  
+  didx = np.arange(n_bins)-hw
+  
+  w = np.linspace(-3, 3, n_bins)
+  w = np.exp(-w*w)
+  
+  for chromo in ref_region_dict:
+    if not len(ref_region_dict[chromo]):
+      continue
+      
+    start, end = chromo_limits[chromo]
+    middles = ref_region_dict[chromo].mean(axis=1).astype(int) # Region centers
+    hist = track_hist_dict[chromo]
+    m = len(hist)
+    n = len(middles)
+    
+    idx =  (middles-start)/bin_size # Indices of region centres in chromo track hist
+    
+    # For each need cut-out region of other track as hist - then stacked
+    
+    ranges = idx[:,None] + didx
+    ranges = ranges.ravel()
+    
+    overhang = (ranges < 0) | (ranges > m-1)
+    ranges[overhang] = 0
+    
+    mat = hist[ranges]
+    mat[overhang] = 0
+    mat = mat.reshape(n, n_bins)
+    
+    mv = mat.max(axis=1)
+    nz = mv > 0
+    
+    mat = mat[nz]
+    mv = mv[nz]
+    
+    mx = mat.argmax(axis=1)
+    #sc = mv * (hw - np.abs(mx-hw))
+    sc = (mat * w).sum(axis=1)
+    
+    #mat /= mv[:,None]
+        
+    scores.append(sc)
+    hist_mat.append(mat)
+  
+  hist_mat = np.concatenate(hist_mat, axis=0)
+  scores = np.concatenate(scores, axis=0)
+  
+  hist_mat = hist_mat[scores.argsort()[::-1]]
+      
+  
+  return hist_mat
+  
+  
+def plot_seq_anchor_mat(raw_data_dict, chromo_limits, ref_data_paths, comp_data_paths, ref_labels, comp_labels,
+                        colors, pdf, seq_reg_size, n_bins=100):
+  
+  from nuc_tools import util
+  
+  bin_size = (seq_reg_size*1000)/n_bins
+  
+  n_ref = len(ref_data_paths)
+  n_comp = len(comp_data_paths)
+  
+  fig, axarr = plt.subplots(n_comp, n_ref, squeeze=False)
+  
+  fig.set_size_inches(max(8, 2*n_ref), max(8, 2*n_comp))
+  
+  plt.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.9, wspace=0.08, hspace=0.08)
 
+  fig.text(0.5, 0.95, 'Anchored data density ({:,} bp bins)'.format(bin_size), color='#000000',
+          horizontalalignment='center',
+          verticalalignment='center',
+          fontsize=13, transform=fig.transFigure)
+  
+  track_hist_dicts = {}
+  
+  track_hist_dicts = {}
+  
+  for d2 in comp_data_paths:
+    region_dict, value_dict = raw_data_dict[d2]
+    track_hist_dicts[d2] = {}
+    meds = []
+    
+    for chromo in chromo_limits:
+      start, end = chromo_limits[chromo]
+      track_hist = np.log10(1.0+ util.bin_region_values(region_dict[chromo], value_dict[chromo], bin_size, start, end)) 
+      track_hist_dicts[d2][chromo] = track_hist
+      
+      idx = (track_hist>0).nonzero()[0]
+      
+      if len(idx):
+        meds.append(np.median(track_hist[idx]))
+    
+    med = np.median(meds)
+    for chromo in chromo_limits:
+      track_hist = track_hist_dicts[d2][chromo]
+      track_hist_dicts[d2][chromo] = track_hist/med
+       
+  for col, d1 in enumerate(ref_data_paths):
+    ref_region_dict = raw_data_dict[d1][0]
+  
+    for row, d2 in enumerate(comp_data_paths):
+      ax = axarr[row, col]
+      
+      mat = _get_anchor_mat(ref_region_dict, track_hist_dicts[d2], chromo_limits, bin_size, n_bins)
+      
+      cax = ax.matshow(mat, cmap=colors, aspect='auto', vmin=0.0, vmax=1.5)
+  
+
+      if row == n_comp-1:
+        ax.set_xlabel(ref_labels[col], fontsize=9)
+        ax.xaxis.set_tick_params(which='both', direction='out', bottom=True, top=False, labeltop=False, labelbottom=True)
+        x_bins = np.linspace(0, n_bins, 5)[1:-1]
+        ax.set_xticks(x_bins)
+        ax.set_xticklabels((x_bins-n_bins/2) * bin_size/int(1e3))
+      else:
+        ax.set_xticks([])
+      
+      if row == 0:
+        ax.set_title(ref_labels[col], fontsize=9)
+      
+      if col == 0:
+        ax.set_ylabel(comp_labels[row], fontsize=9)
+      
+      ax.set_yticks([])
+        
+  fig.text(0.05, 0.5, 'Signal density track', color='#000000',
+           horizontalalignment='center',
+           verticalalignment='center', rotation=90,
+           fontsize=13, transform=fig.transFigure)
+
+  fig.text(0.5, 0.05, 'Separation from anchor site (kb)', color='#000000',
+           horizontalalignment='center',
+           verticalalignment='center', rotation=0,
+           fontsize=13, transform=fig.transFigure)
+
+  cbax1 = fig.add_axes([0.91, 0.6, 0.02, 0.3]) # left, bottom, w, h
+  cbar1 = plt.colorbar(cax, cax=cbax1, orientation='vertical')
+  
+  cbar1.ax.tick_params(labelsize=8)
+  cbar1.set_label('$log_{10}(signal+1)$ medians', fontsize=9)
+
+  
+  if pdf:
+    pdf.savefig(dpi=PDF_DPI)
+  else:
+    plt.show()
+    
+  plt.close()  
+
+
+
+def _get_seq_seps(ref_region_dict, region_dict):
+  
+  up_deltas = []
+  dn_deltas = []
+  
+  for chromo in ref_region_dict:
+    if chromo not in region_dict:
+      continue
+    
+    if not len(ref_region_dict[chromo]):
+      continue
+
+    if not len(region_dict[chromo]):
+      continue
+      
+    ref_middles = ref_region_dict[chromo].mean(axis=1).astype(int)
+    middles = np.sort(region_dict[chromo].mean(axis=1)).astype(int)
+    n = len(middles)
+    
+    idx = np.searchsorted(middles, ref_middles)
+    
+    deltas = middles[np.clip(idx, 0, n-1)] - ref_middles
+    deltas_dn = ref_middles - middles[np.clip(idx-1, 0, n-1)] #  downstream
+    
+    idx = deltas_dn < deltas
+    
+    dn_deltas.append(deltas_dn[idx])
+    up_deltas.append(deltas[~idx])
+     
+  up_deltas = np.clip(np.concatenate(up_deltas, axis=0), 1, sys.maxint)
+  dn_deltas = np.clip(np.concatenate(dn_deltas, axis=0), 1, sys.maxint)
+  
+  return up_deltas, dn_deltas
+
+
+def plot_seq_sep_distribs(raw_data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, pdf, seq_reg_size=None, n_bins=50):
+
+  log = False if seq_reg_size else True
+  
   n_ref = len(ref_data_paths)
   n_comp = len(comp_data_paths)
   
@@ -386,102 +599,118 @@ def plot_seq_sep_distribs(raw_data_dict, ref_data_paths, comp_data_paths, ref_la
   
   fig, axarr = plt.subplots(n_rows, n_cols, squeeze=False) # , sharex=True, sharey=True)
     
-  plt.subplots_adjust(left=0.12, bottom=0.15, right=0.95, top=0.9, wspace=0.25, hspace=0.1)
+  plt.subplots_adjust(left=0.12, bottom=0.15, right=0.95, top=0.9, wspace=0.15, hspace=0.2)
 
-  fig.text(0.5, 0.95, 'Data sequence separation distributions ({:,} kb bins)'.format(bin_size/1e3), color='#000000',
+  fig.text(0.5, 0.95, 'Separations to closest sites', color='#000000',
           horizontalalignment='center',
           verticalalignment='center',
           fontsize=13, transform=fig.transFigure)
   
   fig.set_size_inches(3*n_cols, 2*n_rows)
   
-  x_label = 'Separation from site'
+  if log:
+    x_label = 'Seq. separation $log_{10}(bp)$'
   
+  else:
+    x_label = 'Seq. separation $(kb)$'
+    
+  used = np.zeros((n_rows, n_cols))
   
+  if log:
+    x_range = (-7.0, 7.0)
+  else:
+    x_range = (-seq_reg_size/2.0, seq_reg_size/2.0)
+  
+  xl, xu = x_range
+  y_max_all = 0.0
   
   for i, d1 in enumerate(ref_data_paths):
     row = int(i//n_cols)
     col = i % n_cols
     
-    vals1 = data_dict[d1]
-    nzy = vals1 > 0
-
-    mn, md, mx  = np.percentile(vals1[nzy], [0.5, 50.0, 99.5])    
-    
+    used[row, col] = 1
+        
     ax = axarr[row, col]
     ax.tick_params(axis='both', which='major', labelsize=7)
     ax.tick_params(axis='both', which='minor', labelsize=7)
     
-    x_lim = (0.0, 100.0)  
+    ax.set_xlim(*x_range) 
+    
+    num_sites = sum(len(raw_data_dict[d1][0][c]) for c in raw_data_dict[d1][0])
+    y_max = 0.0
     
     for j, d2 in enumerate(comp_data_paths):
+      
       if j == i:
         continue
-    
-      vals2 = data_dict[d2]
-      nzx = vals2 > 0
-      nz = nzx & nzy
+        
+      up_seq_seps, dn_seq_seps = _get_seq_seps(raw_data_dict[d1][0], raw_data_dict[d2][0])
       
-      y_vals = vals1[nz]
-      x_vals = vals2[nz]
+      if log:
+        up_seq_seps = np.log10(up_seq_seps)
+        dn_seq_seps = np.log10(dn_seq_seps)
+      else:
+        up_seq_seps = up_seq_seps.astype(float)/1e3
+        dn_seq_seps = dn_seq_seps.astype(float)/1e3
+              
+      up_hist, edges = np.histogram(up_seq_seps, bins=n_bins, range=(0, xu))
+      dn_hist, edges = np.histogram(dn_seq_seps, bins=n_bins, range=(0, -xl))
       
-      y_vals = np.log10(y_vals)
+      hist = np.hstack([dn_hist[::-1], up_hist]).astype(float)
+      hist *= 100.0/float(num_sites)
+       
+      y_max = max(y_max, hist.max())
       
-      x_vals = stats.rankdata(x_vals)
-      x_vals /= float(len(x_vals))
-      idx = x_vals.argsort()
-      x_vals = x_vals[idx]
-      y_vals = y_vals[idx]
- 
-      bw = 100/nq
- 
-      y_split = np.array_split(y_vals, nq)
- 
-      x_pos = np.arange(0, nq)
+      x_vals = np.linspace(xl, xu, n_bins*2)
       
-      y_med = np.array([np.mean(d) for d in y_split])
-      
-      y_sem = np.array([stats.sem(d) for d in y_split])
-      
-      color = COLORS[j % len(COLORS)]
-      
+      color = PLOT_CMAP(j/float(n_comp-1))
 
-      ax.errorbar(x_pos, y_med, y_sem, linewidth=1, alpha=0.67, color=color, label=comp_labels[j], zorder=j+n_comp)
-            
-      
-    ax.set_xlim((0, nq)) 
+      ax.plot(x_vals, hist, linewidth=1, alpha=0.67, color=color, label=comp_labels[j], zorder=j+n_comp)
     
-    ax.set_ylabel(ref_labels[i], fontsize=9)
+    if log:
+      y_max_all = max(y_max_all, y_max)
     
-    if row == n_rows-1:
-      ax.set_xticks(np.arange(0, nq+1)-0.5)
-      ax.set_xticklabels(bw*np.arange(0, nq+1))
-      ax.set_xlabel(x_label, fontsize=9)
     else:
-      ax.set_xticks([])
+      y_max = max(1.0, y_max)
+      ax.set_ylim(-0.05*y_max, 1.1*y_max)
+            
+    ax.set_title('{}  $n={:,}$'.format(ref_labels[i], num_sites), fontsize=8)
    
   fig.legend(frameon=False, fontsize=9, loc=8, ncol=int((n_ref+1)/2))
   
-  i += 1
-  while i < (n_rows*n_cols):
-    row = int(i//n_cols)
-    col = i % n_cols
-    axarr[row, col].axis('off')
+  for col in range(n_cols):
+    lr = used[:,col].sum()-1
     
-    axarr[row-1, col].set_xticks(np.arange(0, nq+1)-0.5)
-    axarr[row-1, col].set_xticklabels(bw*np.arange(0, nq+1))
-    axarr[row-1, col].set_xlabel(x_label, fontsize=9)
-    
-    i += 1
+    for row in range(n_rows):
+      ax = axarr[row, col]
+      
+      if log:
+        ax.set_ylim(-0.05*y_max_all, 1.1*y_max_all)
+      
+      if row < lr:
+        ax.set_xticks([])
+         
+      elif row == lr:
+        ax.set_xlabel(x_label, fontsize=8)
+        
+        if log:
+          xticks = np.arange(xl+1,xu,2)
+          xlabels = ['$-10^{%d}$' % x for x in np.arange(-xl-1,1,-2)] + ['0'] + ['$10^{%d}$' % x for x in np.arange(2,xu,2)]
+          ax.set_xticks(xticks)
+          ax.set_xticklabels(xlabels)
+          
+        #else:
+        #  xticks = np.arange(xl/1e3,1+xu/1e3,2e3)
+        #  ax.set_xticks(xticks)
+      
+      else:
+         ax.axis('off')
 
-  
-  fig.text(0.05, 0.5, 'Mean $log_{10}$(Data value)', color='#000000',
+  fig.text(0.05, 0.5, 'Abundance (% reference sites)', color='#000000',
            horizontalalignment='center',
            verticalalignment='center', rotation=90,
            fontsize=13, transform=fig.transFigure)
   
-  
-
   if pdf:
     pdf.savefig(dpi=PDF_DPI)
   else:
@@ -489,8 +718,9 @@ def plot_seq_sep_distribs(raw_data_dict, ref_data_paths, comp_data_paths, ref_la
     
   plt.close()  
 
+
 def data_track_compare(ref_data_paths, comp_data_paths, ref_labels, comp_labels, out_pdf_path,
-                       bin_size=DEFAULT_BIN_KB, colors='Blues', screen_gfx=False):
+                       bin_size=DEFAULT_BIN_KB, seq_reg_size=DEFAULT_SEQ_REG_KB, colors='Blues', screen_gfx=False):
   
   from nuc_tools import io, util
   
@@ -541,19 +771,23 @@ def data_track_compare(ref_data_paths, comp_data_paths, ref_labels, comp_labels,
   
   bin_size *= 1e3
   
-  data_dict, raw_data_dict = _load_bin_data(ref_data_paths+comp_data_paths, bin_size)
-
-  plot_data_line_correlations(data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, pdf)
-       
-  #plot_data_correlations('correlation', data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf)
+  data_dict, raw_data_dict, chromo_limits = _load_bin_data(ref_data_paths+comp_data_paths, bin_size)
   
-  #plot_data_correlations('semi-quantile', data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf, quantile_x=True)
-
-  #plot_data_correlations('quantile bin violin ', data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf, violin=True)
-
-  #plot_data_correlations('quantile bin box', data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf, boxplot=True)
+  plot_seq_anchor_mat(raw_data_dict, chromo_limits, ref_data_paths, comp_data_paths, ref_labels, comp_labels, colors, pdf, seq_reg_size)
   
+  plot_seq_sep_distribs(raw_data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, pdf, seq_reg_size)
+
   plot_seq_sep_distribs(raw_data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, pdf)
+  
+  plot_data_line_correlations(data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, pdf)
+      
+  plot_data_correlations('correlation', data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf)
+  
+  plot_data_correlations('semi-quantile', data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf, quantile_x=True)
+
+  plot_data_correlations('quantile bin violin', data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf, violin=True)
+
+  plot_data_correlations('quantile bin box', data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf, boxplot=True)
   
   if pdf:
     pdf.close()
@@ -592,14 +826,18 @@ def main(argv=None):
                          help='Optional output PDF file name. If not specified, a default of the form %s will be used.' % out_example)
 
   arg_parse.add_argument('-s', '--bin-size', default=DEFAULT_BIN_KB, metavar='BIN_SIZE', type=float, dest="s",
-                         help='Binned sequence region size, in kilobases: data tracks are compared across equal sized chromosome regions.' \
+                         help='Binned sequence region size, in kilobases, for comparing data tracks are across equal sized chromosome regions.' \
                               'Default is {:.1f} kb .'.format(DEFAULT_BIN_KB))
+
+  arg_parse.add_argument('-w', '--seq-width', default=DEFAULT_SEQ_REG_KB, metavar='REGION_SIZE', type=float, dest="w",
+                         help='Analysis region width, in kilobases, used in sequence separation plots.' \
+                              'Default is {:.1f} kb .'.format(DEFAULT_SEQ_REG_KB))
 
   arg_parse.add_argument('-g', '--screen-gfx', default=False, action='store_true', dest='g',
                          help='Display graphics on-screen using matplotlib, where possible and ' \
                               'do not automatically save graphical output to file.')
 
-  arg_parse.add_argument('-colors', metavar='COLOR_SCALE', default='#FFFFFF,#80D0FF,#D00000',
+  arg_parse.add_argument('-colors', metavar='COLOR_SCALE', default='#FFFFFF,#4080FF,#000000',
                          help='Optional scale colours as a comma-separated list, e.g. "white,blue,red".' \
                               'or colormap (scheme) name, as used by matplotlib. ' \
                               'Note: #RGB style hex colours must be quoted e.g. "#FF0000,#0000FF" ' \
@@ -613,6 +851,7 @@ def main(argv=None):
   comp_labels = args['l2'] or []
   out_pdf_path = args['o']
   bin_size = args['s']
+  seq_reg_size = args['w']
   screen_gfx = args['g']
   colors = args['colors']
   
@@ -625,19 +864,15 @@ def main(argv=None):
   if len(ref_data_paths + comp_data_paths) < 2:
     util.critical('A total of at least two datasets are required for comparison')
       
-  data_track_compare(ref_data_paths, comp_data_paths, ref_labels, comp_labels, out_pdf_path, bin_size, colors, screen_gfx)
+  data_track_compare(ref_data_paths, comp_data_paths, ref_labels, comp_labels, out_pdf_path, bin_size, seq_reg_size, colors, screen_gfx)
   
 if __name__ == "__main__":
   sys.path.append(dirname(dirname(__file__)))
   main()
 
 """
-
-Plot of seq overlap
- - for each primary the distribution of closest secondary
-   + both strands
- - stack colour matrix of all secondary signal centred on primary site
- 
+TBC
+---
 Density matrix of all track similarities
  - correlations
  - sequence proximity
