@@ -1,76 +1,33 @@
 import sys,  os, math
 import numpy as np
+from collections import defaultdict
 from matplotlib import pyplot as plt
-from colorsys import hsv_to_rgb
+from matplotlib.colors import LinearSegmentedColormap, LogNorm
+from matplotlib.backends.backend_pdf import PdfPages
 
 PROG_NAME = 'contact_probability'
-VERSION = '1.0.0'
+VERSION = '1.0.1'
 DESCRIPTION = 'Chromatin contact (NCC or NPZ format) probability vs sequence separation and region analysis'
 DEFAULT_BIN_SIZE = 25
 REGION_TILES = ('Within','Overlap','Outside')
+PLOT_CMAP = LinearSegmentedColormap.from_list(name='PLOT_CMAP', colors=['#00C0C0','#0040FF','#FF0000','#C0C000','#808080'], N=255)   
+HIST_CMAP = LinearSegmentedColormap.from_list(name='HIST_CMAP', colors=['#FFFFFF','#0080FF','#FF0000', '#FFFF00'], N=255)   
+PDF_DPI = 200
 
-def contact_probability(contact_paths, pdf_path=None, region_path=None, bin_size=DEFAULT_BIN_SIZE,
-                        labels=None, region_label=None, max_sep=1e8):
+def load_seq_seps(contact_paths, labels, region_dict, bin_size):
 
   from nuc_tools import util, io
   from formats import ncc, npz, bed
   
-  if not pdf_path:
-    pdf_path = os.path.splitext(contact_paths[0])[0] + '_contact_prob.pdf' 
-    
-  pdf_path = io.check_file_ext(pdf_path, '.pdf')
+  seq_seq_data = []
   
-  if labels:
-    for i, label in enumerate(labels):
-      labels[i] = label.replace('_',' ')
-      
-    while len(labels) < len(contact_paths):
-      labels.append(os.path.basename(contact_paths[len(labels)]))
-      
-  else:
-    labels = [os.path.basename(x) for x in contact_paths]
-  
-  if region_path:
-    region_dict, value_dict, label_dict = bed.load_bed_data_track(region_path)
-    
-    for chr_a in region_dict:
-      ends = region_dict[chr_a][:,0]
-      idx = ends.argsort()
-      region_dict[chr_a] = region_dict[chr_a][idx,:]
-    
-    if not region_label:
-      region_label = os.path.basename(region_path)
-    
-  else:
-    region_dict = None
-  
-  colors = [hsv_to_rgb(h, 1.0, 0.8) for h in np.arange(0.0, 0.8, 1.0/len(contact_paths))] 
-  colors = ['#%02X%02X%02X' % (r*255, g*255, b*255) for r,g,b in colors]
-      
-  bin_size *= 1e3
-  
-  if region_dict:
-    f, axarr = plt.subplots(2,2)
-    ax0 = axarr[0,0]
-    ax1 = axarr[0,1]
-    ax2 = axarr[1,0]
-    ax3 = axarr[1,1]
-    axes = (ax0, ax1, ax2, ax3)
-    
-  else:
-    f, ax0 = plt.subplots()
-    axes = [ax0]
-  x_limit = max_sep
-  num_bins = (x_limit-bin_size)/bin_size
-  bins = np.linspace(2*bin_size, x_limit, num_bins)
-
-  y_mins = []
-  y_maxs = []
-   
   for i, in_path in enumerate(contact_paths):
     util.info('Processing %s (%s)' % (in_path, labels[i]))
     seq_seps = []
     weights = []
+    counts = []
+    seq_seps_r = None
+    weights_r = None
     
     if region_dict:
       seq_seps_r = [[], [], []]
@@ -108,6 +65,7 @@ def contact_probability(contact_paths, pdf_path=None, region_path=None, bin_size
         seps = []
         seq_pos_a = []
         seq_pos_b = []
+        chromo_counts = []
         
         for d in range(0, n):
           m = n-d
@@ -117,20 +75,23 @@ def contact_probability(contact_paths, pdf_path=None, region_path=None, bin_size
  
           frac = n/float(m)
           ss = np.full(m, d * file_bin_size)
-          wt = matrix[idx] * frac # - weights come from fraction of chromo and sum of counts
- 
-          nz = wt.nonzero()
-          ss = ss[nz]
-          wt = wt[nz]
-          pa = chromo_limits[chr_a][0] + rows * file_bin_size
-          pb = chromo_limits[chr_a][0] + cols * file_bin_size
+          ct = matrix[idx]
+          nz = ct.nonzero()
           
-          if len(wt):
-            prob.append(wt)
+          if len(nz[0]):
+            ss = ss[nz]
+            ct = ct[nz]
+            chromo_counts.append(ct)
+            
+            pa = chromo_limits[chr_a][0] + rows * file_bin_size
+            pb = chromo_limits[chr_a][0] + cols * file_bin_size
+            
+            prob.append(ct*frac) # - weights come from fraction of chromo and sum of counts
             seps.append(ss)
             seq_pos_a.append(pa[nz])
             seq_pos_b.append(pb[nz])
         
+        chromo_counts = np.concatenate(chromo_counts)
         seps = np.concatenate(seps)
         prob = np.concatenate(prob)
         seq_pos_a = np.concatenate(seq_pos_a)
@@ -140,6 +101,7 @@ def contact_probability(contact_paths, pdf_path=None, region_path=None, bin_size
         contact_array = contacts[chromo_pair]
         seq_pos_a = contact_array[:,0]
         seq_pos_b = contact_array[:,1]
+        chromo_counts = contact_array[:,2]
         
         seps = abs(seq_pos_a-seq_pos_b)
         indices = seps.nonzero()
@@ -152,6 +114,7 @@ def contact_probability(contact_paths, pdf_path=None, region_path=None, bin_size
         seps = seps
        
       if len(prob):
+        counts.append(chromo_counts)
         seq_seps.append(seps)
         weights.append(prob)
         
@@ -184,11 +147,47 @@ def contact_probability(contact_paths, pdf_path=None, region_path=None, bin_size
               seq_seps_r[r].append(seps[idx])
               weights_r[r].append(w)
     
+    counts = np.concatenate(counts)
     seq_seps = np.concatenate(seq_seps)
     weights = np.concatenate(weights)
     
+    seq_seq_data.append((seq_seps, weights, seq_seps_r, weights_r, counts))
+    
     util.info('  .. found {:,} values'.format(len(seq_seps)))
+    
+  return seq_seq_data
+  
+  
 
+def plot_seq_sep_distrib(seq_seq_data, labels, region_label, bin_size, max_sep=1e8, pdf=None):
+
+  n_cont = len(seq_seq_data)
+  colors = [PLOT_CMAP(x) for x in np.linspace(0.0, float(n_cont), n_cont)]
+  bin_size *= 1e3
+  
+  if seq_seq_data[0][2]:
+    fig, axarr = plt.subplots(2,2)
+    ax0 = axarr[0,0]
+    ax1 = axarr[0,1]
+    ax2 = axarr[1,0]
+    ax3 = axarr[1,1]
+    axes = (ax0, ax1, ax2, ax3)
+    
+  else:
+    fig, ax0 = plt.subplots()
+    axes = [ax0]
+ 
+  fig.set_size_inches(7, 7)    
+  plt.subplots_adjust(left=0.15, bottom=0.1, right=0.95, top=0.9, wspace=0.1, hspace=0.1)
+
+  x_limit = max_sep
+  num_bins = (x_limit-bin_size)/bin_size
+  bins = np.linspace(2*bin_size, x_limit, num_bins)
+
+  y_mins = []
+  y_maxs = []
+   
+  for i, (seq_seps, weights, seq_seps_r, weights_r, c) in enumerate(seq_seq_data):
     hist, edges = np.histogram(seq_seps, bins=bins, weights=weights, density=True)
 
     idx = hist.nonzero()
@@ -204,7 +203,10 @@ def contact_probability(contact_paths, pdf_path=None, region_path=None, bin_size
     
     ax0.plot(x_data, y_data, label=labels[i], color=colors[i], linewidth=1, alpha=0.5)
     
-    if region_dict:
+    # For each bin-pair, there is a seq-sep bin and a bin-count
+    # - look at distribs of counts in each bin
+    
+    if seq_seps_r:
       for r, ax in enumerate((ax1, ax2, ax3)):
         hist, edges = np.histogram(np.concatenate(seq_seps_r[r]), bins=bins, weights=np.concatenate(weights_r[r]), density=True)
 
@@ -219,13 +221,18 @@ def contact_probability(contact_paths, pdf_path=None, region_path=None, bin_size
         ax.set_title('%s %s regions' % (REGION_TILES[r], region_label))
         ax.plot(x_data, y_data, label=labels[i], color=colors[i], linewidth=1, alpha=0.5)
  
-        
-  
   x_min = 0.5 * int(math. ceil(2.0 * np.log10(bin_size)))
   x_range = np.arange(x_min, np.log10(x_limit), 0.5)
   y_min = int(2.0 * min(y_mins))/2.0 - 0.5
   y_max = int(2.0 * max(y_maxs))/2.0 + 0.5
   y_range = np.arange(y_min, y_max, 0.5)
+ 
+  x1 = x_min + 0.5
+  x2 = x1 + 1.5
+  y1 = y_max-0.5
+  y2 = y1 - 1.0
+  v1 = y1 - (x2-x1)
+  v2 = y2 - 1.5 * (x2-x1)
   
   ax0.set_title('Contact sequence separations')
   
@@ -235,24 +242,193 @@ def contact_probability(contact_paths, pdf_path=None, region_path=None, bin_size
     ax.set_xlabel('Sequence separation (bp)')
     ax.set_ylabel('Contact probability (%d kb bins)' % (bin_size/1e3))
     ax.xaxis.set_ticks(x_range)
-    ax.set_xticklabels(['$10^{%.1f}$' % x for x in x_range], fontsize=12)
+    ax.set_xticklabels(['$10^{%.1f}$' % x for x in x_range], fontsize=10)
     ax.set_xlim((x_min, np.log10(x_limit)))
  
     ax.yaxis.set_ticks(y_range)
-    ax.set_yticklabels(['$10^{%.1f}$' % x for x in y_range], fontsize=12)
+    ax.set_yticklabels(['$10^{%.1f}$' % x for x in y_range], fontsize=10)
     ax.set_ylim((y_min, y_max))
-
-    ax.plot([5.5, 7.0], [-6.0, -7.50], color='#808080', alpha=0.5, linestyle='--')
-    ax.plot([5.5, 7.0], [-6.5, -8.75], color='#808080', alpha=0.5, linestyle='--')
-    ax.text(7.0, -7.50, '$\lambda=1.0$', color='#808080', verticalalignment='center', alpha=0.5, fontsize=14)
-    ax.text(7.0, -8.75, '$\lambda=1.5$', color='#808080', verticalalignment='center', alpha=0.5, fontsize=14)
+    
+    ax.plot([x1, x2], [y1, v1], color='#808080', alpha=0.5, linestyle='--')
+    ax.plot([x1, x2], [y2, v2], color='#808080', alpha=0.5, linestyle='--')
+    ax.text(x2, v1, '$\lambda=1.0$', color='#808080', verticalalignment='center', alpha=0.5, fontsize=14)
+    ax.text(x2, v2, '$\lambda=1.5$', color='#808080', verticalalignment='center', alpha=0.5, fontsize=14)
 
     ax.legend()
 
-  #plt.savefig(svg_path)
-  plt.show()
+  if pdf:
+    pdf.savefig(dpi=PDF_DPI)
+  else:
+    plt.show()
+    
+  plt.close()    
+
+
+def plot_count_distribs(seq_seq_data, labels, bin_size, pdf):
+
+  n_plots = len(seq_seq_data)
+
+  n_rows = int(math.ceil(math.sqrt(n_plots)))
+  n_cols = int(math.ceil(n_plots / float(n_rows)))
+  
+  fig, axarr = plt.subplots(n_rows, n_cols, squeeze=False) # , sharex=True, sharey=True)
+    
+  plt.subplots_adjust(left=0.1, bottom=0.15, right=0.85, top=0.87, wspace=0.25, hspace=0.1)
+
+  fig.text(0.5, 0.95, 'Hi-C count distributions ({:,} kb bins)'.format(bin_size), color='#000000',
+          horizontalalignment='center',
+          verticalalignment='center',
+          fontsize=13, transform=fig.transFigure)
+  
+  fig.set_size_inches(max(5, 4*n_cols), max(5, 4*n_rows)) 
+  
+  x_label = 'Seq. separation (bp)'
+  y_label = '$log_{10}(bin count)$'
+  
+  x_min = int(np.log10(bin_size*1e3))
+  
+  x_max = int(math.ceil(np.log10(max([d[0].max() for d in seq_seq_data]))))
+  y_min = 0
+  y_max = np.log10(max([d[4].max() for d in seq_seq_data]))
+  
+  x_bins = 50
+  y_bins = 50
+  
+  nx_ticks = int(x_max-x_min) + 1
+  x_ticks = np.linspace(0, x_bins, nx_ticks)
+  x_labels = ['$10^{%d}$' % x for x in np.linspace(x_min, x_max, nx_ticks)]
+  
+  y_vals = np.arange(y_min, y_max, 0.5)
+  y_ticks = np.linspace(0, y_bins*(y_vals[-1]/float(y_max)), len(y_vals))
+  
+  y_labels = ['$10^{%.1f}$' % x for x in y_vals]
+  
+  x_bins = np.logspace(x_min, x_max, x_bins)
+  #x_bins = np.linspace(0, x_bins*bin_size*1e3, x_bins)
+  y_bins = np.logspace(y_min, y_max, y_bins)
+   
+  for i,(ss, wt, ss2, wt2, counts) in enumerate(seq_seq_data):
+    row = int(i//n_cols)
+    col = i % n_cols
+  
+    ax = axarr[row, col]
+    ax.tick_params(axis='both', which='major', labelsize=7)
+    ax.tick_params(axis='both', which='minor', labelsize=7)
+        
+    hist, e1, e2 = np.histogram2d(ss, counts, bins=(x_bins, y_bins))
+    
+    hist = hist.T
+    
+    nz = hist > 0
+    
+    hist[nz] = np.log10(hist[nz])
+    
+    hist[nz] /= hist.max()
+    
+    cax = ax.imshow(hist, cmap=HIST_CMAP, origin='lower')
+    
+    #for j, d in enumerate(hist):
+    #  d = d[d>0]
+    #  ax.plot(d, color=HIST_CMAP(j/float(len(hist))), linewidth=1, alpha=0.5)
+    
+    #ax.scatter(np.log10(ss), np.log10(counts), s=2, alpha=0.1)
+   
+    if col == 0:
+      ax.set_ylabel(y_label, fontsize=9)
+      ax.set_yticks(y_ticks)
+      ax.set_yticklabels(y_labels) 
+         
+    ax.set_title(labels[i], fontsize=9)
+    
+    if row == n_rows-1:
+      ax.set_xticks(x_ticks)
+      ax.set_xticklabels(x_labels)
+      ax.set_xlabel(x_label, fontsize=9)
+    else:
+      ax.set_xticks([])
+  
+  i += 1
+  while i < (n_rows*n_cols):
+    row = int(i//n_cols)
+    col = i % n_cols
+    axarr[row, col].axis('off')
+    
+    axarr[row-1, col].set_xticks(x_ticks)
+    axarr[row-1, col].set_xticklabels(x_labels)
+    axarr[row-1, col].set_xlabel(x_label, fontsize=9)
+    
+    i += 1
   
   
+  cbax1 = fig.add_axes([0.87, 0.6, 0.02, 0.3]) # left, bottom, w, h
+  cbar1 = plt.colorbar(cax, cax=cbax1, orientation='vertical')
+  cbar1.ax.tick_params(labelsize=8)
+  cbar1.set_label('Probability/maximum', fontsize=9)
+
+  
+  if pdf:
+    pdf.savefig(dpi=PDF_DPI)
+  else:
+    plt.show()
+    
+  plt.close()    
+
+
+def contact_probability(contact_paths, out_pdf_path=None, region_path=None, bin_size=DEFAULT_BIN_SIZE,
+                        labels=None, region_label=None, screen_gfx=False):
+
+  from nuc_tools import util, io
+  from formats import ncc, npz, bed
+  
+  if not out_pdf_path:
+    out_pdf_path = os.path.splitext(contact_paths[0])[0] + '_contact_prob.pdf' 
+    
+  out_pdf_path = io.check_file_ext(out_pdf_path, '.pdf')
+  
+  if labels:
+    for i, label in enumerate(labels):
+      labels[i] = label.replace('_',' ')
+      
+    while len(labels) < len(contact_paths):
+      labels.append(os.path.basename(contact_paths[len(labels)]))
+      
+  else:
+    labels = [os.path.splitext(os.path.basename(x))[0] for x in contact_paths]
+  
+  if region_path:
+    region_dict, value_dict, label_dict = bed.load_bed_data_track(region_path)
+    
+    for chr_a in region_dict:
+      ends = region_dict[chr_a][:,0]
+      idx = ends.argsort()
+      region_dict[chr_a] = region_dict[chr_a][idx,:]
+    
+    if not region_label:
+      region_label = os.path.basename(region_path)
+    
+  else:
+    region_dict = None
+
+  if screen_gfx:
+    pdf = None
+  else:
+    pdf = PdfPages(out_pdf_path) 
+  
+  
+  seq_seq_data = load_seq_seps(contact_paths, labels, region_dict, bin_size*1e3)
+    
+  plot_seq_sep_distrib(seq_seq_data, labels, region_label,
+                       bin_size, pdf=pdf)     
+  
+  
+  plot_count_distribs(seq_seq_data, labels, bin_size, pdf)
+  
+  
+  if pdf:
+    pdf.close()
+    util.info('Written {}'.format(out_pdf_path))
+  else:
+    util.info('Done')
   
 
 def main(argv=None):
@@ -301,7 +477,7 @@ def main(argv=None):
   bin_size = args['s']
   labels = args['l'] or None
   region_label = args['rl']
-
+  
   if region_path:
     io.check_invalid_file(region_path)
   
@@ -312,15 +488,18 @@ def main(argv=None):
     util.warn('Output PDF file will not be written in screen graphics (-g) mode')
     pdf_path = None
   
-  contact_probability(contact_paths, pdf_path, region_path, bin_size, labels, region_label)
+  contact_probability(contact_paths, pdf_path, region_path, bin_size, labels, region_label, screen_gfx)
   
-  # Add -r, --regions
-  # - Plot contact probability separately for
-  #   - Both ends in, both ends out, one end in
-  #   - For each dataset
-  #   - For each for the three classes, multiplexing on dataset    
-    
+  
+  
 
 if __name__ == "__main__":
   sys.path.append(os.path.dirname(os.path.dirname(__file__)))
   main()
+
+
+  """
+./nuc_tools contact_probability /data/dino_hi-c/SLX-17943_NoIndex_HCJ37DRXX_s_2_r_1_2_5k.npz -o test.pdf -s 5
+./nuc_tools contact_probability /data/SORT_ME/hi-c/Frezza_MRCU/Hi-C_SLX-12296_100k.npz /data/SORT_ME/hi-c/Frezza_MRCU/Hi-C_SLX-14982_100k.npz -s 100 -o test.pdf
+./nuc_tools contact_probability /data/SORT_ME/hi-c/pop/SLX-*25k.npz  -s 25 -o test.pdf
+  """

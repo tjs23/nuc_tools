@@ -614,27 +614,32 @@ def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
   return counts, matrix, ambig_matrix, label_pos, chromo_offsets, trans_counts, ambig_groups
 
 
-def _get_tick_delta(n, bin_size, max_ticks=10, unit=1e6):
+def _get_tick_delta(n, bin_size, max_ticks=8, unit=1e6):
    
   val_max = n * bin_size
   
-  step = val_max/max_ticks
+  step = max(val_max/max_ticks, 2*bin_size)
 
   sf = min(0, int(floor(np.log10(step))))
 
   inc = 10.0 ** sf
   
   step = round(step, -sf)
-    
+   
   while (step % (5*inc) != 0) and (step < bin_size):
     step += inc
  
   tick_delta = step/bin_size
-
-  nminor = step/(5*inc)
   
-  if nminor < 2:
-    nminor = step/inc
+  if tick_delta < 10:
+    nminor = tick_delta
+  
+  else:
+    nminor = step/(5*inc)
+ 
+    if nminor < 2:
+      nminor = step/inc
+ 
   
   return tick_delta, nminor
 
@@ -877,7 +882,15 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
   if diag_width and (a != b):
     util.critical('Diagonal width option only valid for square matrices. Input size was %d x %d' % (a,b))
   
-  unit = 1e6 # Megabase
+  if max(a,b) < 100:
+    unit_name = 'kb'
+    unit = 1e3
+    label_pat = '%d'
+  
+  else:
+    unit_name = 'Mb'
+    unit = 1e6 
+    label_pat = '%.1f'
           
   if log:
     norm = LogNorm(vmin=v_min)
@@ -955,7 +968,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
         
       ax.set_xlim(0, 2*w)
     
-    ax.set_xlabel('Position (Mb)', fontsize=12)
+    ax.set_xlabel('Position (%s)' % unit_name, fontsize=12)
     
     ax = axarr[0]
     
@@ -984,14 +997,17 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
  
     else:
       xrotation = None
-      tick_delta, nminor = _get_tick_delta(b, bin_size/unit)
+      tick_delta, nminor = _get_tick_delta(b, bin_size/unit, unit)
       xlabel_pos = np.arange(0, b, tick_delta) # Pixel bins
-      xlabels = ['%.1f' % ((x*bin_size+x_start)/unit) for x in xlabel_pos]
+      
+      xlabels = [label_pat % ((x*bin_size+x_start)/unit) for x in xlabel_pos]
+      xlabel_pos -= 0.5
       xminor_tick_locator = AutoMinorLocator(nminor)
  
-      tick_delta, nminor = _get_tick_delta(a, bin_size/unit)
+      tick_delta, nminor = _get_tick_delta(a, bin_size/unit, unit)
       ylabel_pos = np.arange(0, a, tick_delta) # Pixel bins
-      ylabels = ['%.1f' % ((y*bin_size+y_start)/unit) for y in ylabel_pos]
+      ylabels = [label_pat % ((y*bin_size+y_start)/unit) for y in ylabel_pos]
+      ylabel_pos -= 0.5
       yminor_tick_locator = AutoMinorLocator(nminor)
       
     fig, ax = plt.subplots(1, 1)
@@ -1030,17 +1046,17 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       ax.set_ylabel('Chromosome')
  
     elif axis_chromos:
-      ax.set_ylabel('Position %s (Mb)' % axis_chromos[0])
+      ax.set_ylabel('Position %s (%s)' % (axis_chromos[0], unit_name))
       ax.xaxis.set_minor_locator(xminor_tick_locator)
-      ax.set_xlabel('Position %s (Mb)' % axis_chromos[1])
+      ax.set_xlabel('Position %s (%s)' % (axis_chromos[1], unit_name))
       ax.yaxis.set_minor_locator(yminor_tick_locator)
       if grid is True and not log:
         ax.grid(alpha=0.08, linestyle='-', linewidth=0.1)
  
     else:
-      ax.set_xlabel('Position (Mb)')
+      ax.set_xlabel('Position (%s)' % unit_name)
       ax.xaxis.set_minor_locator(xminor_tick_locator)
-      ax.set_ylabel('Position (Mb)')
+      ax.set_ylabel('Position (%s)' % unit_name)
       ax.yaxis.set_minor_locator(yminor_tick_locator)
  
       if grid is True and not log:

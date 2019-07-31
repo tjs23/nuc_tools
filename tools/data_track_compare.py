@@ -10,7 +10,7 @@ DESCRIPTION = 'Plot and measure similarities between data tracks in BED format'
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.cm import ScalarMappable, get_cmap
-from matplotlib.colors import LinearSegmentedColormap, ListedColormap, LogNorm, Colormap, Normalize
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 
 DEFAULT_PDF_OUT = 'dtc_out_job{}_D{}x{}.pdf'
 DEFAULT_BIN_KB  = 20.0

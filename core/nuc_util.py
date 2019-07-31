@@ -246,6 +246,8 @@ def sort_chromosomes(chromos):
   for chromo in chromos:
     if chromo.lower().startswith('chr'):
       c = chromo[3:]
+    elif chromo.lower().startswith('scaffold'):
+      c = chromo[8:]
     else:
       c = chromo
 
@@ -353,4 +355,237 @@ def bin_region_values(regions, values, bin_size, start, end):
         value_hist[j] += v * f
   
   return value_hist
+
+
+def unpack_chromo_coords(coords, chromosomes, seq_pos_dict):
+  """
+  Exctract coords for multiple chromosomes stored in a single array into
+  a dictionary, keyed by chromosome name. The chromosomes argument is required
+  to get the correct array storage order.
+  """
+
+  chromo_num_particles = [len(seq_pos_dict[chromo]) for chromo in chromosomes]
+  n_seq_pos = sum(chromo_num_particles)
+  n_models, n_particles, dims = coords.shape
+
+  if n_seq_pos != n_particles:
+    msg = 'Model coordinates must be an array of num models x %d' % (n_seq_pos,)
+    raise(Exception(msg))  
+  
+  coords_dict = {}
+        
+  j = 0
+  for i, chromo in enumerate(chromosomes):
+    span = chromo_num_particles[i]
+    coords_dict[chromo] = coords[:,j:j+span] # all models, slice
+    j += span
+ 
+  return coords_dict
+
+
+def pack_chromo_coords(coords_dict, chromosomes):
+  """
+  Place chromosome 3D coordinates stored in a dictionary keyed by
+  chromosome name into a single, ordered array. The chromosomes argument
+  is required to set the correct array storage order.
+  """
+
+  chromo_num_particles = [len(coords_dict[chromo][0]) for chromo in chromosomes]
+  n_particles = sum(chromo_num_particles)
+  n_models = len(coords_dict[chromosomes[0]])  
+  coords = np.empty((n_models, n_particles, 3), float)
+  
+  j = 0
+  for i, chromo in enumerate(chromosomes):
+    span = chromo_num_particles[i]
+    coords[:,j:j+span] = coords_dict[chromo]
+    j += span
+      
+  return coords
+  
+  
+def svd_rotate(coords_a, coords_b, weights=None):
+  """
+  Aligns coords_b to coords_a by rotation, returning transformed coords
+  """
+  
+  coords_bt = coords_b.transpose()
+  
+  if weights is None:
+    coords_bt = coords_b.transpose()
+  else:
+    coords_bt = coords_b.transpose() * weights
+
+  mat = np.dot(coords_bt, coords_a)
+  rot_mat1, _scales, rot_mat2 = np.linalg.svd(mat)
+  sign = np.linalg.det(rot_mat1) * np.linalg.det(rot_mat2)
+
+  if sign < 0:
+    rot_mat1[:,2] *= -1
+  
+  rotation = np.dot(rot_mat1, rot_mat2)
+  
+  return np.dot(coords_b, rotation)
+ 
+ 
+def center_coords(coords, weights):
+  """
+  Transpose coords to zero at centroid
+  """
+  
+  wt_coords = coords.transpose() * weights
+  xyz_totals = wt_coords.sum(axis=1)
+  center = xyz_totals/sum(weights)
+  cen_coords = coords - center
+  
+  return cen_coords
+
+
+def calc_rmsds(ref_coords, coord_models, weights=None):
+  """
+  Calculates per model and per particle RMSDs compared to reference coords
+  """
+  
+  n_coords = len(ref_coords)
+  n_models = len(coord_models)
+  
+  if weights is None:
+    weights = np.ones(n_coords)
+  
+  model_rmsds = []
+  sum_weights = sum(weights)
+  sum_deltas2 = np.zeros((n_coords, 3))
+  
+  for coords in coord_models:
+    deltas2 = (coords-ref_coords)**2
+    sum_deltas2 += deltas2
+    dists2 = weights*deltas2.sum(axis=1)
+    model_rmsds.append(np.sqrt(sum(dists2))/sum_weights)
+  
+  particle_rmsds = np.sqrt(sum_deltas2.sum(axis=1)/n_models)
+
+  return np.array(model_rmsds), particle_rmsds
+  
+ 
+def align_coord_pair(coords_a, coords_b, dist_scale=1.0):
+  """
+  Align two coord arrays.
+  Returns the transformed version of coords_a and coords_b.
+  Returns the model and particle RMSD.
+  """
+  
+  n = len(coords_a)
+  weights = np.ones(n, float) # All particles intially weighted equally
+  
+  # Move both coords arrays to origin, original inputs are preserved
+  coords_a = center_coords(coords_a, weights)
+  coords_b = center_coords(coords_b, weights)
+  
+  # Align B to A and get RMDs of transformed coords
+  coords_b1 = svd_rotate(coords_a, coords_b, weights)
+  rmsd_1, particle_rmsds_1 = calc_rmsds(coords_a, [coords_b1], weights)
+
+  # Align mirror B to A and get RMDs of transformed coords
+  coords_b2 = svd_rotate(coords_a, -coords_b, weights)
+  rmsd_2, particle_rmsds_2 = calc_rmsds(coords_a, [coords_b2], weights)
+  
+  if rmsd_1[0] < rmsd_2[0]:
+    coords_b = coords_b1
+    particle_rmsds = particle_rmsds_1
+    
+  else: # Mirror is best
+    coords_b = coords_b2
+    particle_rmsds = particle_rmsds_2
+        
+  # Refine alignment with exponential weights that deminish as RMSD increases
+  if dist_scale:
+    med_rmsd = np.median(particle_rmsds) # Gives a degree of scale invariance
+    weight_scale = particle_rmsds / dist_scale
+    weights_exp = np.exp(-weight_scale*weight_scale*med_rmsd)
+
+    coords_a = center_coords(coords_a, weights_exp)
+    coords_b = center_coords(coords_b, weights_exp)
+    coords_b = svd_rotate(coords_a, coords_b, weights_exp)
+    
+  return coords_a, coords_b
+  
+  
+def align_coord_models(coord_models, n_iter=1, dist_scale=True):
+  """
+  Aligns multiple coords arrays.
+  Convergence is normally good with n_iter=1, but larger values may be needed in troublesome cases.
+  Set the dist_scale to down-weight RMSD values that approach/exceed this size.
+  The default dist_scale(=True) automatically sets a value to only ignore the worst outliers.
+  Setting dist_scale to None or any false value disables all RMSD based weighting; this can give a better overall RMSD,
+  at it tries to fit outliers, but worse alignment for the most invariant particles.
+  Returns aligned coords models, RMSD of each model and RMSD of each particle relative to mean.
+  """
+
+  coord_models = np.array(coord_models)
+  n_models, n_coords = coord_models.shape[:2]
+      
+  if dist_scale is True:
+    init_dist_scale = 0.0
+  else:
+    init_dist_scale = dist_scale
+  
+  # Align to first model arbitrarily
+  ref_coords = coord_models[0]
+  for i, coords in enumerate(coord_models[1:], 1):
+    coords_a, coords_b = align_coord_pair(ref_coords, coords, init_dist_scale)
+    coord_models[i] = coords_b
+    
+  coord_models[0] = coords_a # First model has been centred
+
+  # Align all coord models to closest to mean (i.e. a real model)
+  # given initial mean could be wonky if first model was poor
+  model_rmsds, particle_rmsds = calc_rmsds(coord_models.mean(axis=0), coord_models)
+
+  # When automated the distance scale is set according to a large RMSD vale
+  if dist_scale is True:
+    dist_scale = np.percentile(particle_rmsds, [99.0])[0]
+    
+  j = np.array(model_rmsds).argmin()
+  ref_coords = coord_models[j]
+  
+  for i, coords in enumerate(coord_models):
+    if i != j:
+      coords_a, coords_b = align_coord_pair(ref_coords, coords, dist_scale)
+      coord_models[i] = coords_b
+  
+  # Align all coord models to mean and converge iteratively
+  for j in range(n_iter):
+    ref_coords = coord_models.mean(axis=0)
+    for i, coords in enumerate(coord_models):
+      coords_a, coords_b = align_coord_pair(ref_coords, coords, dist_scale)
+      coord_models[i] = coords_b
+      
+  # Final mean for final RMSDs
+  model_mean_rmsds, particle_rmsds = calc_rmsds(coord_models.mean(axis=0), coord_models)
+  
+  model_rmsds = np.zeros((n_models, n_models))
+  
+  for i in range(n_models-1):
+    for j in range(i+1, n_models):
+       rmsds, null = calc_rmsds(coord_models[i], [coord_models[j]])
+       model_rmsds[i,j] = rmsds[0]
+       model_rmsds[j,i] = rmsds[0]
+  
+  return coord_models, model_rmsds, model_mean_rmsds, particle_rmsds
+
+
+def align_chromo_coords(coords_dict, seq_pos_dict, n_iter=1, dist_scale=True):
+  
+  chromos = sorted(seq_pos_dict)
+  
+  coord_models = pack_chromo_coords(coords_dict, chromos)
+  
+  coord_models, model_rmsds, model_mean_rmsds, particle_rmsds = align_coord_models(coord_models, n_iter, dist_scale)  
+    
+  coords_dict = unpack_chromo_coords(coord_models, chromos, seq_pos_dict)
+  
+  return coords_dict, model_rmsds, model_mean_rmsds, particle_rmsds
+ 
+
+
 

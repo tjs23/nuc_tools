@@ -22,6 +22,7 @@ TOOLS = {'adapt': 'tools.nuc_adapt',
          'ncc_bin': 'tools.ncc_bin',
          'cs_process': 'tools.cs_process',
          'structure_data_density': 'tools.structure_data_density',
+         'structure_compare': 'tools.structure_compare',
          'data_track_filter': 'tools.data_track_filter',
          'data_track_compare': 'tools.data_track_compare',
          }
