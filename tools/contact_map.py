@@ -614,19 +614,20 @@ def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
   return counts, matrix, ambig_matrix, label_pos, chromo_offsets, trans_counts, ambig_groups
 
 
-def _get_tick_delta(n, bin_size, max_ticks=8, unit=1e6):
+def _get_tick_delta(n, bin_size, unit=1e6, max_ticks=8):
    
   val_max = n * bin_size
   
   step = max(val_max/max_ticks, 2*bin_size)
-
+  #step = val_max/max_ticks
+  
   sf = min(0, int(floor(np.log10(step))))
 
   inc = 10.0 ** sf
   
   step = round(step, -sf)
    
-  while (step % (5*inc) != 0) and (step < bin_size):
+  while (step % (5*inc) != 0):
     step += inc
  
   tick_delta = step/bin_size
@@ -639,8 +640,7 @@ def _get_tick_delta(n, bin_size, max_ticks=8, unit=1e6):
  
     if nminor < 2:
       nminor = step/inc
- 
-  
+    
   return tick_delta, nminor
 
 
@@ -1798,15 +1798,15 @@ def main(argv=None):
   arg_parse.add_argument('-g', '--screen-gfx', default=False, action='store_true', dest='g',
                          help='Display graphics on-screen using matplotlib, where possible and do not automatically save output.')
 
-  arg_parse.add_argument('-s1', '--bin-size-main', default=None, metavar='BIN_SIZE', type=float, dest="s1",
+  arg_parse.add_argument('-s1', '--bin-size-main', default=None, metavar='KB_BIN_SIZE', type=float, dest="s1",
                          help='Binned sequence region size (the resolution) for the overall, whole-genome contact map, in kilobases. ' \
                               'Default is {:.1f} kb or {:.1f} kb if single-cell "-sc" option used.'.format(DEFAULT_MAIN_BIN_KB, DEFAULT_SC_MAIN_BIN_KB))
 
-  arg_parse.add_argument('-s2', '--bin-size-cis', default=None, metavar='BIN_SIZE', type=float, dest="s2",
+  arg_parse.add_argument('-s2', '--bin-size-cis', default=None, metavar='KB_BIN_SIZE', type=float, dest="s2",
                          help='Binned sequence region size (the resolution) for separate intra-chromsomal maps, ' \
                               'in kilobases. Default is {:.1f} kb or {:.1f} kb if single-cell "-sc" option used..'.format(DEFAULT_CIS_BIN_KB, DEFAULT_SC_CHR_BIN_KB))
   
-  arg_parse.add_argument('-s3', '--bin-size-trans', default=None, metavar='BIN_SIZE', type=float, dest="s3",
+  arg_parse.add_argument('-s3', '--bin-size-trans', default=None, metavar='KB_BIN_SIZE', type=float, dest="s3",
                          help='Binned sequence region size (the resolution) for separate inter-chromsomal maps, ' \
                               'in kilobases. Default is {:.1f} kb. or {:.1f} kb if single-cell "-sc" option used.'.format(DEFAULT_TRANS_BIN_KB, DEFAULT_SC_CHR_BIN_KB))
 

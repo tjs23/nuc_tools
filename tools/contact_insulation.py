@@ -148,8 +148,6 @@ def contact_insulation(region_path, contact_paths, pdf_path, bin_size=DEFAULT_BI
         out_region_dict[chr_a] = np.array([pos,pos+1]).T
         out_value_dict[chr_a] = np.array(chromo_ratios)
         
-        print chr_a, np.mean(chromo_ratios), max(chromo_ratios), min(chromo_ratios)
-        
     ratios = np.array(ratios)
     all_ratios.append(np.log10(1.0 + ratios))
     

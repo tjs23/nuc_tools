@@ -259,12 +259,12 @@ def sort_chromosomes(chromos):
 
     else:
       try:
-        key = '%09d' % int(c)
+        key = ('%09d' % int(c), 'a')
       except ValueError as err:
-        key = c
+        key = (c, 'a')
 
     sort_chromos.append((key, chromo))
-
+  
   sort_chromos.sort()
   
   return [x[1] for x in sort_chromos]  
@@ -451,16 +451,18 @@ def calc_rmsds(ref_coords, coord_models, weights=None):
   
   if weights is None:
     weights = np.ones(n_coords)
+    sum_weights = n_coords
+  else:
+    sum_weights = sum(weights)
   
   model_rmsds = []
-  sum_weights = sum(weights)
   sum_deltas2 = np.zeros((n_coords, 3))
   
   for coords in coord_models:
     deltas2 = (coords-ref_coords)**2
     sum_deltas2 += deltas2
     dists2 = weights*deltas2.sum(axis=1)
-    model_rmsds.append(np.sqrt(sum(dists2))/sum_weights)
+    model_rmsds.append(np.sqrt(sum(dists2)/sum_weights))
   
   particle_rmsds = np.sqrt(sum_deltas2.sum(axis=1)/n_models)
 
@@ -488,7 +490,7 @@ def align_coord_pair(coords_a, coords_b, dist_scale=1.0):
   # Align mirror B to A and get RMDs of transformed coords
   coords_b2 = svd_rotate(coords_a, -coords_b, weights)
   rmsd_2, particle_rmsds_2 = calc_rmsds(coords_a, [coords_b2], weights)
-  
+
   if rmsd_1[0] < rmsd_2[0]:
     coords_b = coords_b1
     particle_rmsds = particle_rmsds_1
@@ -540,7 +542,7 @@ def align_coord_models(coord_models, n_iter=1, dist_scale=True):
   # Align all coord models to closest to mean (i.e. a real model)
   # given initial mean could be wonky if first model was poor
   model_rmsds, particle_rmsds = calc_rmsds(coord_models.mean(axis=0), coord_models)
-
+  
   # When automated the distance scale is set according to a large RMSD vale
   if dist_scale is True:
     dist_scale = np.percentile(particle_rmsds, [99.0])[0]
@@ -561,10 +563,11 @@ def align_coord_models(coord_models, n_iter=1, dist_scale=True):
       coord_models[i] = coords_b
       
   # Final mean for final RMSDs
+
   model_mean_rmsds, particle_rmsds = calc_rmsds(coord_models.mean(axis=0), coord_models)
   
   model_rmsds = np.zeros((n_models, n_models))
-  
+
   for i in range(n_models-1):
     for j in range(i+1, n_models):
        rmsds, null = calc_rmsds(coord_models[i], [coord_models[j]])

@@ -4,7 +4,7 @@ from scipy import sparse
 
 CHR_KEY_SEP = ' '
 
-def load_npz_contacts(file_path, trans=True, store_sparse=False):
+def load_npz_contacts(file_path, trans=True, store_sparse=False, display_counts=False):
   
   file_dict = np.load(file_path, allow_pickle=True)
   
@@ -12,6 +12,9 @@ def load_npz_contacts(file_path, trans=True, store_sparse=False):
   contacts = {}
   bin_size, min_bins = file_dict['params']
   bin_size = int(bin_size*1e3)
+  
+  chromo_hists = {}
+  cis_chromo_hists = {}
   
   for key in sorted(file_dict):
     if key != 'params':
@@ -29,6 +32,41 @@ def load_npz_contacts(file_path, trans=True, store_sparse=False):
       else:
         offset, count = file_dict[key]
         chromo_limits[key] = offset * bin_size, (offset + count) * bin_size
+        chromo_hists[key] = np.zeros(count)
+        cis_chromo_hists[key] = np.zeros(count)
+  
+  if display_counts:
+    # A simple 1D overview of count densities
+ 
+    from matplotlib import pyplot as plt
+
+    for chr_a, chr_b in contacts:
+      mat = contacts[(chr_a, chr_b)]
+      chromo_hists[chr_a] += mat.sum(axis=1)
+      chromo_hists[chr_b] += mat.sum(axis=0)
+ 
+      if chr_a == chr_b:
+        cis_chromo_hists[chr_a] += mat.sum(axis=1)
+        cis_chromo_hists[chr_b] += mat.sum(axis=0)
+    
+    all_sums = np.concatenate([chromo_hists[ch] for ch in chromo_hists])
+    cis_sums = np.concatenate([cis_chromo_hists[ch] for ch in chromo_hists])
+ 
+    fig, ax = plt.subplots()
+ 
+    hist, edges = np.histogram(all_sums, bins=25, normed=False, range=(0, 500))
+    ax.plot(edges[1:], hist, color='#0080FF', alpha=0.5, label='Whole genome (median=%d)' % np.median(all_sums))
+
+    hist, edges = np.histogram(cis_sums, bins=25, normed=False, range=(0, 500))
+    ax.plot(edges[1:], hist, color='#FF4000', alpha=0.5, label='Intra-chromo/contig (median=%d)' % np.median(cis_sums))
+ 
+    ax.set_xlabel('Number of Hi-C RE fragment ends (%d kb region)' % (bin_size/1e3))
+    ax.set_ylabel('Count')
+ 
+    ax.legend()
+ 
+    plt.show()
+
   
   return bin_size, chromo_limits, contacts
 
