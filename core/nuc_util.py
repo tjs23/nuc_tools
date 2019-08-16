@@ -428,14 +428,20 @@ def svd_rotate(coords_a, coords_b, weights=None):
   return np.dot(coords_b, rotation)
  
  
-def center_coords(coords, weights):
+def center_coords(coords, weights=None):
   """
   Transpose coords to zero at centroid
   """
   
-  wt_coords = coords.transpose() * weights
+  if weights is None:
+    sum_weights = float(len(coords))
+    wt_coords = coords.transpose()
+  else:
+    sum_weights = sum(weights)
+    wt_coords = coords.transpose() * weights
+    
   xyz_totals = wt_coords.sum(axis=1)
-  center = xyz_totals/sum(weights)
+  center = xyz_totals/sum_weights
   cen_coords = coords - center
   
   return cen_coords
@@ -508,6 +514,8 @@ def align_coord_pair(coords_a, coords_b, dist_scale=1.0):
     coords_a = center_coords(coords_a, weights_exp)
     coords_b = center_coords(coords_b, weights_exp)
     coords_b = svd_rotate(coords_a, coords_b, weights_exp)
+  
+
     
   return coords_a, coords_b
   
@@ -532,7 +540,7 @@ def align_coord_models(coord_models, n_iter=1, dist_scale=True):
     init_dist_scale = dist_scale
   
   # Align to first model arbitrarily
-  ref_coords = coord_models[0]
+  ref_coords = coords_a = coord_models[0]
   for i, coords in enumerate(coord_models[1:], 1):
     coords_a, coords_b = align_coord_pair(ref_coords, coords, init_dist_scale)
     coord_models[i] = coords_b

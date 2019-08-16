@@ -576,7 +576,7 @@ def main(argv=None):
                          help='Adapter sequences to truncate reads at (or blank for none). E.g. %s. ' \
                          'Default: %s (%s)' % (ad_prests, ADAPTER_SEQS[DEFAULT_ADAPTER], DEFAULT_ADAPTER))                         
   
-  parsed, unknown = arg_parse.parse_known_args()
+  parser, unknown = arg_parse.parse_known_args()
   
   for arg in unknown:
     if arg.startswith('-f') and arg[2:].isdigit():

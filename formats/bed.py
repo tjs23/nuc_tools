@@ -1,6 +1,67 @@
 import numpy as np
 from collections import defaultdict
-from core.nuc_io import open_file
+
+from core.nuc_io import open_file, DATA_TRACK_TYPE
+
+def load_data_track(file_path):
+  """
+  Renamed version using special dtype
+  """
+
+  data_dict = defaultdict(set)
+  
+  with open_file(file_path, partial=True) as file_obj:
+    file_pos = 0
+    line = file_obj.readline()
+    
+    while line.startswith('browser') or line.startswith('track'):
+      file_pos = file_obj.tell() # before a non-header line
+      line = file_obj.readline()    
+    
+    while line[0] == '#':
+      line = file_obj.readline() 
+    
+    n_fields = len(line.split())
+    have_anno = n_fields > 3
+    have_val = n_fields > 4
+    have_strand = n_fields > 5
+    break
+      
+  with open_file(file_path) as file_obj:
+    file_obj.seek(file_pos)
+    
+    for i, line in enumerate(file_obj):
+      if line[0] == '#':
+        continue
+        
+      data = line.split()
+      chromo = data[0]
+      start = int(data[1])
+      end = int(data[2])
+           
+      if have_anno:
+        label = data[3]
+      else:
+        label = '%d' % i
+      
+      if have_val:
+        value = float(data[4])
+      else:
+        value = 1.0
+                  
+      if have_strand:
+        strand = 0 if data[5] == '-' else 1
+      else:
+        strand = 1
+            
+      data_dict[chromo].add(((start, end, strand, value, value, label))
+
+  for chromo in data_dict:
+    data_dict[chromo] = np.array(sorted(data_dict[chromo]), dtype=DATA_TRACK_TYPE)
+    
+  return dict(data_dict)
+  
+
 
 def load_bed_data_track(file_path):
 

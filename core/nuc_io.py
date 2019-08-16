@@ -3,6 +3,7 @@ import gzip
 import os
 import re
 import subprocess
+import numpy as np
 
 from io import BufferedReader, BufferedWriter
 
@@ -13,6 +14,7 @@ import core.nuc_util as util
 FILENAME_SPLIT   = re.compile('[_\.]')
 FILE_BUFFER_SIZE = 2**16
 
+DATA_TRACK_TYPE = np.dtype([('pos1', 'uint32'), ('pos2', 'uint32'), ('strand', 'bool'), ('value', 'float32'), ('orig_value', 'float32'), ('label', 'S32')])
 
 # #   Path naming  # #
 
