@@ -11,6 +11,8 @@ TEMP_ID          = '%s' % uuid.uuid4()
 LOG_FILE_PATH    = 'nuc-tools-out-%s.log' % TEMP_ID
 LOG_FILE_OBJ     = None # Created when needed
 
+DATA_TRACK_TYPE = np.dtype([('pos1', 'uint32'), ('pos2', 'uint32'), ('strand', 'bool'), ('value', 'float32'), ('orig_value', 'float32'), ('label', 'S32')])
+
 import core.nuc_parallel as parallel
 
 # #   Srcreen reporting  # # 
@@ -62,6 +64,7 @@ COLORMAP_URL = 'https://matplotlib.org/tutorials/colors/colormaps.html'
 def string_to_colormap(color_spec, cmap_name='user', n=255):
   
   from matplotlib.colors import LinearSegmentedColormap
+  from matplotlib import pyplot as plt
   
   if isinstance(color_spec, (list,tuple)):
     colors = color_spec.split(',')
@@ -83,7 +86,7 @@ def string_to_colormap(color_spec, cmap_name='user', n=255):
     
   else:
     try:
-      cmap = plt.get_cmap(cmap)
+      cmap = plt.get_cmap(color_spec)
       
     except ValueError as err:
       util.warn(err)
@@ -136,9 +139,8 @@ def call(cmd_args, stdin=None, stdout=None, stderr=None, verbose=True, wait=True
     subprocess.Popen(cmd_args, stdin=stdin, stdout=stdout, stderr=stderr, env=env, shell=shell)
 
 
-# #  Strings  # #
-
- 
+# #  Strings  # #    
+     
 def get_rand_string(size):
   
   return ''.join(random.choice(string.ascii_uppercase + string.ascii_lowercase + string.digits) for i in range(size))
@@ -286,6 +288,90 @@ def points_region_intersect(pos, regions):
   intersection = after_start == before_end
   
   return intersection
+
+
+def finalise_data_track(data_dict):
+
+  vmax = 0.0
+  vsum = 0.0
+  n = 0.0
+  for chromo in data_dict:
+    data_dict[chromo] = np.array(sorted(data_dict[chromo]), dtype=DATA_TRACK_TYPE)
+    vmax = max(vmax,  data_dict[chromo]['value'].max())
+    vsum += data_dict[chromo]['value'].sum()
+    n += len(data_dict[chromo])
+  
+  mean_val = vsum/n
+  
+  if vmax > 5 * mean_val:
+    for chromo in data_dict:
+      data_dict[chromo]['value'] = np.log10(data_dict[chromo]['value'])
+    
+  return dict(data_dict)
+
+
+def bin_data_track(data_track, bin_size, start, end):
+  """
+  For DATA_TRACK_TYPE which are sorted
+  """  
+  n = len(data_track)
+  
+  s = int(start/bin_size)
+  e = 1 + int(end/bin_size) # Limit, not last index
+  n_bins = e-s
+  value_hist = np.zeros(n_bins, float)
+  
+  if not n:
+    return value_hist
+  
+  s *= bin_size
+  e *= bin_size   
+  
+  boundaries = np.linspace(s,e,n_bins+1)
+   
+  starts = data_track['pos1']
+  ends   = data_track['pos2'] 
+  values = data_track['value']
+   
+  start_bin  = np.searchsorted(boundaries, starts)
+  end_bin    = np.searchsorted(boundaries, ends)
+  
+  keep = (start_bin > 0) & (end_bin < n_bins) # Data often exceeds common structure regions
+
+  mask = (end_bin == start_bin) & keep
+  value_hist[start_bin[mask]] += values[mask]
+  
+  spanning = (~mask & keep).nonzero()[0]
+  
+  if len(spanning): # Overlapping cases (should be rare)
+    for i in spanning:
+      v = values[i]
+      p1 = starts[i]
+      p2 = ends[i]
+      r = float(p2-p1)
+ 
+      for j in range(start_bin[i], end_bin[i]+1): # Region ovelaps bins 
+        """
+        p3 = s + j * bin_size # Bin start pos
+        p4 = p3 + bin_size    # Bin limit
+ 
+        if (p1 >= p3) and (p1 < p4): # Start of region in bin
+          f = float(p4 - p1) / r
+ 
+        elif (p2 >= p3) and (p2 < p4): # End of region in bin
+          f = float(p2 - p3) / r
+ 
+        elif (p1 < p3) and (p2 > p4): # Mid region in bin
+          f = bin_size / r
+ 
+        else:
+          f = 0.0
+        
+        print j, f"""
+        
+        value_hist[j] += v # * f
+  
+  return value_hist  
   
   
 def bin_region_values(regions, values, bin_size, start, end):

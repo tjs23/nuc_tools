@@ -1,7 +1,8 @@
 import numpy as np
 
 from collections import defaultdict
-from core.nuc_io import open_file, DATA_TRACK_TYPE
+from core.nuc_io import open_file
+from core.nuc_util import finalise_data_track
 
 VS_TEMPLATE = 'variableStep chrom=chr%s span=%d\n%d %.3f\n'
 
@@ -74,7 +75,7 @@ def load_data_track(file_path):
             continue
  
           val = float(data[0])
-          data_dict.add((pos, pos+span, 1, val, val, ''))
+          data_dict[chromo].add((pos, pos+span, 1, val, val, ''))
           pos += step
  
         else:
@@ -84,11 +85,7 @@ def load_data_track(file_path):
           pos, val = data
           pos = int(pos)
           val = float(val)
-          data_dict.add((pos, pos+span, 1, val, val, ''))
+          data_dict[chromo].add((pos, pos+span, 1, val, val, ''))
          
-  for chromo in data_dict:
-    data_dict[chromo] = np.array(sorted(data_dict[chromo]), dtype=DATA_TRACK_TYPE)
-    # Enforce sorted by start pos : using set removes duplicates
-
-  return dict(data_dict)
+  return finalise_data_track(data_dict)
 

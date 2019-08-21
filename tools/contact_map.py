@@ -9,8 +9,11 @@ from matplotlib.colors import LinearSegmentedColormap, ListedColormap, LogNorm, 
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.ticker import AutoMinorLocator
 
+import matplotlib
+matplotlib.rcParams['axes.linewidth'] = 0.5
+
 PROG_NAME = 'contact_map'
-VERSION = '1.0.1'
+VERSION = '1.1.0'
 DESCRIPTION = 'Chromatin contact (NCC or NPZ format) Hi-C contact map PDF display module'
 DEFAULT_CIS_BIN_KB = 250
 DEFAULT_TRANS_BIN_KB = 500
@@ -22,6 +25,7 @@ DEFAULT_DIAG_REGION = 50.0
 COLORMAP_URL = 'https://matplotlib.org/tutorials/colors/colormaps.html'
 REGION_PATT = re.compile('(\S+):(\d+\.?\d*)-(\d+\.?\d*)')
 MIN_REGION_BINS = 10
+DT_COLORMAP = '#0080FF,#B0B000,#FF4000'
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -162,35 +166,35 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
   
   util.info(' .. normalised {} chromosomes/pairs'.format(len(pairs)), line_return=True)
 
-def _downsample_matrix(in_array, new_shape, as_mean=False):
+
+def _downsample_matrix(in_array, new_shape, pad=False):
+  
+  from scipy.misc import imresize
     
   p, q = in_array.shape
   n, m = new_shape
-  
+
   if (p,q) == (n,m):
     return in_array
   
-  if p % n == 0:
-    pad_a = 0
-  else:
-    pad_a = n * int(1+p//n) - p
-
-  if q % m == 0:
-    pad_b = 0
-  else:
-    pad_b = m * int(1+q//m) - q 
+  if (p % n == 0) and (q % m == 0):
+    shape = (n, p // n, m, q // m)
+    mat = in_array.reshape(shape).sum(-1).sum(1)
   
-  if pad_a or pad_b:
+  elif pad:
+    pad_a = 0 if p % n == 0 else n * int(1+p//n) - p
+    pad_b = 0 if q % m == 0 else m * int(1+q//m) - q 
     in_array = np.pad(in_array, [(0,pad_a), (0,pad_b)], 'constant')
     p, q = in_array.shape
-      
-  shape = (n, p // n,
-           m, q // m)
+    shape = (n, p // n, m, q // m)
+    mat = in_array.reshape(shape).sum(-1).sum(1)
   
-  if as_mean:
-    return in_array.reshape(shape).mean(-1).mean(1)
   else:
-    return in_array.reshape(shape).sum(-1).sum(1)
+    count = in_array.sum()
+    mat = imresize(in_array, (n,m), mode='F')
+    mat *= count/float(mat.sum())
+  
+  return mat
 
 
 def _get_chromo_offsets(bin_size, chromos, chromo_limits):
@@ -402,7 +406,7 @@ def get_contact_arrays_matrix(contacts, bin_size, chromos, chromo_limits,
       if count == 0.0:
         continue
  
-      sub_mat = _downsample_matrix(contact_matrix, (size_a, size_b))
+      sub_mat = _downsample_matrix(contact_matrix, (size_a, size_b), pad=True)
       
       matrix[bin_a:bin_a+size_a,bin_b:bin_b+size_b] += sub_mat
       matrix[bin_b:bin_b+size_b,bin_a:bin_a+size_a] += sub_mat.T
@@ -454,7 +458,7 @@ def get_single_array_matrix(contact_matrix, limits_a, limits_b, is_cis, orig_bin
 
   else:
     matrix = _downsample_matrix(contact_matrix, (n, m)).astype(float)
- 
+    
     if is_cis:
       matrix += matrix.T
   
@@ -837,7 +841,8 @@ def _get_num_isolated(positions, threshold=500000):
     
 def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None,
                         axis_chromos=None, grid=None, stats_text=None, colors=None,
-                        bad_color='#404040', log=True, pdf=None, watermark='nuc_tools.contact_map',
+                        bad_color='#404040', x_data_tracks=None, y_data_tracks=None,
+                        log=True, pdf=None, watermark='nuc_tools.contact_map',
                         legend=None, tracks=None, v_max=None, v_min=None,
                         ambig_matrix=None, diag_width=None, double_diag=False,
                         x_start=0, y_start=0):
@@ -876,9 +881,11 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
     
   else:
     do_ambig = False  
+ 
+  track_cmap = util.string_to_colormap(DT_COLORMAP)
    
   a, b = matrix.shape
-  
+
   if diag_width and (a != b):
     util.critical('Diagonal width option only valid for square matrices. Input size was %d x %d' % (a,b))
   
@@ -903,39 +910,42 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
  
     if v_min is None:
       v_min = -v_max
+      
+  bg_color = np.array(cmap(0.0))
+  dt_alpha = 0.5
     
   if diag_width:
     w = int(diag_width * unit/bin_size)
     nax = max(4, int(ceil(a/float(w))))
     diag_thick = (w-10*nax)/nax
-    
+    size = 8.0
+     
     if double_diag:
       diag_thick /= 2
     
     aspect = 1.0  
     
-    fig, axarr = plt.subplots(nax, 1, gridspec_kw = {'height_ratios':[1.0] * nax})
-    plt.subplots_adjust(left=0.08)
+    fig = plt.figure()
+    fig.set_size_inches(size, size*nax/4.0)
     
-    if nax == 1:
-      axarr = [axarr]
+    height = 0.8/float(nax)
+    dt_frac = 0.2
+    gap_frac = 0.2
     
     kw = {'interpolation':'None', 'norm':norm, 'origin':'lower',
           'vmin':v_min, 'vmax':v_max}
     
     if do_ambig:
-      diag_mat = get_diag_region(diag_thick, ambig_matrix, double_diag)
-      
-      for i in range(nax):
-        ax = axarr[i]
-        cax2 = ax.matshow(diag_mat[:,i*w*2:(i+1)*w*2], cmap=cmap2, aspect=aspect, **kw)
-    
+      diag_mat_ambig = get_diag_region(diag_thick, ambig_matrix, double_diag)
+    else:
+      diag_mat_ambig = None
+
     diag_mat = get_diag_region(diag_thick, matrix, double_diag)
     tick_delta, nminor = _get_tick_delta(w, 0.5*bin_size/unit)
     xminor_tick_locator = AutoMinorLocator(nminor)
-
+        
     for i in range(nax):
-      ax = axarr[i]
+    
       p1 = i*w*2
       
       if p1 >= 2*a:
@@ -943,45 +953,144 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
         continue
       
       p2 = min(2*a, (i+1)*w*2)
-      cax = ax.matshow(diag_mat[:,p1:p2], cmap=cmap, aspect=aspect, **kw)
-      ax.xaxis.tick_bottom()
       
+      w_frac = (p2-p1)/(2.0*w)
+         
+      if x_data_tracks:
+        ax = fig.add_axes([0.1, 0.1 + (nax-i-1)*height + ((dt_frac+gap_frac) * height), 0.8*w_frac, (1.0-dt_frac-gap_frac)*height])
+        ax_bott = fig.add_axes([0.1, 0.1 + (nax-i-1)*height + (gap_frac * height), 0.8*w_frac, dt_frac*height])
+      else:
+        ax = fig.add_axes([0.1, 0.1 + (nax-i-1)*height + (gap_frac * height), 0.8*w_frac, (1.0-gap_frac)*height])
+        ax_bott = ax
+        
+      if diag_mat_ambig is not None:
+        ax.matshow(diag_mat_ambig[:,p1:p2], cmap=cmap2, aspect='auto', **kw)
+  
+      cax = ax.matshow(diag_mat[:,p1:p2], cmap=cmap, aspect='auto', **kw)
       
-      ylabels = []
-      ax.yaxis.set_ticks(ylabels)
-      ax.set_yticklabels(ylabels, fontsize=9)
-      
-      ax.yaxis.set_tick_params(which='both', direction='out')
-      ax.xaxis.set_tick_params(which='both', direction='out')
+      if x_data_tracks:
+        nx = float(len(x_data_tracks))
+        track_start = p1*0.5*bin_size+x_start
+        track_end = p2*0.5*bin_size+x_start
+        
+        step = bin_size
+        while (track_end-track_start)/step < 500:
+          step /= 2
+        
+        nx = float(len(x_data_tracks))
+        colors = [np.array(track_cmap(x)) for x in np.linspace(0.0, 1.0, nx)]
+        min_width = 2.0 * size/float(b)
+ 
+        for j, (track_label, track_data) in enumerate(x_data_tracks):          
+          t = nx-j-1.0
+   
+          track_data = track_data[(track_data['pos1'] < track_end) & (track_data['pos1'] > track_start) | \
+                                  (track_data['pos2'] < track_end) & (track_data['pos2'] > track_start)]
+          pos_strand = track_data['strand']
+          pos_track = track_data[pos_strand]
+          neg_track = track_data[~pos_strand]
+          tcmap = LinearSegmentedColormap.from_list(name=track_label, colors=[bg_color, colors[j]], N=32)
 
-      ax.set_anchor('W') 
+          if diag_width * unit > 4e7:
+            if len(pos_track):
+              pos_hist = util.bin_data_track(pos_track, step, track_start, track_end)[None,:]
+ 
+              if len(neg_track):
+                extent=(0,p2-p1,(t+0.5)/nx,(t+1.0)/nx)
+              else:
+                extent=(0,p2-p1,t/nx,(t+1.0)/nx)
+ 
+              ax_bott.matshow(pos_hist, aspect='auto', cmap=tcmap, extent=extent)
+ 
+            if len(neg_track):
+              neg_hist = util.bin_data_track(neg_track, step, track_start, track_end)[None,:]
+ 
+              if len(pos_track):
+                extent=(0,p2-p1,t/nx,(t+0.5)/nx)
+              else:
+                extent=(0,p2-p1,t/nx,(t+1.0)/nx)
+ 
+              ax_bott.matshow(neg_hist, aspect='auto', cmap=tcmap, extent=extent)
+
+          else:
+            if len(pos_track):
+              starts = (pos_track['pos1']-track_start)/float(0.5*bin_size)
+              ends = (pos_track['pos2']-track_start)/float(0.5*bin_size)
+              ends = np.array([ends, starts+min_width]).max(axis=0)
+              x_ranges = zip(starts, ends - starts)
+ 
+              if len(neg_track):
+                y_range = ((t+0.5)/nx, 0.5/nx)
+              else:
+                y_range = (t/nx, 1.0/nx)
+ 
+              ax_bott.broken_barh(x_ranges, y_range, color=colors[j], linewidth=0.0)
+          
+            if len(neg_track):
+              starts = (neg_track['pos1']-x_start)/float(0.5*bin_size)
+              ends = (neg_track['pos2']-x_start)/float(0.5*bin_size)
+              ends = np.array([ends, starts+min_width]).max(axis=0)
+              x_ranges = zip(starts, ends - starts)
+ 
+              if len(pos_track):
+                y_range = (t/nx, 0.5/nx)
+              else:
+                y_range = (t/nx, 1.0/nx)
+ 
+              ax_bott.broken_barh(x_ranges, y_range, color=colors[j], linewidth=0.0)
+ 
+
+        ax_bott.set_ylim(0.0, 1.0)
+        ax_bott.set_facecolor(cmap(0.0))
+
+        ax.tick_params(which='both', direction='out',
+                       left=False, right=False, top=False, bottom=False,
+                       labelright=False, labelleft=False, labeltop=False, labelbottom=False)
+                       
+        ax_bott.tick_params(which='both', direction='out', labelsize=9,
+                            left=False, right=False, top=False, bottom=True,
+                            labelright=False, labelleft=False, labeltop=False, labelbottom=True)
+        
+      else:
+        ax_bott = ax
+        ax.tick_params(which='both', direction='out', labelsize=9,
+                       left=False, right=False, top=False, bottom=True,
+                       labelright=False, labelleft=False, labeltop=False, labelbottom=True)
+                
+      ax_bott.set_anchor('W') 
       
       if tick_delta < (p2-p1):
         xlabel_pos = np.arange(p1, p2, tick_delta) # Pixel bins
         xlabels = ['%.1f' % ((x*0.5*bin_size+x_start)/unit) for x in xlabel_pos]
         xlabel_pos -= p1
 
-        ax.set_xticklabels(xlabels, fontsize=9)
-        ax.xaxis.set_ticks(xlabel_pos)
+        ax_bott.set_xticklabels(xlabels, fontsize=9)
+        ax_bott.xaxis.set_ticks(xlabel_pos)
 
-        ax.xaxis.set_minor_locator(xminor_tick_locator)
+        ax_bott.xaxis.set_minor_locator(xminor_tick_locator)
         
-      ax.set_xlim(0, 2*w)
+      ax_bott.set_xlim(0, p2-p1)
     
-    ax.set_xlabel('Position (%s)' % unit_name, fontsize=12)
-    
-    ax = axarr[0]
+    ax_bott.set_xlabel('Position (%s)' % unit_name, fontsize=12)
+       
+    if x_data_tracks: 
+      legend_ax = fig.add_axes([0.1, 0.0, 0.8, 0.095])
+      for i, (track_label, track_data) in enumerate(x_data_tracks):
+        legend_ax.plot([], alpha=dt_alpha, label=track_label, color=colors[i])
+ 
+      legend_ax.set_axis_off()
+      legend_ax.legend(frameon=False, loc='upper left', fontsize=7, ncol=int(math.ceil(len(x_data_tracks)/3.0)))
     
     if do_ambig:
-      cbaxes = fig.add_axes([0.92, 0.15, 0.02, 0.3])
+      cbaxes = fig.add_axes([0.915, 0.15, 0.02, 0.3])
       cbar2 = plt.colorbar(cax2, cax=cbaxes)
-      cbar2.ax.tick_params(labelsize=8)
-      cbar2.set_label('Ambig. count', fontsize=11)
+      cbar2.ax.tick_params(labelsize=7)
+      cbar2.set_label('Ambig. count', fontsize=7)
     
-    cbaxes = fig.add_axes([0.92, 0.55, 0.02, 0.3])
+    cbaxes = fig.add_axes([0.915, 0.55, 0.02, 0.3])
     cbar = plt.colorbar(cax, cax=cbaxes)
-    cbar.ax.tick_params(labelsize=8)
-    cbar.set_label(scale_label, fontsize=9)
+    cbar.ax.tick_params(labelsize=7)
+    cbar.set_label(scale_label, fontsize=7)
 
     dpi= int(float(w)/(fig.get_size_inches()[1]*ax.get_position().size[1]))
           
@@ -1000,6 +1109,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       tick_delta, nminor = _get_tick_delta(b, bin_size/unit, unit)
       xlabel_pos = np.arange(0, b, tick_delta) # Pixel bins
       
+      
       xlabels = [label_pat % ((x*bin_size+x_start)/unit) for x in xlabel_pos]
       xlabel_pos -= 0.5
       xminor_tick_locator = AutoMinorLocator(nminor)
@@ -1009,8 +1119,39 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       ylabels = [label_pat % ((y*bin_size+y_start)/unit) for y in ylabel_pos]
       ylabel_pos -= 0.5
       yminor_tick_locator = AutoMinorLocator(nminor)
+    
+    fig = plt.figure()
+    
+    dt_size = 0.3
+    padd = 0.1
+    size = 8.0
+    main_frac = 0.8
+    
+    if x_data_tracks:
+      if y_data_tracks:
+        fig.set_size_inches(size + dt_size, size + dt_size)
+        fx = fy = dt_size / (size + dt_size)
+        ax = fig.add_axes([padd + fx, padd + fy, main_frac * (1.0-fx), main_frac * (1.0-fy)]) # left, bottom, width, height
+        ax_left = fig.add_axes([padd, padd + fy, fx, main_frac * (1.0-fy)])
+        ax_bott = fig.add_axes([padd + fx, padd, main_frac * (1.0-fx), fy])
+        
+      else:
+        fig.set_size_inches(size + dt_size, size)
+        fx = dt_size / (size + dt_size)
+        ax = fig.add_axes([padd + fx, padd, main_frac * (1.0-fx), main_frac]) # left, bottom, width, height
+        ax_left = ax
+        ax_bott = fig.add_axes([padd + fx, padd, main_frac * (1.0-fx), fy])
       
-    fig, ax = plt.subplots(1, 1)
+    elif y_data_tracks:
+      fig.set_size_inches(size, size + dt_size)
+      fy = dt_size / (size + dt_size)
+      ax = fig.add_axes([padd, padd + fy, main_frac, main_frac * (1.0-fy)]) # left, bottom, width, height
+      ax_left = fig.add_axes([padd, padd + fy, fx, main_frac * (1.0-fy)])
+      ax_bott = ax
+      
+    else:
+      fig.set_size_inches(size, size)
+      ax = ax_left = ax_bott = fig.add_axes([padd, padd, main_frac, main_frac]) # left, bottom, width, height
     
     if grid and grid is not True:
       grid = np.array(grid, float)
@@ -1019,59 +1160,237 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       
     kw = {'interpolation':'None', 'norm':norm, 'origin':'upper',
           'vmin':v_min, 'vmax':v_max}
+          
     if do_ambig:
       cax2 = ax.matshow(ambig_matrix, cmap=cmap2, **kw)
  
     cax = ax.matshow(matrix, cmap=cmap, **kw)
-  
+     
+    if x_data_tracks:
+      start = x_start
+      end = start + b*bin_size
+      
+      step = bin_size
+      while (end-start)/step < 500:
+        step /= 2
+      
+      y_lim = [0.0, 1.0]
+      nx = float(len(x_data_tracks))
+      colors = [np.array(track_cmap(x)) for x in np.linspace(0.0, 1.0, nx)]
+      min_width = 2.0 * size/float(b)
+            
+      for i, (track_label, track_data) in enumerate(x_data_tracks):
+        t = nx-i-1.0
+        track_data = track_data[(track_data['pos1'] < end) & (track_data['pos1'] > start) | (track_data['pos2'] < end) & (track_data['pos2'] > start)]
+        pos_strand = track_data['strand']
+        pos_track = track_data[pos_strand]
+        neg_track = track_data[~pos_strand]
+        tcmap = LinearSegmentedColormap.from_list(name=track_label, colors=[bg_color, colors[i]], N=32)
+        
+        if end-start > 4e7:
+          if len(pos_track):
+            pos_hist = util.bin_data_track(pos_track, step, start, end)[None,:]
+            
+            if len(neg_track):
+              extent=(0,b,(t+0.5)/nx,(t+1.0)/nx)
+            else:
+              extent=(0,b,t/nx,(t+1.0)/nx)
+              
+            ax_bott.matshow(pos_hist, aspect='auto', cmap=tcmap, extent=extent)
+          
+          if len(neg_track):
+            neg_hist = util.bin_data_track(neg_track, step, start, end)[None,:]
+            
+            if len(pos_track):
+              extent=(0,b,t/nx,(t+0.5)/nx)
+            else:
+              extent=(0,b,t/nx,(t+1.0)/nx)
+            
+            ax_bott.matshow(neg_hist, aspect='auto', cmap=tcmap, extent=extent)
+
+        else:          
+          if len(pos_track):
+            starts = (pos_track['pos1']-x_start)/float(bin_size)
+            ends = (pos_track['pos2']-x_start)/float(bin_size)
+            ends = np.array([ends, starts+min_width]).max(axis=0)
+            x_ranges = zip(starts, ends - starts)
+            
+            if len(neg_track):
+              y_range = ((t+0.5)/nx, 0.5/nx)
+            else:
+              y_range = (t/nx, 1.0/nx)
+              
+            ax_bott.broken_barh(x_ranges, y_range, color=colors[i], linewidth=0.0)
+          
+          if len(neg_track):
+            starts = (neg_track['pos1']-x_start)/float(bin_size)
+            ends = (neg_track['pos2']-x_start)/float(bin_size)
+            ends = np.array([ends, starts+min_width]).max(axis=0)
+            x_ranges = zip(starts, ends - starts)
+            
+            if len(pos_track):
+              y_range = (t/nx, 0.5/nx)
+            else:
+              y_range = (t/nx, 1.0/nx)
+            
+            ax_bott.broken_barh(x_ranges, y_range, color=colors[i], linewidth=0.0)
+
+        
+      ax_bott.set_ylim(*y_lim)
+      ax_bott.set_facecolor(cmap(0.0))
+      
+      x0, y0, w, h = ax_bott.get_position().bounds
+      
+      legend_ax = fig.add_axes([0.0, y0, x0, h])
+      for i, (track_label, track_data) in enumerate(x_data_tracks):
+        legend_ax.plot([], alpha=dt_alpha, label=track_label, color=colors[i])
+      
+      legend_ax.set_axis_off()
+      legend_ax.legend(frameon=False, loc='upper right', fontsize=7)
+      
+      ax.set_xticks([])
+      ax_bott.set_yticks([])
+      
+    if y_data_tracks:
+      start = y_start
+      end = start + a*bin_size
+      
+      step = bin_size
+      while (end-start)/step < 500:
+        step /= 2
+      
+      x_lim = [0.0, 1.0]
+      ny = float(len(y_data_tracks))
+      
+      colors = [np.array(track_cmap(y)) for y in np.linspace(0.0, 1.0, ny)]
+      
+      for i, (track_label, track_data) in enumerate(y_data_tracks):
+        t = ny-i-1.0
+        
+        track_data = track_data[(track_data['pos1'] < end) & (track_data['pos1'] > start) | (track_data['pos2'] < end) & (track_data['pos2'] > start)]
+        pos_strand = track_data['strand']
+        pos_track = track_data[pos_strand]
+        neg_track = track_data[~pos_strand]
+        tcmap = LinearSegmentedColormap.from_list(name=track_label, colors=[bg_color, colors[i]], N=32)
+        
+        if end-start > 4e7:
+          if len(pos_track):
+            pos_hist = util.bin_data_track(pos_track, step, start, end)[::-1,None]
+            
+            if len(neg_track):
+              extent=((t+0.5)/nx,(t+1.0)/nx,0,a)
+            else:
+              extent=(t/nx,(t+1.0)/nx,0,a)
+            
+            ax_left.matshow(pos_hist, aspect='auto', cmap=tcmap, extent=extent)
+           
+          if len(neg_track):
+            neg_hist = util.bin_data_track(neg_track, step, start, end)[::-1,None]
+            
+            if len(pos_track):
+              extent=(t/nx,(t+0.5)/nx,0,a)
+            else:
+              extent=(t/nx,(t+1.0)/nx,0,a)
+           
+            ax_left.matshow(neg_hist, aspect='auto', cmap=tcmap, extent=extent)
+        
+        else:
+        
+          if len(pos_track):
+            starts = (pos_track['pos1']-y_start)/float(bin_size)
+            ends = (pos_track['pos2']-y_start)/float(bin_size)
+            ends = np.array([ends, starts+min_width]).max(axis=0)
+            heights = ends - starts
+            
+            if len(neg_track):           
+              width =  0.5/ny
+              x_pos = np.full(heights.shape, (t+0.75)/ny)
+            
+            else:
+              width =  1.0/ny
+              x_pos = np.full(heights.shape, (t+0.5)/ny)
+                        
+            ax_left.bar(x_pos, heights, width, starts,
+                        color=colors[i], linewidth=0.0)
+            
+          
+          neg_track = track_data[~pos_strand]
+          if len(pos_track):
+            starts = (neg_track['pos1']-y_start)/float(bin_size)
+            ends = (neg_track['pos2']-y_start)/float(bin_size)
+            ends = np.array([ends, starts+min_width]).max(axis=0)
+            heights = ends - starts   
+                    
+            if len(neg_track):           
+              width =  0.5/ny
+              x_pos = np.full(heights.shape, (t+0.25)/ny)
+            
+            else:
+              width =  1.0/ny
+              x_pos = np.full(heights.shape, (t+0.5)/ny)
+            
+            ax_left.bar(x_pos, heights, width, starts,
+                        color=colors[i], linewidth=0.0)
+        
+      ax_left.set_xlim(*x_lim)
+      ax.set_yticks([])
+      ax_left.set_xticks([])
+      ax_left.set_facecolor(cmap(0.0))
+    
     ax.xaxis.tick_bottom()
- 
     if chromo_labels and len(xlabels) > 25:
-      ax.set_xticklabels(xlabels, fontsize=5, rotation=xrotation)
-      ax.set_yticklabels(ylabels, fontsize=5)
+      ax_bott.set_xticklabels(xlabels, fontsize=5, rotation=xrotation)
+      ax_left.set_yticklabels(ylabels, fontsize=5)
  
     else:
-      ax.set_xticklabels(xlabels, fontsize=9, rotation=xrotation)
-      ax.set_yticklabels(ylabels, fontsize=9)
+      ax_bott.set_xticklabels(xlabels, fontsize=9, rotation=xrotation)
+      ax_left.set_yticklabels(ylabels, fontsize=9)
+
+    ax_bott.xaxis.set_ticks(xlabel_pos)
+    ax_bott.set_xlim(0, b)
+    
+    ax_bott.tick_params(which='both', direction='out', left=False, right=False,
+                        labelright=False, labelleft=False,
+                        labeltop=False, labelbottom=True,  top=False, bottom=True, pad=8)
+                 
+    ax_left.yaxis.set_ticks(ylabel_pos)
+    ax_left.set_ylim(a, 0)
  
-    ax.xaxis.set_ticks(xlabel_pos)
-    ax.xaxis.set_tick_params(which='both', direction='out')
- 
-    ax.yaxis.set_ticks(ylabel_pos)
-    ax.yaxis.set_tick_params(which='both', direction='out')
- 
+    ax_left.tick_params(which='both', direction='out', left=True, right=False,
+                        labelright=False, labelleft=True,
+                        labeltop=False, labelbottom=False,  top=False, bottom=False, pad=8)
  
     if chromo_labels:
-      ax.set_xlabel('Chromosome')
-      ax.set_ylabel('Chromosome')
+      ax_bott.set_xlabel('Chromosome')
+      ax_left.set_ylabel('Chromosome')
  
     elif axis_chromos:
-      ax.set_ylabel('Position %s (%s)' % (axis_chromos[0], unit_name))
-      ax.xaxis.set_minor_locator(xminor_tick_locator)
-      ax.set_xlabel('Position %s (%s)' % (axis_chromos[1], unit_name))
-      ax.yaxis.set_minor_locator(yminor_tick_locator)
+      ax_left.set_ylabel('Position %s (%s)' % (axis_chromos[0], unit_name))
+      ax_bott.xaxis.set_minor_locator(xminor_tick_locator)
+      ax_bott.set_xlabel('Position %s (%s)' % (axis_chromos[1], unit_name))
+      ax_left.yaxis.set_minor_locator(yminor_tick_locator)
       if grid is True and not log:
         ax.grid(alpha=0.08, linestyle='-', linewidth=0.1)
  
     else:
-      ax.set_xlabel('Position (%s)' % unit_name)
-      ax.xaxis.set_minor_locator(xminor_tick_locator)
-      ax.set_ylabel('Position (%s)' % unit_name)
-      ax.yaxis.set_minor_locator(yminor_tick_locator)
+      ax_bott.set_xlabel('Position (%s)' % unit_name)
+      ax_bott.xaxis.set_minor_locator(xminor_tick_locator)
+      ax_left.set_ylabel('Position (%s)' % unit_name)
+      ax_left.yaxis.set_minor_locator(yminor_tick_locator)
  
       if grid is True and not log:
         ax.grid(alpha=0.08, linestyle='-', linewidth=0.1)
  
     if do_ambig:
-      cbaxes = fig.add_axes([0.84, 0.15, 0.02, 0.3])
+      cbaxes = fig.add_axes([0.915, 0.2, 0.02, 0.3])
       cbar2 = plt.colorbar(cax2, cax=cbaxes)
       cbar2.ax.tick_params(labelsize=8)
-      cbar2.set_label('Ambig. count', fontsize=11)
+      cbar2.set_label('Ambig. count', fontsize=8)
  
-    cbaxes = fig.add_axes([0.84, 0.55, 0.02, 0.3])
+    cbaxes = fig.add_axes([0.915, 0.6, 0.02, 0.3])
     cbar = plt.colorbar(cax, cax=cbaxes)
     cbar.ax.tick_params(labelsize=8)
-    cbar.set_label(scale_label, fontsize=11)
+    cbar.set_label(scale_label, fontsize=8)
   
     dpi= int(float(a)/(fig.get_size_inches()[1]*ax.get_position().size[1]))
             
@@ -1079,7 +1398,8 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
     ax.text(0.9, 0.95, stats_text, fontsize=9, transform=fig.transFigure, ha='right')  
     
   ax.text(0.01, 0.01, watermark, color='#B0B0B0', fontsize=8, transform=fig.transFigure) 
-  ax.set_title(title, loc='left')
+  ax.text(0.1, 0.95, title, color='#000000', fontsize=14, transform=fig.transFigure, ha='left') 
+  #ax.set_title(title, loc='left')
  
   if legend:
     for label, color in legend:
@@ -1087,6 +1407,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
     
     ax.legend(fontsize=8, loc=9, ncol=len(legend), bbox_to_anchor=(0.5, 1.05), frameon=False)
     
+  dpi = max(10, dpi)
   
   while dpi < 300:
     dpi *= 2
@@ -1117,10 +1438,12 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
                 no_separate_cis=False, separate_trans=False, show_chromos=None,
                 region_dict=None, use_corr=False, use_norm=False, is_single_cell=False,
                 screen_gfx=False, black_bg=False, min_contig_size=None, chromo_grid=False,
-                diag_width=None, font=None, font_size=12, line_width=0.2, cmap=None):
+                diag_width=None, bed_paths=None, bed_labels=None, wig_paths=None, wig_labels=None, 
+                gff_path=None, gff_feats=None,
+                font=None, font_size=12, line_width=0.2, cmap=None):
   
   from nuc_tools import io, util
-  from formats import ncc, npz
+  from formats import ncc, npz, gff, bed, wig
   
   if len(in_paths) == 2:
     in_path, in_path2 = in_paths
@@ -1146,7 +1469,13 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
       out_path = io.check_file_ext(os.path.splitext(in_path)[0] + '_regions', '.pdf')
     else:
       out_path = io.check_file_ext(in_path, '.pdf')
-   
+  
+  if bed_paths:
+    bed_labels = io.check_file_labels(bed_labels, bed_paths)
+
+  if wig_paths:
+    wig_labels = io.check_file_labels(wig_labels, wig_paths)
+    
   if screen_gfx:
     util.info('Displaying contact map for {}'.format(in_msg))
   else:
@@ -1351,7 +1680,43 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
       ret = get_contact_lists_matrix(contacts2, bin_size, chromos, chromo_limits)
       count_list2, full_matrix2, ambig_matrix2, label_pos2, offsets2, trans_counts2, ambig_groups2 = ret
       n_cont2, n_cis2, n_trans2, n_homolog2, n_ambig2, n_isol2 = count_list2
-
+  
+  data_track_dicts = {}
+  
+  if gff_path:
+    gff_data_dicts = gff.load_data_track(gff_path, gff_feats)
+    
+    if gff_feats:
+      for ft in gff_feats:
+        if ft not in gff_data_dicts:
+          util.warn('GFF feature type "%s" not found in GFF file' % ft)
+    
+    gff_chromos = set()
+    chr2 = set()
+    for ft, data_dict in gff_data_dicts.items():
+      gff_chromos.update(data_dict.keys())
+    
+    if set(gff_chromos) & set(chromos):
+      data_track_dicts.update(gff_data_dicts)
+    else:
+      util.warn('GFF chromosome names do not correspond to any contact data chromosomes')
+        
+  for i, bed_path in enumerate(bed_paths):
+    data_dict = bed.load_data_track(bed_path)
+       
+    if set(data_dict) & set(chromos):
+      data_track_dicts[bed_labels[i]] = data_dict
+    else:
+      util.warn('BED file chromosome names do not correspond to any contact data chromosomes')
+    
+  for i, wig_path in enumerate(wig_paths):
+    data_dict = wig.load_data_track(wig_path)
+       
+    if set(data_dict) & set(chromos):
+      data_track_dicts[wig_labels[i]] = data_dict
+    else:
+      util.warn('Wiggle file chromosome names do not correspond to any contact data chromosomes')
+  
   if use_corr:
     has_neg = True
     full_matrix = get_corr_mat(full_matrix)
@@ -1427,8 +1792,17 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
       limits = chromo_limits[chr_a]
       
       for region in region_dict[chr_a]:
+        data_tracks = []
         s, e = region
         
+        if data_track_dicts:
+          for ft in data_track_dicts:
+            if chr_a in data_track_dicts[ft]:
+              track = data_track_dicts[ft][chr_a]
+              in_region = (track['pos1'] < e) & (track['pos1'] > s) | (track['pos2'] < e) & (track['pos2'] > s)
+              track = track[in_region]
+              data_tracks.append((ft, track))
+              
         if file_bin_size:
           matrix = get_region_array_matrix(contacts[pair], limits, region,
                                            file_bin_size, bin_size2)
@@ -1441,7 +1815,6 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
         cn_cont = int(matrix.sum()) / 2
  
         if use_corr:
-
           matrix = get_corr_mat(matrix)
  
           if contacts2:
@@ -1508,7 +1881,8 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
         double_diag = contacts2 and diag_width
  
         plot_contact_matrix(matrix, bin_size2, title, scale_label, None, pair,
-                            chromo_grid, stats_text, colors, bad_color, log=use_log, pdf=pdf,
+                            chromo_grid, stats_text, colors, bad_color,
+                            x_data_tracks=data_tracks, y_data_tracks=data_tracks, log=use_log, pdf=pdf,
                             v_max=cv_max, v_min=cv_min, ambig_matrix=ambig_matrix, diag_width=dw,
                             double_diag=double_diag, x_start=s, y_start=s)
   
@@ -1557,48 +1931,49 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
           extra = ' homolog:{:,d} ({:.1f}%)'
           stats_text += extra.format(n_homolog, f_homolog)
  
+    
+    if len(chromos) > 1:
+      if in_path2:
+        title = os.path.basename(in_path2) + '\\' + os.path.basename(in_path)
+      else:
+        title = os.path.basename(in_path)
  
-    if in_path2:
-      title = os.path.basename(in_path2) + '\\' + os.path.basename(in_path)
-    else:
-      title = os.path.basename(in_path)
+      grid = [offsets[c][1] for c in chromos[1:]]
+      scale_label = '%s (%.2f Mb bins)' % (metric, bin_size/1e6)
+      extra_texts = []
  
-    grid = [offsets[c][1] for c in chromos[1:]]
-    scale_label = '%s (%.2f Mb bins)' % (metric, bin_size/1e6)
-    extra_texts = []
+      if n_isol is not None:
+        isol_frac = 100.0 * n_isol / float(n_cont or 1)
  
-    if n_isol is not None:
-      isol_frac = 100.0 * n_isol / float(n_cont or 1)
+        if contacts2:
+          isol_frac2 = 100.0 * n_isol2 / float(n_cont2 or 1)
+          extra_texts.append('Isolated:{:.2f}%\{:.2f}%'.format(isol_frac, isol_frac2))
+        else:
+          extra_texts.append('Isolated:{:.2f}%'.format(isol_frac))
+ 
+      if trans_counts:
+        trans_dev, ploidy = _get_trans_dev(trans_counts)
+ 
+        if contacts2:
+          trans_dev2, ploidy2 = _get_trans_dev(trans_counts2)
+          txt = 'Ploidy score:{:.2f}\{:.2f} ({}\{})'
+          extra_texts.append(txt.format(trans_dev, trans_dev2, ploidy, ploidy2))
+        else:
+          txt = 'Ploidy score:{:.2f} ({})'
+          extra_texts.append(txt.format(trans_dev, ploidy))
  
       if contacts2:
-        isol_frac2 = 100.0 * n_isol2 / float(n_cont2 or 1)
-        extra_texts.append('Isolated:{:.2f}%\{:.2f}%'.format(isol_frac, isol_frac2))
+        txt = 'Mito score:{:.2f}\{:.2f} ({}\{})'
+        extra_texts.append(txt.format(mito_frac, mito_frac2, mito_cat, mito_cat2))
       else:
-        extra_texts.append('Isolated:{:.2f}%'.format(isol_frac))
+        txt = 'Mito score:{:.2f} ({})'
+        extra_texts.append(txt.format(mito_frac, mito_cat))
  
-    if trans_counts:
-      trans_dev, ploidy = _get_trans_dev(trans_counts)
+      stats_text += '\n' + ' ; '.join(extra_texts)
  
-      if contacts2:
-        trans_dev2, ploidy2 = _get_trans_dev(trans_counts2)
-        txt = 'Ploidy score:{:.2f}\{:.2f} ({}\{})'
-        extra_texts.append(txt.format(trans_dev, trans_dev2, ploidy, ploidy2))
-      else:
-        txt = 'Ploidy score:{:.2f} ({})'
-        extra_texts.append(txt.format(trans_dev, ploidy))
- 
-    if contacts2:
-      txt = 'Mito score:{:.2f}\{:.2f} ({}\{})'
-      extra_texts.append(txt.format(mito_frac, mito_frac2, mito_cat, mito_cat2))
-    else:
-      txt = 'Mito score:{:.2f} ({})'
-      extra_texts.append(txt.format(mito_frac, mito_cat))
- 
-    stats_text += '\n' + ' ; '.join(extra_texts)
- 
-    plot_contact_matrix(full_matrix, bin_size, title, scale_label, zip(label_pos, chromo_labels),
-                        None, grid, stats_text, colors, bad_color, log=use_log, pdf=pdf,
-                        v_max=v_max, v_min=v_min, ambig_matrix=ambig_matrix)
+      plot_contact_matrix(full_matrix, bin_size, title, scale_label, zip(label_pos, chromo_labels),
+                          None, grid, stats_text, colors, bad_color, log=use_log, pdf=pdf,
+                          v_max=v_max, v_min=v_min, ambig_matrix=ambig_matrix)
  
     if separate_cis or separate_trans:
       pairs = []
@@ -1742,11 +2117,23 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
           stats_text = 'Contacts:{:,d}'.format(cn_cont)
  
         double_diag = is_cis and contacts2 and diag_width
+
+        x_data_tracks = []
+        y_data_tracks = []
+        
+        if data_track_dicts:
+          for ft in data_track_dicts:
+            if chr_a in data_track_dicts[ft]:
+              x_data_tracks.append((ft, data_track_dicts[ft][chr_a]))
+
+            if chr_b in data_track_dicts[ft]:
+              y_data_tracks.append((ft, data_track_dicts[ft][chr_b]))
  
         plot_contact_matrix(matrix, pair_bin_size, title, scale_label, None, pair,
-                            chromo_grid, stats_text, colors, bad_color, log=use_log, pdf=pdf,
-                            v_max=cv_max, v_min=cv_min, ambig_matrix=ambig_matrix, diag_width=dw,
-                            double_diag=double_diag)
+                            chromo_grid, stats_text, colors, bad_color,
+                            x_data_tracks=x_data_tracks, y_data_tracks=y_data_tracks,
+                            log=use_log, pdf=pdf, v_max=cv_max, v_min=cv_min,
+                            ambig_matrix=ambig_matrix, diag_width=dw, double_diag=double_diag)
                         
   if pdf:
     pdf.close()
@@ -1779,6 +2166,25 @@ def main(argv=None):
                          help='Optional selection of chromsome names to generate contact maps for. ' \
                               'Otherwise all chromosomes/contigs above the minimum size (see -m options) are used')
 
+  arg_parse.add_argument('-bed', '--bed-data-track', metavar='BED_FILE', nargs='*', default=None, dest="bed",
+                         help='Optional BED format (inc. broadPeak/narrowPeak) files for displaying ancilliary data along single-chromosome axes. Wildcards accepted.')
+
+  arg_parse.add_argument('-lbed', '--bed-data-label', metavar='BED_FILE', nargs='*', default=None, dest="lbed",
+                         help='Optional textual labels/names for the sBED format data tracks.')
+  
+  arg_parse.add_argument('-wig', '--wig-data-track', metavar='DATA_LABEL', nargs='*', default=None, dest="wig",
+                         help='Optional Wiggle format (variable of fixed step) files for displaying ancilliary data along single-chromosome axes. Wildcards accepted.')
+
+  arg_parse.add_argument('-lwig', '--wig-data-label', metavar='DATA_LABEL', nargs='*', default=None, dest="lwig",
+                         help='Optional textual labels/names for the Wiggle format data tracks.')
+
+  arg_parse.add_argument('-gff', '--gff-data-track', metavar='GENOME_FEATURE_FILE', default=None, dest="gff",
+                         help='Optional genome feature file (GFF/GTF format) for displaying gene locations etc. along single-chromosome axes. ' \
+                              'Displays all "gene" features in the file unless the -gfff option is used.')
+
+  arg_parse.add_argument('-gfff', '-gff-feature', default=None, nargs='*', metavar='GFF_FEATURE_NAME', dest="gfff",
+                         help='One or more feture types to display from input GFF/GTF format data track. Default: "gene"')
+  
   arg_parse.add_argument('-sc', '--single-cell', default=False, action='store_true', dest="sc",
                          help='Specifies that the input data is from single-cell Hi-C')
 
@@ -1814,7 +2220,7 @@ def main(argv=None):
                          help='The minimum chromosome/contig sequence length in Megabases for inclusion. ' \
                               'Default is {}%% of the largest chromosome/contig length.'.format(DEFAULT_SMALLEST_CONTIG*100))
 
-  arg_parse.add_argument('-b', '--black-bg',default=False, action='store_true', dest="b",
+  arg_parse.add_argument('-bbg' '--black-bg',default=False, action='store_true', dest="bbg",
                          help='Specifies that the contact map should have a black background (default is white).')
 
   arg_parse.add_argument('-corr', default=False, action='store_true', dest="corr",
@@ -1840,7 +2246,7 @@ def main(argv=None):
                               'or colormap (scheme) name, as used by matplotlib. ' \
                               'Note: #RGB style hex colours must be quoted e.g. "#FF0000,#0000FF" ' \
                               'See: %s This option overrides -b.' % COLORMAP_URL)
-                         
+
   args = vars(arg_parse.parse_args(argv))
 
   in_paths = args['i']
@@ -1850,7 +2256,7 @@ def main(argv=None):
   bin_size2 = args['s2']
   bin_size3 = args['s3']
   min_contig_size = args['m']
-  black_bg = args['b']
+  black_bg = args['bbg']
   no_sep_cis = args['nc']
   sep_trans = args['t']
   chromos = args['chr']
@@ -1861,6 +2267,12 @@ def main(argv=None):
   diag_width = args['diag']
   cmap = args['colors']
   regions = args['r']
+  bed_paths = args['bed'] or []
+  wig_paths = args['wig'] or []
+  bed_labels = args['lbed'] or []
+  wig_labels = args['lwig'] or []
+  gff_path = args['gff'] 
+  gff_feats = args['gfff']
   
   if not in_paths:
     arg_parse.print_help()
@@ -1877,9 +2289,35 @@ def main(argv=None):
     util.warn('Correlation plot option "-corr" cannot be used with normalization option "-norm". The latter will be ignored')
     use_norm = False
   
+  if gff_feats and not gff_path:
+    util.warn('GFF feature type has been specified but no input GFF file')
+    gff_feats = None
+  
+  check_paths = []
+  if gff_path:
+    check_paths.append(gff_path)
+    
+    if not gff_feats:
+      from formats import gff
+      feature_counts = gff.get_feature_count(gff_path)
+      fc = [(feature_counts[f], f) for f in feature_counts]
+      fc.sort(reverse=True)
+      
+      if 'gene' in feature_counts:
+        gff_feats = ('gene',)
+      else:
+        gff_feats = fc[0][1]
+     
+      util.info('GFF file feature selection defaulting to "{}"'.format(gff_feats[0]))
+      
+      fc = ['{}:{:,}'.format(f, c) for c, f in fc]
+      util.info('Available GFF features:counts {}'.format(' '.join(fc)))
+  
+  check_paths += in_paths     
+  check_paths += bed_paths     
+  check_paths += wig_paths     
   for in_path in in_paths:
-    if not os.path.exists(in_path):
-      util.critical('Input contact file could not be found at "{}"'.format(in_path))
+    io.check_invalid_file(in_path)
   
   if cmap:
     cmap = util.string_to_colormap(cmap)
@@ -1914,11 +2352,27 @@ def main(argv=None):
   contact_map(in_paths, out_path, bin_size, bin_size2, bin_size3,
               no_sep_cis, sep_trans, chromos, region_dict,
               use_corr, use_norm, is_single, screen_gfx, black_bg,
-              min_contig_size, chromo_grid, diag_width, cmap=cmap)
+              min_contig_size, chromo_grid, diag_width, 
+              bed_paths, bed_labels, wig_paths, wig_labels,
+              gff_path, gff_feats, cmap=cmap)
 
 
 if __name__ == "__main__":
   sys.path.append(os.path.dirname(os.path.dirname(__file__)))
   main()
 
+
+"""
+To-do
+
+auto log-normalize
++/- strand kept together on tracks
+
+Later
+
+* NPZ
+* VCF?
+* BAM/SAM
+
+"""
   

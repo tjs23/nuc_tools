@@ -43,7 +43,7 @@ def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=int, n_max=N
          
       chromosomes.add(chr_a)
       chromosomes.add(chr_b)
-      contact_dict[key].append((pos_a, pos_b, num_obs, int(ambig_group)))
+      contact_dict[key].append((pos_a, pos_b, num_obs, int(pair_id)))
       n += 1
 
   if n_max and (n > n_max):

@@ -271,8 +271,9 @@ def get_pde(dens_mat, chromo_limits, anchor_bed_path, density_bed_path,
   data_values = np.concatenate(data_values, axis=0)
   anch_idx = np.concatenate(anch_idx, axis=0)
   data_idx = np.concatenate(data_idx, axis=0)
+  
   #shuff_data_values = data_values[:]
-  np.random.shuffle(shuff_data_values)
+  #np.random.shuffle(shuff_data_values)
 
   dens_dict = {}
   if null_regions:
@@ -1274,6 +1275,6 @@ MD5sum caching
 
 ./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[23]_100kb_x10.n3d -s /home/tjs23/gh/nuc_tools/n3d/Cell[14]_100kb_x10.n3d -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/Oct4_GEO.bed /data/bed/p300_GEO.bed /data/bed/H3K36me3_hap_EDL.bed -l H3K4me3 H3K27me3 H3K9me3 Oct4 p300 H3K36me3 -cache sdd_temp
 
-./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools/n3d/Cell[2358]_100kb_x10.n3d -s /home/tjs23/gh/nuc_tools/n3d/Cell[1467]_100kb_x10.n3d -null /data/bed/A_comp.bed -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/H3K27ac_GEO.bed -l H3K4me3 H3K27me3 H3K9me3 H3K27ac
+./nuc_tools structure_data_density /home/tjs23/gh/nuc_tools_bak/n3d/Cell[2358]_100kb_x10.n3d -s /home/tjs23/gh/nuc_tools_bak/n3d/Cell[1467]_100kb_x10.n3d -null /data/bed/A_comp.bed -d /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/H3K27ac_GEO.bed -l H3K4me3 H3K27me3 H3K9me3 H3K27ac -o /home/tjs23/Desktop/test_sdd.pdf
 
 """

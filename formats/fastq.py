@@ -12,7 +12,7 @@ FASTQ_READ_CHUNK = 1048576
 
 def check_format(file_path):
   
-  file_obj = nuc_io.open_file(file_path)
+  file_obj = nuc_io.open_file(file_path, partial=True)
     
   lines = file_obj.readlines(FASTQ_READ_CHUNK)
   lines = [l for l in lines if l.rstrip()]

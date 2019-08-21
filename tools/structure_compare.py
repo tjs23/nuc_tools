@@ -305,16 +305,9 @@ def structure_compare(struc_paths1, struc_labels1, struc_paths2, struc_labels2,
   if out_pdf_path:
     out_path = io.check_file_ext(out_pdf_path, '.pdf')
   
-  else:    
-    dir_path = dirname(struc_paths[0])
-    
-    job = 1
-    while glob(os.path.join(dir_path, DEFAULT_PDF_OUT.format(job, '*', '*'))):
-      job += 1
-    
-    file_name = DEFAULT_PDF_OUT.format(job, n_structs)
-    out_pdf_path = os.path.join(dir_path, file_name)    
-  
+  else:
+    out_path = io.get_out_job_file_path(struc_paths[0], DEFAULT_PDF_OUT, [n_structs])  
+   
   struc_labels1 = check_file_labels(struc_paths1, struc_labels1)
   struc_labels2 = check_file_labels(struc_paths2, struc_labels2)
   struc_labels = struc_labels1 + struc_labels2
@@ -448,7 +441,7 @@ if __name__ == "__main__":
 
 """
 /data/hi-c/calc_25k/n3d_25/SLX-15484_INLINE_HTFK2BBXX_s_8_r_1_2_P64E5_25k.n3d
-./nuc_tools structure_compare /home/tjs23/gh/nuc_tools_bak/n3d/Cell*_100kb_x10.n3d -o test_sc.pdf
+./nuc_tools structure_compare /home/tjs23/gh/nuc_tools_bak/n3d/Cell*_100kb_x10.n3d -o /home/tjs23/Desktop/test_struc_comp.pdf
 
 """
 

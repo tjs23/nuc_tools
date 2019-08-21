@@ -122,9 +122,8 @@ def clip_reads(in_fastq_file, out_fastq_file, qual_scheme, min_qual=DEFAULT_MIN_
       if n < min_len: # Check size
         n_short += 1
 
-      else:
-        mean_len += n
-        write('%s%s\n%s%s\n' % (line1, line2, line3, line4))
+      mean_len += n
+      write('%s%s\n%s%s\n' % (line1, line2, line3, line4))
  
       #if max_reads_in and n_reads >= max_reads_in:
       #  break
@@ -426,9 +425,14 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
     broad_name = sample_name + '_b'
     narrow_name = sample_name + '_n'
     
+    if nfq == 2:
+      fmt = 'BAMPE'
+    else:
+      fmt = 'BAM'
+    
     common_args = [macs2_exe, 'callpeak',
                    '-t', clean_bam_file_path,
-                   '-f', 'BAM',
+                   '-f', fmt,
                    '-g', 'mm']
                    #'-g', genome_size] # TBD: what was this about?
                    
@@ -576,13 +580,13 @@ def main(argv=None):
                          help='Adapter sequences to truncate reads at (or blank for none). E.g. %s. ' \
                          'Default: %s (%s)' % (ad_prests, ADAPTER_SEQS[DEFAULT_ADAPTER], DEFAULT_ADAPTER))                         
   
-  parser, unknown = arg_parse.parse_known_args()
+  parsed, unknown = arg_parse.parse_known_args()
   
   for arg in unknown:
     if arg.startswith('-f') and arg[2:].isdigit():
-      parser.add_argument(arg, nargs='+', metavar='FASTQ_FILES')
+      arg_parse.add_argument(arg, nargs='+', metavar='FASTQ_FILES')
     elif arg.startswith('-s') and arg[2:].isdigit():
-      parser.add_argument(arg, nargs=1, metavar='NAME')
+      arg_parse.add_argument(arg, nargs=1, metavar='NAME')
   
   args = vars(arg_parse.parse_args(argv))
   

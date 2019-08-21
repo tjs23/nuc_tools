@@ -1,7 +1,8 @@
 import numpy as np
 
 from collections import defaultdict
-from core.nuc_io import open_file, DATA_TRACK_TYPE
+from core.nuc_io import open_file
+from core.nuc_util import finalise_data_track
 
 def get_feature_count(file_path):
 
@@ -26,7 +27,7 @@ def load_data_track(file_path, features=None):
   data_dicts = {}
   chromo_map = {}
   
-  with open_file(file_path) as file_obj:
+  with open_file(file_path, partial=True) as file_obj:
   
     for line in file_obj:
       if line[0] == '#':
@@ -48,8 +49,8 @@ def load_data_track(file_path, features=None):
           sep1 = None
  
         break
- 
-    file_obj.seek(0)
+
+  with open_file(file_path) as file_obj:
     
     for line in file_obj:
       if line[0] == '#':
@@ -62,7 +63,13 @@ def load_data_track(file_path, features=None):
         continue
  
       chromo, source, feat, start, end, score, strand, frame = data[:8]
- 
+      
+      if feat == 'region':
+        attribs = [x for x in data[8].split(sep1) if x]
+        ddict = dict([a.split(sep2) for a in attribs])
+        if 'chromosome' in ddict:
+          chromo_map[chromo] = ddict['chromosome']
+      
       if features and (feat not in features):
         continue
       
@@ -73,9 +80,6 @@ def load_data_track(file_path, features=None):
         attribs = [x for x in data[8].split(sep1) if x]
         ddict = dict([a.split(sep2) for a in attribs])
         label = ddict.get('Name', feat)
-        
-        if 'chromosome' in ddict:
-          chromo_map[chromo] = ddict['chromosome']
           
       else:
         label = feat
@@ -88,17 +92,20 @@ def load_data_track(file_path, features=None):
         val = score/1000.0
  
       strand = 0 if strand == '-' else 1
-      data_dicts[feat][chromo].add((start, end, strand, score, val, label[:32]))
+      data_dicts[feat][chromo].add((int(start), int(end), strand, score, val, label[:32]))
   
   for feat, data_dict in data_dicts.items():
-    for chromo in data_dict:
-      # Enforce sorted by start pos : using set removes duplicates
-      data_dict[chromo] = np.array(sorted(data_dict[chromo]), dtype=DATA_TRACK_TYPE)
-      
+    for chromo in sorted(data_dict):
       if chromo in chromo_map:
-        data_dict[chromo_map[chromo]] = data_dict[chromo]
+        chrom_name = 'chr' + chromo_map[chromo]
+        
+        if chrom_name not in data_dict:
+          data_dict[chrom_name] = set()
+        
+        data_dict[chrom_name] |= data_dict[chromo]
       
-    data_dicts[feat] = dict(data_dict)
-   
+  for feat, data_dict in data_dicts.items():
+    data_dicts[feat] = finalise_data_track(data_dict)
+     
   return data_dicts
   

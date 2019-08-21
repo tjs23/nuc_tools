@@ -1,7 +1,8 @@
 import numpy as np
-from collections import defaultdict
 
-from core.nuc_io import open_file, DATA_TRACK_TYPE
+from collections import defaultdict
+from core.nuc_io import open_file
+from core.nuc_util import finalise_data_track
 
 def load_data_track(file_path):
   """
@@ -25,7 +26,6 @@ def load_data_track(file_path):
     have_anno = n_fields > 3
     have_val = n_fields > 4
     have_strand = n_fields > 5
-    break
       
   with open_file(file_path) as file_obj:
     file_obj.seek(file_pos)
@@ -54,12 +54,9 @@ def load_data_track(file_path):
       else:
         strand = 1
             
-      data_dict[chromo].add(((start, end, strand, value, value, label))
+      data_dict[chromo].add((start, end, strand, value, value, label))
 
-  for chromo in data_dict:
-    data_dict[chromo] = np.array(sorted(data_dict[chromo]), dtype=DATA_TRACK_TYPE)
-    
-  return dict(data_dict)
+  return finalise_data_track(data_dict)
   
 
 

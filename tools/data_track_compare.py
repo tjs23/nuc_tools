@@ -724,28 +724,10 @@ def data_track_compare(ref_data_paths, comp_data_paths, ref_labels, comp_labels,
   
   from nuc_tools import io, util
   
-  if ref_labels:
-    for i, label in enumerate(ref_labels):
-      ref_labels[i] = label.replace('_',' ')
-      
-    while len(ref_labels) < len(ref_data_paths):
-      i = len(ref_labels)
-      ref_labels.append(io.get_file_root(ref_data_paths[i]))
-      
-  else:
-    ref_labels = [io.get_file_root(x) for x in ref_data_paths]
+  io.check_file_labels(ref_labels, ref_data_paths)
   
   if comp_data_paths:
-    if comp_labels:
-      for i, label in enumerate(comp_labels):
-        comp_labels[i] = label.replace('_',' ')
- 
-      while len(comp_labels) < len(comp_data_paths):
-        i = len(comp_labels)
-        comp_labels.append(io.get_file_root(comp_data_paths[i]))
- 
-    else:
-      comp_labels = [io.get_file_root(x) for x in comp_data_paths]
+    io.check_file_labels(comp_labels, comp_data_paths)
   
   else:
     comp_data_paths = ref_data_paths
@@ -754,16 +736,9 @@ def data_track_compare(ref_data_paths, comp_data_paths, ref_labels, comp_labels,
   if out_pdf_path:
     out_pdf_path = io.check_file_ext(out_pdf_path, '.pdf')
   
-  else:    
-    dir_path = dirname(ref_data_paths[0])
-    
-    job = 1
-    while glob(os.path.join(dir_path, DEFAULT_PDF_OUT.format(job, '*', '*'))):
-      job += 1
-    
-    file_name = DEFAULT_PDF_OUT.format(job, len(ref_data_paths), len(comp_data_paths))
-    out_pdf_path = os.path.join(dir_path, file_name)  
-
+  else:
+    out_pdf_path = io.get_out_job_file_path(ref_data_paths[0], DEFAULT_PDF_OUT, (len(ref_data_paths), len(comp_data_paths)))
+  
   if screen_gfx:
     pdf = None
   else:
@@ -883,6 +858,6 @@ Plot for optimal bin size
    + log scale for dynamic range
  
 ./nuc_tools data_track_compare /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed -o test.pdf -d2 /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K27ac_GEO.bed /data/bed/H3K36me3_hap_EDL.bed /data/bed/CTCF_hap_EDL.bed /data/bed/Smc3_hap_EDL.bed -l H3K4me3 H3K9me3 -l2 H3K27me3 H3K27ac H3K36me3 CTCF Smc3
-./nuc_tools data_track_compare /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K27ac_GEO.bed /data/bed/H3K36me3_hap_EDL.bed /data/bed/CTCF_hap_EDL.bed /data/bed/Smc3_hap_EDL.bed -o test.pdf -l H3K4me3 H3K9me3 H3K27me3 H3K27ac H3K36me3 CTCF Smc3
+./nuc_tools data_track_compare /data/bed/H3K4me3_hap_EDL.bed /data/bed/H3K9me3_hap_EDL.bed /data/bed/H3K27me3_hap_EDL.bed /data/bed/H3K27ac_GEO.bed /data/bed/H3K36me3_hap_EDL.bed /data/bed/CTCF_hap_EDL.bed /data/bed/Smc3_hap_EDL.bed -o /home/tjs23/Desktop/test_dt_comp.pdf -l H3K4me3 H3K9me3 H3K27me3 H3K27ac H3K36me3 CTCF Smc3
 """
 

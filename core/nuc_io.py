@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import numpy as np
+import glob
 
 from io import BufferedReader, BufferedWriter
 
@@ -13,8 +14,6 @@ import core.nuc_util as util
 
 FILENAME_SPLIT   = re.compile('[_\.]')
 FILE_BUFFER_SIZE = 2**16
-
-DATA_TRACK_TYPE = np.dtype([('pos1', 'uint32'), ('pos2', 'uint32'), ('strand', 'bool'), ('value', 'float32'), ('orig_value', 'float32'), ('label', 'S32')])
 
 # #   Path naming  # #
 
@@ -42,6 +41,18 @@ def tag_file_name(file_path, tag, file_ext=None):
 
   return file_path 
    
+
+def tag_file_path(file_path, new_ending):
+  
+  file_root, file_ext = os.path.splitext(file_path)
+
+  if file_ext.lower() in ('.gz','.gzip'):
+    file_root, file_ext = os.path.splitext(file_root)
+      
+  new_file_path = '%s_%s' % (file_root, new_ending)
+  
+  return new_file_path 
+
    
 def get_file_ext(file_path):
   
@@ -75,6 +86,22 @@ def get_safe_file_path(path_name, file_name=None):
   
   return file_path
 
+
+def get_out_job_file_path(ref_file_path, format_str, insert_vals):
+   
+  dir_path = dirname(ref_data_path)
+  globs = ['*'] + len(insert_vals)
+  
+  job_num = 1
+  while glob.glob(os.path.join(dir_path, format_str.format(job, *globs))):
+    job_num += 1
+  
+  file_name = format_str.format(job_num, *insert_vals)
+  
+  out_path = os.path.join(dir_path, file_name)  
+  
+  return
+  
 
 def check_file_ext(file_path, ext):
   
@@ -144,6 +171,25 @@ def merge_file_names(file_path1, file_path2, sep='_', prefix='', suffix=''):
   
   return file_path3
  
+
+def check_file_labels(file_labels, file_paths):
+  
+  file_names = [os.path.basename(x) for x in file_paths]
+  
+  if file_labels:
+ 
+    while len(file_labels) < len(file_names):
+      i = len(file_labels)
+      file_labels.append(get_file_root(file_names[i]))
+ 
+  else:
+    file_labels = [get_file_root(x) for x in file_names]
+    
+  for i, label in enumerate(file_labels):
+    file_labels[i] = file_labels[i].replace('_',' ')
+  
+  return file_labels
+  
 
 # #   Path operations  # # 
 
