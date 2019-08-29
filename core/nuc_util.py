@@ -11,7 +11,8 @@ TEMP_ID          = '%s' % uuid.uuid4()
 LOG_FILE_PATH    = 'nuc-tools-out-%s.log' % TEMP_ID
 LOG_FILE_OBJ     = None # Created when needed
 
-DATA_TRACK_TYPE = np.dtype([('pos1', 'uint32'), ('pos2', 'uint32'), ('strand', 'bool'), ('value', 'float32'), ('orig_value', 'float32'), ('label', 'S32')])
+DATA_TRACK_TYPE = np.dtype([('pos1', 'uint32'), ('pos2', 'uint32'), ('strand', 'bool'),
+                           ('value', 'float32'), ('orig_value', 'float32'), ('label', 'S32')])
 
 import core.nuc_parallel as parallel
 

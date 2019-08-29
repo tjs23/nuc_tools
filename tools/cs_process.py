@@ -284,11 +284,11 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
   if not num_cpu:
     num_cpu = parallel.MAX_CORES
   
-  common_args = [align_exe, '-D', '20', '-R', '3', '-N', '0',  '-L', '20',  '-i', 'S,1,0.5', # similar to very-sensitive
-                 '-x', genome_index, # '-k', '2',
-                 '--reorder', # '--score-min', 'L,-0.6,-0.6',
-                 '-p', str(num_cpu),
-                 '-X', str(max_sep)]  
+  map_args = [align_exe, '-D', '20', '-R', '3', '-N', '0',  '-L', '20',  '-i', 'S,1,0.5', # similar to very-sensitive
+              '-x', genome_index, # '-k', '2',
+              '--reorder', # '--score-min', 'L,-0.6,-0.6',
+              '-p', str(num_cpu),
+              '-X', str(max_sep)]  
   
   if control_fastq_paths:
     path_root = os.path.join(out_dir, control_name)
@@ -309,7 +309,7 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
     
       util.info('Mapping control paired-end FASTQ reads to genome index %s' % genome_index)
       
-      cmd_args = common_args + ['-1', control_fastq_1, '-2', control_fastq_2, '-S', control_sam_path]
+      cmd_args = map_args + ['-1', control_fastq_1, '-2', control_fastq_2, '-S', control_sam_path]
       f_flag = '3' 
     else:
       fastq_1 = control_fastq_paths[0]
@@ -320,7 +320,7 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
       
       util.info('Mapping control single-end FASTQ reads to genome index %s' % genome_index)
       
-      cmd_args = common_args + ['-U', control_fastq_1, '-S', control_sam_path]
+      cmd_args = map_args + ['-U', control_fastq_1, '-S', control_sam_path]
       #f_flag = '2'
       f_flag = None
       
@@ -351,137 +351,142 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
     if not 0 < nfq < 3:
       util.critical('One or two FASTQ files must be specified for group %d. Found: %d' % (g, nfq))
     
-    # extract gzipped and clip FASTQ
-    clip_fastq_paths = []
-    for i, in_fq in enumerate(fastq_paths):
-      
-      clip_fastq_path = io.tag_file_name(path_root, 'clip_%d' % (i+1), '.fastq')
-      clip_fastq_paths.append(clip_fastq_path)
-      clip_reads(in_fq, clip_fastq_path, qual_scheme, min_qual, adapt_seqs)
-
-    sam_file_path_temp  = io.tag_file_name(path_root, util.TEMP_ID, '.sam')
-    bam_file_path_temp  = io.tag_file_name(path_root, util.TEMP_ID, '.bam')
     clean_bam_file_path = io.tag_file_name(path_root, 'clean', '.bam')
     
-    if nfq == 2:
-      util.info('Mapping ChIP paired-end FASTQ reads to genome index %s' % genome_index)
-      cmd_args = common_args + ['-1', clip_fastq_paths[0], '-2', clip_fastq_paths[1], '-S', sam_file_path_temp]
-      f_flag = '3' # Extra paired check in samtools filtering
-    
-    else:
-      util.info('Mapping ChIP single-end FASTQ reads to genome index %s' % genome_index)
-      cmd_args = common_args + ['-U', clip_fastq_paths[0], '-S', sam_file_path_temp]
-      #f_flag = '2'
-      f_flag = None
-  
-    cmd_args.append(BOWTIE2_QUAL_SCHEMES[qual_scheme])
-    util.call(cmd_args)
-    
-    util.info("Converting SAM file output into sorted BAM")
-  
-    cmd_args = [samtools_exe, 'sort', # '-O', 'bam', # option only avail in newer samtools
-                '-o', bam_file_path_temp,  sam_file_path_temp]
-    util.call(cmd_args)
-    
-    os.unlink(sam_file_path_temp)
-    
-    util.info('Removing unmapped and low quality read alignments')
+    if not os.path.exists(clean_bam_file_path):
+      sam_file_path_temp  = io.tag_file_name(path_root, util.TEMP_ID, '.sam')
+      bam_file_path_temp  = io.tag_file_name(path_root, util.TEMP_ID, '.bam')
+      
+      # extract gzipped and clip FASTQ
+      clip_fastq_paths = []
+      for i, in_fq in enumerate(fastq_paths):
+        clip_fastq_path = io.tag_file_name(path_root, 'clip_%d' % (i+1), '.fastq')
+        clip_fastq_paths.append(clip_fastq_path)
+        clip_reads(in_fq, clip_fastq_path, qual_scheme, min_qual, adapt_seqs)
+
  
-    # -f : must have these bits ; 2 = properly aligned, accounting for any pairs, 1 = part of a read pair
-    # -F : must not have these bits ; 4 = unmapped
-    # -q : quality
+      if nfq == 2:
+        util.info('Mapping ChIP paired-end FASTQ reads to genome index %s' % genome_index)
+        cmd_args = map_args + ['-1', clip_fastq_paths[0], '-2', clip_fastq_paths[1], '-S', sam_file_path_temp]
+        f_flag = '3' # Extra paired check in samtools filtering
  
-    #cmd_args = [samtools_exe,'view','-b','-f',f_flag,'-F','4','-q','30', bam_file_path_temp]
-    cmd_args = [samtools_exe,'view','-b', '-F','4','-q','30']
-    if f_flag:
-      cmd_args.extend(['-f', f_flag])
-    cmd_args.append(bam_file_path_temp)
-    
-    with open(clean_bam_file_path, 'wb') as file_obj:
-      util.call(cmd_args, stdout=file_obj)
-   
-    os.unlink(bam_file_path_temp)
-    
-    util.info('Indexing BAM file')
-   
-    cmd_args = [samtools_exe, 'index', clean_bam_file_path]
-    util.call(cmd_args)
+      else:
+        util.info('Mapping ChIP single-end FASTQ reads to genome index %s' % genome_index)
+        cmd_args = map_args + ['-U', clip_fastq_paths[0], '-S', sam_file_path_temp]
+        #f_flag = '2'
+        f_flag = None
+ 
+      cmd_args.append(BOWTIE2_QUAL_SCHEMES[qual_scheme])
+      util.call(cmd_args)
+ 
+      util.info("Converting SAM file output into sorted BAM")
+ 
+      cmd_args = [samtools_exe, 'sort', # '-O', 'bam', # option only avail in newer samtools
+                  '-o', bam_file_path_temp,  sam_file_path_temp]
+      util.call(cmd_args)
+ 
+      os.unlink(sam_file_path_temp)
+ 
+      util.info('Removing unmapped and low quality read alignments')
+ 
+      # -f : must have these bits ; 2 = properly aligned, accounting for any pairs, 1 = part of a read pair
+      # -F : must not have these bits ; 4 = unmapped
+      # -q : quality
+ 
+      #cmd_args = [samtools_exe,'view','-b','-f',f_flag,'-F','4','-q','30', bam_file_path_temp]
+      cmd_args = [samtools_exe,'view','-b', '-F','4','-q','30']
+      if f_flag:
+        cmd_args.extend(['-f', f_flag])
+      cmd_args.append(bam_file_path_temp)
+ 
+      with open(clean_bam_file_path, 'wb') as file_obj:
+        util.call(cmd_args, stdout=file_obj)
+ 
+      os.unlink(bam_file_path_temp)
+ 
+      util.info('Indexing BAM file')
+ 
+      cmd_args = [samtools_exe, 'index', clean_bam_file_path]
+      util.call(cmd_args)
     
     from formats import sam
     chromo_sizes = formats.sam.get_bam_chromo_sizes(clean_bam_file_path)
     
     contigs, sizes = zip(*chromo_sizes)
     
-    genome_size = str(sizes)
+    genome_size = '%.2e' % sum(sizes)
     
     # MACS2
     
-    # TBD: idx is not set, what should it be??
-    #peak_out_dir = os.path.join(os.path.dirname(fastq_1), 'macs2_peaks_%d_%s' % (idx, util.TEMP_ID))    
-    #peak_out_dir = os.path.join(os.path.dirname(fastq_1), 'macs2_peaks_%s' % util.TEMP_ID)
-    peak_out_dir = os.path.join(os.path.dirname(treatment_fastq_1), 'macs2_peaks_%s' % util.TEMP_ID)
+    
+    peak_out_dir = os.path.join(os.path.dirname(treatment_fastq_1), 'macs2_peaks_%s_%s' % (sample_name, util.get_rand_string(5)))
     io.makedirs(peak_out_dir, exist_ok=True)
     
     broad_name = sample_name + '_b'
     narrow_name = sample_name + '_n'
     
-    if nfq == 2:
-      fmt = 'BAMPE'
-    else:
-      fmt = 'BAM'
-    
-    common_args = [macs2_exe, 'callpeak',
-                   '-t', clean_bam_file_path,
-                   '-f', fmt,
-                   '-g', 'mm']
-                   #'-g', genome_size] # TBD: what was this about?
-                   
-    if control_bam_path:
-      common_args += ['-c', control_bam_path]
-    
-    cmd_args = common_args + ['-n', broad_name, '-B', '-q', '0.05', '--broad', '--outdir', peak_out_dir]
-    util.info('Calling broad peaks')
-    util.call(cmd_args)    
-    
-    cmd_args =  common_args + ['-n', narrow_name, '-B', '-q', '0.01', '--outdir', peak_out_dir]
-    util.info('Calling narrow peaks')
-    util.call(cmd_args)
-
-    # Collate and rename outputs
-  
     broad_bed_in = os.path.join(peak_out_dir,'%s_peaks.broadPeak' % broad_name)
     narrow_bed_in = os.path.join(peak_out_dir,'%s_peaks.narrowPeak' % narrow_name)
-    #broad_bed_out = io.tag_file_name(fastq_1, 'broad', '.bed')
-    #narrow_bed_out = io.tag_file_name(fastq_1, 'narrow', '.bed')
-    broad_bed_out = io.tag_file_name(treatment_fastq_1, 'broad', '.bed')
-    narrow_bed_out = io.tag_file_name(treatment_fastq_1, 'narrow', '.bed')
-      
-    for bed_in, bed_out in ((broad_bed_in, broad_bed_out),
-                            (narrow_bed_in, narrow_bed_out)):
+    
+    broad_bed_out = io.tag_file_name(path_root, 'broad', '.bed')
+    narrow_bed_out = io.tag_file_name(path_root, 'narrow', '.bed')
+    
+    if not os.path.exists(narrow_bed_out):
+      if nfq == 2:
+        fmt = 'BAMPE'
+      else:
+        fmt = 'BAM'
  
-      with io.open_file(bed_in) as in_file_obj, open(bed_out, 'w', FILE_BUFFER) as out_file_obj:
-        write = out_file_obj.write
-        join = '\t'.join
-          
-        for line in in_file_obj:
-          data = line.split()
-          contig = data[0]
-          chromo = chromo_name_dict.get(contig, contig)
-          
-          if len(chromo) < 3:
-            chromo = 'chr' + chromo
-          
-          data[0] = chromo
-          if not full_out:
-            data = data[:5]
-          
-          write(join(data) + '\n')
-      
-      util.info('Written BED file %s' % bed_out)
-      
-    if not keep_macs:
-      util.info('Cleanup MACS2 files, removing %s' % peak_out_dir)
-      shutil.rmtree(peak_out_dir)
+      buffer_size = max(int(1e4), max(sizes)/1000)
+ 
+      common_args = [macs2_exe, 'callpeak',
+                     '-t', clean_bam_file_path,
+                     '--buffer-size', str(buffer_size), # Need to reduce when large number of contigs/chromos
+                     '-f', fmt,
+                     '-g', genome_size]
+ 
+      if control_bam_path:
+        common_args += ['-c', control_bam_path]
+ 
+      cmd_args = common_args + ['-n', broad_name, '-B', '-q', '0.05', '--broad', '--outdir', peak_out_dir]
+      util.info('Calling broad peaks')
+      util.call(cmd_args)
+ 
+      cmd_args =  common_args + ['-n', narrow_name, '-B', '-q', '0.01', '--outdir', peak_out_dir]
+      util.info('Calling narrow peaks')
+      util.call(cmd_args)
+
+      # Collate and rename outputs
+ 
+      #broad_bed_out = io.tag_file_name(fastq_1, 'broad', '.bed')
+      #narrow_bed_out = io.tag_file_name(fastq_1, 'narrow', '.bed')
+ 
+      for bed_in, bed_out in ((broad_bed_in, broad_bed_out),
+                              (narrow_bed_in, narrow_bed_out)):
+ 
+        with io.open_file(bed_in) as in_file_obj, open(bed_out, 'w', FILE_BUFFER) as out_file_obj:
+          write = out_file_obj.write
+          join = '\t'.join
+ 
+          for line in in_file_obj:
+            data = line.split()
+            contig = data[0]
+            chromo = chromo_name_dict.get(contig, contig)
+ 
+            if len(chromo) < 3:
+              chromo = 'chr' + chromo
+ 
+            data[0] = chromo
+            if not full_out:
+              data = data[:5]
+ 
+            write(join(data) + '\n')
+ 
+        util.info('Written BED file %s' % bed_out)
+ 
+      if not keep_macs:
+        util.info('Cleanup MACS2 files, removing %s' % peak_out_dir)
+        shutil.rmtree(peak_out_dir)
   
   # Ad sample/file_tag names
     
@@ -586,7 +591,7 @@ def main(argv=None):
     if arg.startswith('-f') and arg[2:].isdigit():
       arg_parse.add_argument(arg, nargs='+', metavar='FASTQ_FILES')
     elif arg.startswith('-s') and arg[2:].isdigit():
-      arg_parse.add_argument(arg, nargs=1, metavar='NAME')
+      arg_parse.add_argument(arg, metavar='NAME')
   
   args = vars(arg_parse.parse_args(argv))
   
@@ -610,11 +615,12 @@ def main(argv=None):
         sample_name = None
       
       fastq_inputs.append((i, args[arg], sample_name))
-  
+     
   if not fastq_inputs:
      util.critical('No ChIP FASTQ files specified')
   
   idx, fastq_path_groups, sample_names = zip(*fastq_inputs)
+  
    
   genome_index = args['g']
   out_dir = args['o']

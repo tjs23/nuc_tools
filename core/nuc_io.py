@@ -14,6 +14,7 @@ import core.nuc_util as util
 
 FILENAME_SPLIT   = re.compile('[_\.]')
 FILE_BUFFER_SIZE = 2**16
+GZIP_EXTENSIONS = ('.gz','.gzip')
 
 # #   Path naming  # #
 
@@ -28,15 +29,16 @@ def get_temp_path(file_path):
 def tag_file_name(file_path, tag, file_ext=None):
 
   dir_path, file_name = os.path.split(file_path)
+  file_root, file_ext_old = os.path.splitext(file_name)
 
-  if file_name.endswith('.gz'):
-    file_root, file_ext_old = os.path.splitext(file_name[:-3])
-    file_name = '%s_%s%s.gz' % (file_root, tag, (file_ext or file_ext_old))
-
-  else:
-    file_root, file_ext_old = os.path.splitext(file_name)
-    file_name = '%s_%s%s' % (file_root, tag, (file_ext or file_ext_old))
-
+  if file_ext_old in GZIP_EXTENSIONS:
+    file_root, file_ext_2 = os.path.splitext(file_root)
+    file_ext_old = file_ext_2+file_ext_old
+ 
+  if not file_ext:
+    file_ext = file_ext_old
+  
+  file_name = '%s_%s%s' % (file_root, tag, file_ext)
   file_path = os.path.join(dir_path, file_name)
 
   return file_path 
@@ -46,7 +48,7 @@ def tag_file_path(file_path, new_ending):
   
   file_root, file_ext = os.path.splitext(file_path)
 
-  if file_ext.lower() in ('.gz','.gzip'):
+  if file_ext.lower() in GZIP_EXTENSIONS:
     file_root, file_ext = os.path.splitext(file_root)
       
   new_file_path = '%s_%s' % (file_root, new_ending)
@@ -58,7 +60,7 @@ def get_file_ext(file_path):
   
   file_root, file_ext = os.path.splitext(file_path)
    
-  if file_ext.lower() in ('.gz','.gzip'):
+  if file_ext.lower() in GZIP_EXTENSIONS:
     file_root, file_ext = os.path.splitext(file_root)
    
   return file_ext
