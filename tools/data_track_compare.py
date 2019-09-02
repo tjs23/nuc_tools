@@ -724,7 +724,7 @@ def data_track_compare(ref_data_paths, comp_data_paths, ref_labels, comp_labels,
   
   from nuc_tools import io, util
   
-  io.check_file_labels(ref_labels, ref_data_paths)
+  ref_labels = io.check_file_labels(ref_labels, ref_data_paths)
   
   if comp_data_paths:
     io.check_file_labels(comp_labels, comp_data_paths)
@@ -822,7 +822,7 @@ def main(argv=None):
                                 
   ref_data_paths = args['d']
   comp_data_paths = args['d2'] or []
-  ref_labels = args['l']
+  ref_labels = args['l'] or []
   comp_labels = args['l2'] or []
   out_pdf_path = args['o']
   bin_size = args['s']

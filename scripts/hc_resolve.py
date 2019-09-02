@@ -354,7 +354,7 @@ if __name__ == '__main__':
   
   # Cleanup ambig so noise doesn't affect disambiguation too much
   
-  remove_isolated_unambig('SRR5229047_r1_r2_bc_1CDS1-202.ncc', 'test_clean.ncc') 
+  remove_isolated_unambig('/data/hi-c/diploid/diploid_3_1CDS1-145.ncc', 'test_clean.ncc') 
   
   # The contact resolution iterative process 
   
@@ -368,7 +368,7 @@ if __name__ == '__main__':
   resolve_contacts('test_filter_res1.ncc', 'test_filter_res2.ncc', unambig_file)
   
   # Strict again and remove isolated ambigous
-  resolve_contacts('test_filter_res2.ncc', 'test_filter_res_final.ncc',
+  resolve_contacts('test_filter_res2.ncc', 'diploid_3_1CDS1-145_resolved.ncc',
                    unambig_file, remove_isolated=True)
 
 

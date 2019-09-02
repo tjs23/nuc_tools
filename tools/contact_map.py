@@ -633,6 +633,7 @@ def _get_tick_delta(n, bin_size, unit=1e6, max_ticks=8):
    
   while (step % (5*inc) != 0):
     step += inc
+    step = round(step, -sf)
  
   tick_delta = step/bin_size
   
@@ -1177,7 +1178,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       y_lim = [0.0, 1.0]
       nx = float(len(x_data_tracks))
       colors = [np.array(track_cmap(x)) for x in np.linspace(0.0, 1.0, nx)]
-      min_width = 2.0 * size/float(b)
+      min_width = 0.0 # 2.0 * size/float(b)
             
       for i, (track_label, track_data) in enumerate(x_data_tracks):
         t = nx-i-1.0
