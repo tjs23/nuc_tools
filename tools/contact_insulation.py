@@ -93,7 +93,6 @@ def contact_insulation(region_path, contact_paths, pdf_path, bin_size=DEFAULT_BI
       mat /= 1e7 * msum
       n = mat.shape[0]
       
-      max_sep = 2e6
       dbin = int(max_sep/bin_size)
       
       if use_starts and use_ends:
