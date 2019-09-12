@@ -35,7 +35,7 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
   """
   For now dict is changed in-place to keep memory use down.
   """
-  from nuc_tools import util, io
+  from ..nuc_tools import util, io
   
   if not new_bin_size:
     new_bin_size = bin_size
@@ -214,8 +214,6 @@ def _get_chromo_offsets(bin_size, chromos, chromo_limits):
 
 
 def get_obs_vs_exp(obs, clip=10):
-
-  from contact_map import get_cis_expectation
 
   obs -= np.diag(np.diag(obs))
   expt = get_cis_expectation(obs)
@@ -848,7 +846,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
                         ambig_matrix=None, diag_width=None, double_diag=False,
                         x_start=0, y_start=0):
   
-  from nuc_tools import util
+  from ..nuc_tools import util
   mmax = matrix.max()
   if not mmax:
     util.warn('Map empty for ' + title, line_return=True)
@@ -1440,11 +1438,11 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
                 region_dict=None, use_corr=False, use_norm=False, is_single_cell=False,
                 screen_gfx=False, black_bg=False, min_contig_size=None, chromo_grid=False,
                 diag_width=None, bed_paths=None, bed_labels=None, wig_paths=None, wig_labels=None, 
-                gff_path=None, gff_feats=None,
+                sam_paths=None, sam_labels=None, gff_path=None, gff_feats=None,
                 font=None, font_size=12, line_width=0.2, cmap=None):
   
-  from nuc_tools import io, util
-  from formats import ncc, npz, gff, bed, wig
+  from ..nuc_tools import io, util
+  from ..formats import ncc, npz, gff, bed, wig
   
   if len(in_paths) == 2:
     in_path, in_path2 = in_paths
@@ -1476,6 +1474,9 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
 
   if wig_paths:
     wig_labels = io.check_file_labels(wig_labels, wig_paths)
+ 
+  if sam_paths:
+    sam_labels = io.check_file_labels(sam_labels, sam_paths)
     
   if screen_gfx:
     util.info('Displaying contact map for {}'.format(in_msg))
@@ -1717,6 +1718,14 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
       data_track_dicts[wig_labels[i]] = data_dict
     else:
       util.warn('Wiggle file chromosome names do not correspond to any contact data chromosomes')
+ 
+  for i, sam_path in enumerate(sam_paths):
+    data_dict = sam.load_data_track(sam_path)
+       
+    if set(data_dict) & set(chromos):
+      data_track_dicts[sam_labels[i]] = data_dict
+    else:
+      util.warn('SAM/BAM file chromosome names do not correspond to any contact data chromosomes')
   
   if use_corr:
     has_neg = True
@@ -2146,7 +2155,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
 def main(argv=None):
 
   from argparse import ArgumentParser
-  from nuc_tools import util, io
+  from ..nuc_tools import util, io
   
   if argv is None:
     argv = sys.argv[1:]
@@ -2170,10 +2179,16 @@ def main(argv=None):
   arg_parse.add_argument('-bed', '--bed-data-track', metavar='BED_FILE', nargs='*', default=None, dest="bed",
                          help='Optional BED format (inc. broadPeak/narrowPeak) files for displaying ancilliary data along single-chromosome axes. Wildcards accepted.')
 
-  arg_parse.add_argument('-lbed', '--bed-data-label', metavar='BED_FILE', nargs='*', default=None, dest="lbed",
-                         help='Optional textual labels/names for the sBED format data tracks.')
+  arg_parse.add_argument('-lbed', '--bed-data-label', metavar='DATA_LABEL', nargs='*', default=None, dest="lbed",
+                         help='Optional textual labels/names for the BED format data tracks.')
   
-  arg_parse.add_argument('-wig', '--wig-data-track', metavar='DATA_LABEL', nargs='*', default=None, dest="wig",
+  arg_parse.add_argument('-sam', '--sam-data-track', metavar='SAME_FILE', nargs='*', default=None, dest="sam",
+                         help='Optional SAM or BAM format (inc. broadPeak/narrowPeak) files for displaying ancilliary data along single-chromosome axes. Wildcards accepted.')
+
+  arg_parse.add_argument('-lsam', '--bed-data-label', metavar='DATA_LABEL', nargs='*', default=None, dest="lsam",
+                         help='Optional textual labels/names for the SAM/BAM format data tracks.')
+  
+  arg_parse.add_argument('-wig', '--wig-data-track', metavar='WIG_FILE', nargs='*', default=None, dest="wig",
                          help='Optional Wiggle format (variable of fixed step) files for displaying ancilliary data along single-chromosome axes. Wildcards accepted.')
 
   arg_parse.add_argument('-lwig', '--wig-data-label', metavar='DATA_LABEL', nargs='*', default=None, dest="lwig",
@@ -2270,8 +2285,10 @@ def main(argv=None):
   regions = args['r']
   bed_paths = args['bed'] or []
   wig_paths = args['wig'] or []
+  sam_paths = args['wig'] or []
   bed_labels = args['lbed'] or []
   wig_labels = args['lwig'] or []
+  sam_labels = args['lsam'] or []
   gff_path = args['gff'] 
   gff_feats = args['gfff']
   
@@ -2299,7 +2316,7 @@ def main(argv=None):
     check_paths.append(gff_path)
     
     if not gff_feats:
-      from formats import gff
+      from ..formats import gff
       feature_counts = gff.get_feature_count(gff_path)
       fc = [(feature_counts[f], f) for f in feature_counts]
       fc.sort(reverse=True)
@@ -2317,6 +2334,7 @@ def main(argv=None):
   check_paths += in_paths     
   check_paths += bed_paths     
   check_paths += wig_paths     
+  check_paths += sam_paths     
   for in_path in in_paths:
     io.check_invalid_file(in_path)
   
@@ -2355,7 +2373,7 @@ def main(argv=None):
               use_corr, use_norm, is_single, screen_gfx, black_bg,
               min_contig_size, chromo_grid, diag_width, 
               bed_paths, bed_labels, wig_paths, wig_labels,
-              gff_path, gff_feats, cmap=cmap)
+              sam_paths, sam_labels, gff_path, gff_feats, cmap=cmap)
 
 
 if __name__ == "__main__":
