@@ -35,7 +35,7 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
   """
   For now dict is changed in-place to keep memory use down.
   """
-  from ..nuc_tools import util, io
+  from nuc_tools import util, io
   
   if not new_bin_size:
     new_bin_size = bin_size
@@ -846,7 +846,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
                         ambig_matrix=None, diag_width=None, double_diag=False,
                         x_start=0, y_start=0):
   
-  from ..nuc_tools import util
+  from nuc_tools import util
   mmax = matrix.max()
   if not mmax:
     util.warn('Map empty for ' + title, line_return=True)
@@ -1441,8 +1441,8 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
                 sam_paths=None, sam_labels=None, gff_path=None, gff_feats=None,
                 font=None, font_size=12, line_width=0.2, cmap=None):
   
-  from ..nuc_tools import io, util
-  from ..formats import ncc, npz, gff, bed, wig
+  from nuc_tools import io, util
+  from formats import ncc, npz, gff, bed, wig, sam
   
   if len(in_paths) == 2:
     in_path, in_path2 = in_paths
@@ -2161,7 +2161,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
 def main(argv=None):
 
   from argparse import ArgumentParser
-  from ..nuc_tools import util, io
+  from nuc_tools import util, io
   
   if argv is None:
     argv = sys.argv[1:]
@@ -2191,7 +2191,7 @@ def main(argv=None):
   arg_parse.add_argument('-sam', '--sam-data-track', metavar='SAME_FILE', nargs='*', default=None, dest="sam",
                          help='Optional SAM or BAM format (inc. broadPeak/narrowPeak) files for displaying ancilliary data along single-chromosome axes. Wildcards accepted.')
 
-  arg_parse.add_argument('-lsam', '--bed-data-label', metavar='DATA_LABEL', nargs='*', default=None, dest="lsam",
+  arg_parse.add_argument('-lsam', '--sam-data-label', metavar='DATA_LABEL', nargs='*', default=None, dest="lsam",
                          help='Optional textual labels/names for the SAM/BAM format data tracks.')
   
   arg_parse.add_argument('-wig', '--wig-data-track', metavar='WIG_FILE', nargs='*', default=None, dest="wig",
@@ -2291,7 +2291,7 @@ def main(argv=None):
   regions = args['r']
   bed_paths = args['bed'] or []
   wig_paths = args['wig'] or []
-  sam_paths = args['wig'] or []
+  sam_paths = args['sam'] or []
   bed_labels = args['lbed'] or []
   wig_labels = args['lwig'] or []
   sam_labels = args['lsam'] or []
@@ -2322,7 +2322,7 @@ def main(argv=None):
     check_paths.append(gff_path)
     
     if not gff_feats:
-      from ..formats import gff
+      from formats import gff
       feature_counts = gff.get_feature_count(gff_path)
       fc = [(feature_counts[f], f) for f in feature_counts]
       fc.sort(reverse=True)

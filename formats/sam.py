@@ -7,22 +7,23 @@ from collections import defaultdict
 
 def load_data_track(file_path, bin_size=1000, min_qual=10):
   
-  chromos_sizes = dict(get_bam_chromo_sizes(bam_file_path))
+  chromos_sizes = dict(get_bam_chromo_sizes(file_path))
  
-  data_hists_pos = {c: np.zeros(int(chromos_sizes[c]//bin_size), 'uint16') for c in chromos_sizes}
-  data_hists_neg = {c: np.zeros(int(chromos_sizes[c]//bin_size), 'uint16') for c in chromos_sizes}
+  data_hists_pos = {c: np.zeros(int(chromos_sizes[c]//bin_size)+1, 'uint16') for c in chromos_sizes}
+  data_hists_neg = {c: np.zeros(int(chromos_sizes[c]//bin_size)+1, 'uint16') for c in chromos_sizes}
  
   cmd_args = ['samtools', 'view','-F','4','-q', str(min_qual), file_path]
- 
+  
   proc = subprocess.Popen(cmd_args, shell=False,
  			  stdout=subprocess.PIPE)
  
-  for line in io.TextIOWrapper(proc.stdout, encoding='ascii'):
+  #for line in io.TextIOWrapper(proc.stdout, encoding='ascii'):
+  for line in iter(proc.stdout.readline,''):
  
     rname, sam_flag, chromo, pos, mapq, cigar, mate_contig, mate_pos, t_len, seq, qual = line.split('\t')[:11]
     idx = int(int(pos)//bin_size)
  
-    if sam_flag & 0x10
+    if int(sam_flag) & 0x10:
       data_hists_neg[chromo][idx] += 1
  
     else:
@@ -40,7 +41,7 @@ def load_data_track(file_path, bin_size=1000, min_qual=10):
  
       for i in idx:
  	start = i * bin_size
- 	end = start+bin_size=1
+ 	end = start+bin_size-1
  	value = hist[i]
  	add((start, end, strand, value, value, label))
 
@@ -67,5 +68,6 @@ def get_bam_chromo_sizes(bam_file_path):
       
       if seq_len:
         chromos_sizes.append((ref_name, seq_len))
-        
+  
+  
   return chromos_sizes
