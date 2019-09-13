@@ -1,7 +1,7 @@
 import subprocess, io
 import numpy as np
 
-from core.nuc_util import finalise_data_track
+from nuc_tools.core.nuc_util import finalise_data_track
 
 from collections import defaultdict
 

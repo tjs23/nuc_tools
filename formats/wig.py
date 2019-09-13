@@ -1,8 +1,8 @@
 import numpy as np
 
 from collections import defaultdict
-from core.nuc_io import open_file
-from core.nuc_util import finalise_data_track
+from nuc_tools.core.nuc_io import open_file
+from nuc_tools.core.nuc_util import finalise_data_track
 
 VS_TEMPLATE = 'variableStep chrom=chr%s span=%d\n%d %.3f\n'
 

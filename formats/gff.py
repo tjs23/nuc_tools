@@ -1,8 +1,8 @@
 import numpy as np
 
 from collections import defaultdict
-from core.nuc_io import open_file
-from core.nuc_util import finalise_data_track
+from nuc_tools.core.nuc_io import open_file
+from nuc_tools.core.nuc_util import finalise_data_track
 
 def get_feature_count(file_path):
 

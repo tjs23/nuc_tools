@@ -1471,12 +1471,18 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
   
   if bed_paths:
     bed_labels = io.check_file_labels(bed_labels, bed_paths)
-
+  else:
+    bed_paths = []
+  
   if wig_paths:
     wig_labels = io.check_file_labels(wig_labels, wig_paths)
+  else:
+    wig_paths = []
  
   if sam_paths:
     sam_labels = io.check_file_labels(sam_labels, sam_paths)
+  else:
+    sam_paths = []
     
   if screen_gfx:
     util.info('Displaying contact map for {}'.format(in_msg))
@@ -1493,9 +1499,9 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
     file_bin_size, chromo_limits, contacts = npz.load_npz_contacts(in_path)
       
     #normalize_contacts(contacts, chromo_limits, file_bin_size, store_sparse=False)
-            
 
   if in_path2:
+  
     if io.is_ncc(in_path2):
       file_bin_size2 = None
       chromosomes2, chromo_limits2, contacts2 = ncc.load_file(in_path2)

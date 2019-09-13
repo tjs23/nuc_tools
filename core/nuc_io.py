@@ -8,7 +8,7 @@ import glob
 
 from io import BufferedReader, BufferedWriter
 
-import core.nuc_util as util
+import nuc_util as util
 
 # #   Globals  # #
 
