@@ -1,14 +1,14 @@
 import numpy as np
 
 from collections import defaultdict
-from nuc_tools.core.nuc_io import open_file
-from nuc_tools.core.nuc_util import finalise_data_track
+from nuc_tools import io
+from nuc_tools import util
 
 VS_TEMPLATE = 'variableStep chrom=chr%s span=%d\n%d %.3f\n'
 
 def save_data_track(file_path, data_dict):
 
-  with open_file(file_path, 'w') as file_obj:
+  with io.open_file(file_path, 'w') as file_obj:
     write = file_obj.write
     write('track type=wiggle_0 name="nuc_tools_export"\n')
   
@@ -40,7 +40,7 @@ def load_data_track(file_path):
   
   data_dict = defaultdict(set)
     
-  with open_file(file_path) as file_obj:
+  with io.open_file(file_path) as file_obj:
  
     is_fixed = False
     span = 1
@@ -87,5 +87,5 @@ def load_data_track(file_path):
           val = float(val)
           data_dict[chromo].add((pos, pos+span, 1, val, val, ''))
          
-  return finalise_data_track(data_dict)
+  return util.finalise_data_track(data_dict)
 

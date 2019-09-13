@@ -1,14 +1,14 @@
 import numpy as np
 
 from collections import defaultdict
-from nuc_tools.core.nuc_io import open_file
-from nuc_tools.core.nuc_util import finalise_data_track
+from nuc_tools import io
+from nuc_tools import util
 
 def get_feature_count(file_path):
 
   features = defaultdict(int)
   
-  for line in open_file(file_path):
+  for line in io.open_file(file_path):
     if line[0] == '#':
       continue
     
@@ -27,7 +27,7 @@ def load_data_track(file_path, features=None):
   data_dicts = {}
   chromo_map = {}
   
-  with open_file(file_path, partial=True) as file_obj:
+  with oio.pen_file(file_path, partial=True) as file_obj:
   
     for line in file_obj:
       if line[0] == '#':
@@ -50,7 +50,7 @@ def load_data_track(file_path, features=None):
  
         break
 
-  with open_file(file_path) as file_obj:
+  with io.open_file(file_path) as file_obj:
     
     for line in file_obj:
       if line[0] == '#':
@@ -105,7 +105,7 @@ def load_data_track(file_path, features=None):
         data_dict[chrom_name] |= data_dict[chromo]
       
   for feat, data_dict in data_dicts.items():
-    data_dicts[feat] = finalise_data_track(data_dict)
+    data_dicts[feat] = util.finalise_data_track(data_dict)
      
   return data_dicts
   

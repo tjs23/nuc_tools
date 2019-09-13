@@ -1000,7 +1000,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
                 extent=(0,p2-p1,t/nx,(t+1.0)/nx)
  
               ax_bott.matshow(pos_hist, aspect='auto', cmap=tcmap, extent=extent)
- 
+              
             if len(neg_track):
               neg_hist = util.bin_data_track(neg_track, step, track_start, track_end)[None,:]
  
@@ -1186,7 +1186,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
         neg_track = track_data[~pos_strand]
         tcmap = LinearSegmentedColormap.from_list(name=track_label, colors=[bg_color, colors[i]], N=32)
         
-        if end-start > 4e7:
+        if 1: # end-start > 4e7:
           if len(pos_track):
             pos_hist = util.bin_data_track(pos_track, step, start, end)[None,:]
             
@@ -1272,7 +1272,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
         neg_track = track_data[~pos_strand]
         tcmap = LinearSegmentedColormap.from_list(name=track_label, colors=[bg_color, colors[i]], N=32)
         
-        if end-start > 4e7:
+        if 1: # end-start > 4e7:
           if len(pos_track):
             pos_hist = util.bin_data_track(pos_track, step, start, end)[::-1,None]
             

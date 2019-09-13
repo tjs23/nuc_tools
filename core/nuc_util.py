@@ -296,12 +296,15 @@ def finalise_data_track(data_dict):
   vmax = 0.0
   vsum = 0.0
   n = 0.0
-  for chromo in data_dict:
-    data_dict[chromo] = np.array(sorted(data_dict[chromo]), dtype=DATA_TRACK_TYPE)
-    vmax = max(vmax,  data_dict[chromo]['value'].max())
-    vsum += data_dict[chromo]['value'].sum()
-    n += len(data_dict[chromo])
-  
+  for chromo in list(data_dict.keys()):
+    if len(data_dict[chromo]):
+      data_dict[chromo] = np.array(sorted(data_dict[chromo]), dtype=DATA_TRACK_TYPE)
+      vmax = max(vmax,  data_dict[chromo]['value'].max())
+      vsum += data_dict[chromo]['value'].sum()
+      n += len(data_dict[chromo])
+    else:
+      del data_dict[chromo]
+    
   mean_val = vsum/n
   
   if vmax > 5 * mean_val:

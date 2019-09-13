@@ -1,7 +1,7 @@
 import subprocess, io
 import numpy as np
 
-from nuc_tools.core.nuc_util import finalise_data_track
+from nuc_tools import util
 
 from collections import defaultdict
 
@@ -17,8 +17,11 @@ def load_data_track(file_path, bin_size=1000, min_qual=10):
   proc = subprocess.Popen(cmd_args, shell=False,
  			  stdout=subprocess.PIPE)
  
+  util.info('Reading {}'.format(file_path))
+ 
   #for line in io.TextIOWrapper(proc.stdout, encoding='ascii'):
-  for line in iter(proc.stdout.readline,''):
+  n = 0
+  for line in proc.stdout:
  
     rname, sam_flag, chromo, pos, mapq, cigar, mate_contig, mate_pos, t_len, seq, qual = line.split('\t')[:11]
     idx = int(int(pos)//bin_size)
@@ -28,7 +31,9 @@ def load_data_track(file_path, bin_size=1000, min_qual=10):
  
     else:
       data_hists_pos[chromo][idx] += 1
- 
+    
+    n += 1
+    
   data_dict = defaultdict(set)
   label = ''
  
@@ -45,7 +50,9 @@ def load_data_track(file_path, bin_size=1000, min_qual=10):
  	value = hist[i]
  	add((start, end, strand, value, value, label))
 
-  return finalise_data_track(data_dict)
+  util.info(' .. processed {:,} BAM/SAM entries'.format(n))
+
+  return util.finalise_data_track(data_dict)
  
   
 def get_bam_chromo_sizes(bam_file_path):

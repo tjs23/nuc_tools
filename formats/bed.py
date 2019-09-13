@@ -1,8 +1,8 @@
 import numpy as np
 
 from collections import defaultdict
-from nuc_tools.core.nuc_io import open_file
-from nuc_tools.core.nuc_util import finalise_data_track
+from nuc_tools import io
+from nuc_tools import util
 
 def load_data_track(file_path):
   """
@@ -11,7 +11,7 @@ def load_data_track(file_path):
 
   data_dict = defaultdict(set)
   
-  with open_file(file_path, partial=True) as file_obj:
+  with io.open_file(file_path, partial=True) as file_obj:
     file_pos = 0
     line = file_obj.readline()
     
@@ -27,7 +27,7 @@ def load_data_track(file_path):
     have_val = n_fields > 4
     have_strand = n_fields > 5
       
-  with open_file(file_path) as file_obj:
+  with io.open_file(file_path) as file_obj:
     file_obj.seek(file_pos)
     
     for i, line in enumerate(file_obj):
@@ -56,7 +56,7 @@ def load_data_track(file_path):
             
       data_dict[chromo].add((start, end, strand, value, value, label))
 
-  return finalise_data_track(data_dict)
+  return util.finalise_data_track(data_dict)
   
 
 
@@ -65,7 +65,7 @@ def load_bed_data_track(file_path):
   name = None
   sort_dict = defaultdict(set)
   
-  with open_file(file_path, partial=True) as file_obj:
+  with io.open_file(file_path, partial=True) as file_obj:
     file_pos = 0
     line = file_obj.readline()
     
@@ -81,7 +81,7 @@ def load_bed_data_track(file_path):
     have_val = n_fields > 4
     have_strand = n_fields > 5
       
-  with open_file(file_path) as file_obj:
+  with io.open_file(file_path) as file_obj:
 
     for i, line in enumerate(file_obj):
       if line[0] == '#':
