@@ -10,7 +10,7 @@ import numpy as np
 def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=int, n_max=None):
   """Load chromosome and contact data from NCC format file, as output from NucProcess"""
   
-  from nuc_tools.core import nuc_io as io
+  from core import nuc_io as io
   
   with io.open_file(file_path) as file_obj:
   

@@ -655,11 +655,11 @@ def get_diag_region(diag_width, matrix, double=False):
   if double:
     diag_mat = np.zeros((d+d-1, n*2))
     
-    for y in range(d):
+    for y in range(1, d):
       rows = np.array(range(n-y))
       cols = rows + y
       xvals = rows + cols
-      yvals = np.full(n-y, d+y-1)
+      yvals = np.full(n-y, d+y-1) # d-1 is the mid point = diagonal
       counts = matrix[(rows, cols)]
       diag_mat[(yvals, xvals)] = counts
  
@@ -668,7 +668,7 @@ def get_diag_region(diag_width, matrix, double=False):
       
       if y:
         rows, cols = cols, rows
-        yvals = np.full(n-y, d-y)
+        yvals = np.full(n-y, d-1-y)
         counts = matrix[(rows, cols)]
         xvals -= 1
         diag_mat[(yvals, xvals)] = counts
@@ -837,6 +837,17 @@ def _get_num_isolated(positions, threshold=500000):
 
   return num_isolated
 
+
+def _is_detailed_data(data_track, step_size):
+
+  m_width = np.median(np.abs(data_track['pos2']-data_track['pos1']))
+
+  if m_width < step_size:
+    return False
+  
+  else:
+    return True
+    
     
 def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None,
                         axis_chromos=None, grid=None, stats_text=None, colors=None,
@@ -941,9 +952,9 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
 
     diag_mat = get_diag_region(diag_thick, matrix, double_diag)
     tick_delta, nminor = _get_tick_delta(w, 0.5*bin_size/unit)
-    xminor_tick_locator = AutoMinorLocator(nminor)
         
     for i in range(nax):
+      xminor_tick_locator = AutoMinorLocator(nminor)
     
       p1 = i*w*2
       
@@ -954,18 +965,44 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       p2 = min(2*a, (i+1)*w*2)
       
       w_frac = (p2-p1)/(2.0*w)
+      row_bottom = 0.1 + (nax-i-1)*height
          
       if x_data_tracks:
-        ax = fig.add_axes([0.1, 0.1 + (nax-i-1)*height + ((dt_frac+gap_frac) * height), 0.8*w_frac, (1.0-dt_frac-gap_frac)*height])
-        ax_bott = fig.add_axes([0.1, 0.1 + (nax-i-1)*height + (gap_frac * height), 0.8*w_frac, dt_frac*height])
-      else:
-        ax = fig.add_axes([0.1, 0.1 + (nax-i-1)*height + (gap_frac * height), 0.8*w_frac, (1.0-gap_frac)*height])
-        ax_bott = ax
+        map_frac = 1.0-dt_frac-gap_frac
         
-      if diag_mat_ambig is not None:
-        ax.matshow(diag_mat_ambig[:,p1:p2], cmap=cmap2, aspect='auto', **kw)
-  
-      cax = ax.matshow(diag_mat[:,p1:p2], cmap=cmap, aspect='auto', **kw)
+        if double_diag:
+          ax = fig.add_axes([0.1, row_bottom + ((1.0-0.5*map_frac) * height),0.8*w_frac, map_frac*height*0.5])
+          ax_dt = fig.add_axes([0.1, row_bottom + ((gap_frac+0.5*map_frac) * height), 0.8*w_frac, dt_frac*height])
+          ax2 = fig.add_axes([0.1, row_bottom + (gap_frac * height),0.8*w_frac, map_frac*height*0.5])
+          ax_bott = ax2
+          
+        else:
+          ax = fig.add_axes([0.1, row_bottom + ((dt_frac+gap_frac) * height), 0.8*w_frac, map_frac*height])
+          ax_dt = fig.add_axes([0.1, row_bottom + (gap_frac * height), 0.8*w_frac, dt_frac*height])
+          ax_bott = ax_dt
+          ax2 = None
+          
+      else:
+        ax = fig.add_axes([0.1, row_bottom + (gap_frac * height), 0.8*w_frac, (1.0-gap_frac)*height])
+        ax_bott = ax
+        ax_dt = None
+        ax2 = None
+        
+      if ax2:
+        hw = int((diag_mat.shape[0]-1)//2)
+      
+        if diag_mat_ambig is not None:
+          ax.matshow(diag_mat_ambig[-hw:,p1:p2], cmap=cmap2, aspect='auto', **kw)
+          ax2.matshow(diag_mat_ambig[:hw,p1:p2], cmap=cmap2, aspect='auto', **kw)
+ 
+        cax = ax.matshow(diag_mat[-hw:,p1:p2], cmap=cmap, aspect='auto', **kw)
+        cax2 = ax2.matshow(diag_mat[:hw,p1:p2], cmap=cmap, aspect='auto', **kw)
+      
+      else:
+        if diag_mat_ambig is not None:
+          ax.matshow(diag_mat_ambig[:,p1:p2], cmap=cmap2, aspect='auto', **kw)
+ 
+        cax = ax.matshow(diag_mat[:,p1:p2], cmap=cmap, aspect='auto', **kw)
       
       if x_data_tracks:
         nx = float(len(x_data_tracks))
@@ -990,28 +1027,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
           neg_track = track_data[~pos_strand]
           tcmap = LinearSegmentedColormap.from_list(name=track_label, colors=[bg_color, colors[j]], N=32)
 
-          if diag_width * unit > 4e7:
-            if len(pos_track):
-              pos_hist = util.bin_data_track(pos_track, step, track_start, track_end)[None,:]
- 
-              if len(neg_track):
-                extent=(0,p2-p1,(t+0.5)/nx,(t+1.0)/nx)
-              else:
-                extent=(0,p2-p1,t/nx,(t+1.0)/nx)
- 
-              ax_bott.matshow(pos_hist, aspect='auto', cmap=tcmap, extent=extent)
-              
-            if len(neg_track):
-              neg_hist = util.bin_data_track(neg_track, step, track_start, track_end)[None,:]
- 
-              if len(pos_track):
-                extent=(0,p2-p1,t/nx,(t+0.5)/nx)
-              else:
-                extent=(0,p2-p1,t/nx,(t+1.0)/nx)
- 
-              ax_bott.matshow(neg_hist, aspect='auto', cmap=tcmap, extent=extent)
-
-          else:
+          if _is_detailed_data(track_data, step):
             if len(pos_track):
               starts = (pos_track['pos1']-track_start)/float(0.5*bin_size)
               ends = (pos_track['pos2']-track_start)/float(0.5*bin_size)
@@ -1023,7 +1039,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
               else:
                 y_range = (t/nx, 1.0/nx)
  
-              ax_bott.broken_barh(x_ranges, y_range, color=colors[j], linewidth=0.0)
+              ax_dt.broken_barh(x_ranges, y_range, color=colors[j], linewidth=0.0)
           
             if len(neg_track):
               starts = (neg_track['pos1']-x_start)/float(0.5*bin_size)
@@ -1036,16 +1052,41 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
               else:
                 y_range = (t/nx, 1.0/nx)
  
-              ax_bott.broken_barh(x_ranges, y_range, color=colors[j], linewidth=0.0)
- 
+              ax_dt.broken_barh(x_ranges, y_range, color=colors[j], linewidth=0.0)
 
-        ax_bott.set_ylim(0.0, 1.0)
-        ax_bott.set_facecolor(cmap(0.0))
+          else:
+            if len(pos_track):
+              pos_hist = util.bin_data_track(pos_track, step, track_start, track_end)[None,:]
+ 
+              if len(neg_track):
+                extent=(0,p2-p1,(t+0.5)/nx,(t+1.0)/nx)
+              else:
+                extent=(0,p2-p1,t/nx,(t+1.0)/nx)
+ 
+              ax_dt.matshow(pos_hist, aspect='auto', cmap=tcmap, extent=extent)
+              
+            if len(neg_track):
+              neg_hist = util.bin_data_track(neg_track, step, track_start, track_end)[None,:]
+ 
+              if len(pos_track):
+                extent=(0,p2-p1,t/nx,(t+0.5)/nx)
+              else:
+                extent=(0,p2-p1,t/nx,(t+1.0)/nx)
+ 
+              ax_dt.matshow(neg_hist, aspect='auto', cmap=tcmap, extent=extent)
+
+        ax_dt.set_ylim(0.0, 1.0)
+        ax_dt.set_facecolor(cmap(0.0))
 
         ax.tick_params(which='both', direction='out',
                        left=False, right=False, top=False, bottom=False,
                        labelright=False, labelleft=False, labeltop=False, labelbottom=False)
-                       
+        
+        if ax2:
+          ax_dt.tick_params(which='both', direction='out',
+                            left=False, right=False, top=False, bottom=False,
+                            labelright=False, labelleft=False, labeltop=False, labelbottom=False)
+                
         ax_bott.tick_params(which='both', direction='out', labelsize=9,
                             left=False, right=False, top=False, bottom=True,
                             labelright=False, labelleft=False, labeltop=False, labelbottom=True)
@@ -1059,13 +1100,12 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       ax_bott.set_anchor('W') 
       
       if tick_delta < (p2-p1):
-        xlabel_pos = np.arange(p1, p2, tick_delta) # Pixel bins
+        xlabel_pos = np.arange(p1, p2+1, tick_delta) # Pixel bins
         xlabels = ['%.1f' % ((x*0.5*bin_size+x_start)/unit) for x in xlabel_pos]
         xlabel_pos -= p1
 
         ax_bott.set_xticklabels(xlabels, fontsize=9)
         ax_bott.xaxis.set_ticks(xlabel_pos)
-
         ax_bott.xaxis.set_minor_locator(xminor_tick_locator)
         
       ax_bott.set_xlim(0, p2-p1)
@@ -1186,28 +1226,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
         neg_track = track_data[~pos_strand]
         tcmap = LinearSegmentedColormap.from_list(name=track_label, colors=[bg_color, colors[i]], N=32)
         
-        if 1: # end-start > 4e7:
-          if len(pos_track):
-            pos_hist = util.bin_data_track(pos_track, step, start, end)[None,:]
-            
-            if len(neg_track):
-              extent=(0,b,(t+0.5)/nx,(t+1.0)/nx)
-            else:
-              extent=(0,b,t/nx,(t+1.0)/nx)
-              
-            ax_bott.matshow(pos_hist, aspect='auto', cmap=tcmap, extent=extent)
-          
-          if len(neg_track):
-            neg_hist = util.bin_data_track(neg_track, step, start, end)[None,:]
-            
-            if len(pos_track):
-              extent=(0,b,t/nx,(t+0.5)/nx)
-            else:
-              extent=(0,b,t/nx,(t+1.0)/nx)
-            
-            ax_bott.matshow(neg_hist, aspect='auto', cmap=tcmap, extent=extent)
-
-        else:          
+        if _is_detailed_data(track_data, step):
           if len(pos_track):
             starts = (pos_track['pos1']-x_start)/float(bin_size)
             ends = (pos_track['pos2']-x_start)/float(bin_size)
@@ -1233,6 +1252,27 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
               y_range = (t/nx, 1.0/nx)
             
             ax_bott.broken_barh(x_ranges, y_range, color=colors[i], linewidth=0.0)
+
+        else:          
+          if len(pos_track):
+            pos_hist = util.bin_data_track(pos_track, step, start, end)[None,:]
+            
+            if len(neg_track):
+              extent=(0,b,(t+0.5)/nx,(t+1.0)/nx)
+            else:
+              extent=(0,b,t/nx,(t+1.0)/nx)
+              
+            ax_bott.matshow(pos_hist, aspect='auto', cmap=tcmap, extent=extent)
+          
+          if len(neg_track):
+            neg_hist = util.bin_data_track(neg_track, step, start, end)[None,:]
+            
+            if len(pos_track):
+              extent=(0,b,t/nx,(t+0.5)/nx)
+            else:
+              extent=(0,b,t/nx,(t+1.0)/nx)
+            
+            ax_bott.matshow(neg_hist, aspect='auto', cmap=tcmap, extent=extent)
 
         
       ax_bott.set_ylim(*y_lim)
@@ -1272,7 +1312,25 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
         neg_track = track_data[~pos_strand]
         tcmap = LinearSegmentedColormap.from_list(name=track_label, colors=[bg_color, colors[i]], N=32)
         
-        if 1: # end-start > 4e7:
+        if _is_detailed_data(track_data, step):
+          if len(pos_track):
+            starts = (pos_track['pos1']-y_start)/float(bin_size)
+            ends = (pos_track['pos2']-y_start)/float(bin_size)
+            ends = np.array([ends, starts+min_width]).max(axis=0)
+            heights = ends - starts
+            
+            if len(neg_track):           
+              width =  0.5/ny
+              x_pos = np.full(heights.shape, (t+0.75)/ny)
+            
+            else:
+              width =  1.0/ny
+              x_pos = np.full(heights.shape, (t+0.5)/ny)
+                        
+            ax_left.bar(x_pos, heights, width, starts,
+                        color=colors[i], linewidth=0.0)
+        
+        else:
           if len(pos_track):
             pos_hist = util.bin_data_track(pos_track, step, start, end)[::-1,None]
             
@@ -1292,26 +1350,6 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
               extent=(t/nx,(t+1.0)/nx,0,a)
            
             ax_left.matshow(neg_hist, aspect='auto', cmap=tcmap, extent=extent)
-        
-        else:
-        
-          if len(pos_track):
-            starts = (pos_track['pos1']-y_start)/float(bin_size)
-            ends = (pos_track['pos2']-y_start)/float(bin_size)
-            ends = np.array([ends, starts+min_width]).max(axis=0)
-            heights = ends - starts
-            
-            if len(neg_track):           
-              width =  0.5/ny
-              x_pos = np.full(heights.shape, (t+0.75)/ny)
-            
-            else:
-              width =  1.0/ny
-              x_pos = np.full(heights.shape, (t+0.5)/ny)
-                        
-            ax_left.bar(x_pos, heights, width, starts,
-                        color=colors[i], linewidth=0.0)
-            
           
           neg_track = track_data[~pos_strand]
           if len(pos_track):
@@ -2389,15 +2427,10 @@ if __name__ == "__main__":
 
 """
 To-do
+ * +/- strand kept together on tracks
 
-auto log-normalize
-+/- strand kept together on tracks
-
-Later
-
-* NPZ
-* VCF?
-* BAM/SAM
-
+Data tracks:
+ * NPZ
+ * VCF?
 """
   
