@@ -4,7 +4,25 @@ The nuc_tools software is a collection of nucleome analysis tools with an emphas
 Individual tools are provided for the processing, analysis and visualisation of chromatin contact data 
 in combination with asscociated data like ChIP-seq.
 This includes canonical, multi-cell Hi-C data as well as single-cell Hi-C. Some tools are also provided
-for the analysis of whole genome structure that derive from single-cell Hi-C data.
+for the analysis of whole genome structures that derive from single-cell Hi-C data.
+
+The nuc_tools collection is a work-in-progress and will be expanded as time allows. 
+
+## Running nuc_tools
+
+After cloining the GitHub repository, nuc_tools can be invoked as an executable, specifying the specific tool name
+as an argument:
+
+ `./nuc_tools {tool_name} {tool_options}`
+
+The currently available tools may be listed using
+
+ `./nuc_tools -h`
+ 
+And the command-line options for each tool is available using '-h' after the tool name:
+
+ `./nuc_tools {tool_name} -h`
+ 
 
 ## Current tools
 
