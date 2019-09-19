@@ -79,7 +79,7 @@ def save_n3d_coords(file_path, coords_dict, seq_pos_dict):
 
 def get_bin_size(file_path):
   
-  import nuc_tools.core.nuc_io as io
+  import core.nuc_io as io
   
   bin_size = None
   

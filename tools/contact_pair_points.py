@@ -224,8 +224,13 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
   colors = ['#%02X%02X%02X' % (r*255, g*255, b*255) for r,g,b in colors]
   
   score_range = (0.0, max_count)
-      
-  fig, (ax1, ax2, ax3) = plt.subplots(3, 1)
+ 
+  fig = plt.figure()
+  fig.set_size_inches(8.0, 12.0)
+  
+  ax1 = fig.add_axes([0.1, 0.70, 0.8, 0.25])
+  ax2 = fig.add_axes([0.1, 0.40, 0.8, 0.25])
+  ax3 = fig.add_axes([0.1, 0.10, 0.8, 0.25])
   
   ax1.set_title('Hi-C counts (%d kb bins) at %s points' % (file_bin_size/1e3, os.path.basename(paired_region_path)))
   

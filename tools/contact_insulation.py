@@ -166,8 +166,12 @@ def contact_insulation(region_path, contact_paths, pdf_path, bin_size=DEFAULT_BI
   colors = ['#%02X%02X%02X' % (r*255, g*255, b*255) for r,g,b in colors]
   
   score_range = (0.45, 1.2)
-      
-  fig, (ax1, ax2) = plt.subplots(1,2)
+  
+  fig = plt.figure()
+  fig.set_size_inches(10.0, 5.0)
+  
+  ax1 = fig.add_axes([0.1, 0.15, 0.35, 0.75])
+  ax2 = fig.add_axes([0.55, 0.15, 0.35, 0.75])
   
   ax1.set_title('Insulation distributions')
   ax1.set_xlabel('Insulation score')

@@ -8,6 +8,29 @@ for the analysis of whole genome structures that derive from single-cell Hi-C da
 
 The nuc_tools collection is a work-in-progress and will be expanded as time allows. 
 
+
+## Python Module Dependencies
+
+This software is designed to work with Python version 2.7 or 3+ and uses [scipy](https://www.scipy.org/),
+[numpy](https://numpy.org/) and [matplotlib](https://matplotlib.org/) modules extensively. These dependencies
+are readily installed via the SciPy stack (which includes NumPy and Mmatplotlib). This maye be installed using `pip`:
+
+`sudo pip install scipy`
+
+Alternatively, SciPy is contained in bundled Python packages like Anaconda or Canopy,
+and may be installed via most Linux distributions' package managers.
+
+
+## Other Dependencies
+
+Some sub-tools have additional dependencies, which should be made available as command line executables,
+i.e. adjusting $PATH if needs be.
+
+On recent Ubuntu/Min/Debian Linux distributions these may be installed using:
+
+`sudo apt-get install bowtie2 macs2`
+
+
 ## Running nuc_tools
 
 After cloining the GitHub repository, nuc_tools can be invoked as an executable, specifying the specific tool name

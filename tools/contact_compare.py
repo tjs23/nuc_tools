@@ -86,7 +86,7 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
     
     contact_scale[chr_a] = scale    
   
-  for chr_a, chr_b in pairs: # Sorted and avliable
+  for chr_a, chr_b in pairs: # Sorted and available
     is_cis = chr_a == chr_b
     
     if (not compare_trans) and (not is_cis):
@@ -110,7 +110,9 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
       # all pairs use full range from zero
       mat = np.pad(mat, [(off_a,lim_a-a-off_a), (off_b,lim_b-b-off_b)], 'constant') # will ensure square cis (it needn't be when only storing upper matrix)
       a, b = mat.shape
-
+    
+    
+    """
     if is_cis:
       mat -= np.diag(np.diag(mat))
       
@@ -121,7 +123,11 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
       
       else:
         mat += mat.T
-        
+    """    
+    if is_cis:
+      mat -= np.diag(np.diag(mat))
+      mat += mat.T
+      
     scale_a = contact_scale[chr_a].astype(np.float32)
     scale_b = contact_scale[chr_b].astype(np.float32)
     
@@ -296,7 +302,6 @@ def contact_compare(in_path_a, in_path_b, pdf_path=None, npz_path=None, bin_size
     if hasattr(obs_a, 'toarray'):
       obs_a = obs_a.toarray()
       
-
     if hasattr(obs_b, 'toarray'):
       obs_b = obs_b.toarray()
       

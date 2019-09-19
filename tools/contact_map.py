@@ -1121,12 +1121,12 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       legend_ax.legend(frameon=False, loc='upper left', fontsize=7, ncol=int(math.ceil(len(x_data_tracks)/3.0)))
     
     if do_ambig:
-      cbaxes = fig.add_axes([0.915, 0.15, 0.02, 0.3])
+      cbaxes = fig.add_axes([0.92, 0.15, 0.02, 0.3])
       cbar2 = plt.colorbar(cax2, cax=cbaxes)
       cbar2.ax.tick_params(labelsize=7)
       cbar2.set_label('Ambig. count', fontsize=7)
     
-    cbaxes = fig.add_axes([0.915, 0.55, 0.02, 0.3])
+    cbaxes = fig.add_axes([0.92, 0.55, 0.02, 0.3])
     cbar = plt.colorbar(cax, cax=cbaxes)
     cbar.ax.tick_params(labelsize=7)
     cbar.set_label(scale_label, fontsize=7)
@@ -1432,10 +1432,10 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
     dpi= int(float(a)/(fig.get_size_inches()[1]*ax.get_position().size[1]))
             
   if stats_text:
-    ax.text(0.9, 0.95, stats_text, fontsize=9, transform=fig.transFigure, ha='right')  
+    ax.text(0.9, 0.92, stats_text, fontsize=9, transform=fig.transFigure, ha='right')  
     
   ax.text(0.01, 0.01, watermark, color='#B0B0B0', fontsize=8, transform=fig.transFigure) 
-  ax.text(0.1, 0.95, title, color='#000000', fontsize=14, transform=fig.transFigure, ha='left') 
+  ax.text(0.1, 0.95, title, color='#000000', fontsize=12, transform=fig.transFigure, ha='left') 
   #ax.set_title(title, loc='left')
  
   if legend:
