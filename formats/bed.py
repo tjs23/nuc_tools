@@ -6,7 +6,7 @@ from nuc_tools import util
 
 def load_data_track(file_path):
   """
-  Renamed version using special dtype
+  Renamed version using special compound dtype
   """
 
   data_dict = defaultdict(set)
@@ -58,6 +58,31 @@ def load_data_track(file_path):
 
   return util.finalise_data_track(data_dict)
   
+def save_data_track(file_path, data_dict, scale=1.0, as_float=False):
+  """
+  Renamed version using special compound dtype
+  """ 
+  
+  from nuc_tools import util
+  
+  if as_float:
+    template = '%s\t%d\t%d\t%s\t%.7f\t%s\n' # chr, start, end, label, score, strand
+  
+  else:
+    template = '%s\t%d\t%d\t%s\t%d\t%s\n' # chr, start, end, label, score, strand
+    
+  with open(file_path, 'w') as file_obj:
+    write = file_obj.write
+
+    for chromo in util.sort_chromosomes(data_dict):
+    
+      for i, (start, end, strand, value, orig_value, label) in enumerate(data_dict[chromo]):
+        if value < 0:
+          value = -value
+          strand = '-'
+        
+        line = template % (chromo, start, end, label or '%d' % i, value * scale, strand)
+        write(line)
 
 
 def load_bed_data_track(file_path):
