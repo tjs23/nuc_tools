@@ -111,19 +111,25 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
       mat = np.pad(mat, [(off_a,lim_a-a-off_a), (off_b,lim_b-b-off_b)], 'constant') # will ensure square cis (it needn't be when only storing upper matrix)
       a, b = mat.shape
     
-    
-    """
+
+    if is_cis:
+      mat += mat.T
+      
     if is_cis:
       mat -= np.diag(np.diag(mat))
+      cols = np.arange(a-1)
+      rows = cols-1
       
-      for i in range(1,a):
-        if mat[i,i-1]: # Check data is present below the diagonal
-          contact_scale[chr_a] *= 2 # Everything was counted twice : divide by double the amount
-          break
+      sub_diag_a = mat[rows, cols]
+      sub_diag_b = mat[cols, rows]
       
+      # check for symmetry
+      
+      if np.all(sub_diag_a == sub_diag_b):
+        contact_scale[chr_a] *= 2 # Everything was counted twice : divide by double the amount
       else:
         mat += mat.T
-    """    
+    
     if is_cis:
       mat -= np.diag(np.diag(mat))
       mat += mat.T
