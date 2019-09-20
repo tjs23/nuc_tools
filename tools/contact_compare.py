@@ -110,11 +110,7 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
       # all pairs use full range from zero
       mat = np.pad(mat, [(off_a,lim_a-a-off_a), (off_b,lim_b-b-off_b)], 'constant') # will ensure square cis (it needn't be when only storing upper matrix)
       a, b = mat.shape
-    
 
-    if is_cis:
-      mat += mat.T
-      
     if is_cis:
       mat -= np.diag(np.diag(mat))
       cols = np.arange(a-1)

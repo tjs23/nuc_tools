@@ -466,7 +466,6 @@ def main(argv=None):
                          help='The sequence region size in kilobases for calculation of contact probabilities. ' \
                               'Cannot be smaller than for any pre-binned contact files.' \
                               'Default is %d (kb)' % DEFAULT_BIN_SIZE)
-
  
   args = vars(arg_parse.parse_args(argv))
 

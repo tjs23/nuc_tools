@@ -24,11 +24,19 @@ def load_npz_contacts(file_path, trans=True, store_sparse=False, display_counts=
         if (chr_a == chr_b) or trans:
           mat = file_dict[key][()]
           
-          if store_sparse:
-             contacts[(chr_a, chr_b)] = mat
-          else:
-             contacts[(chr_a, chr_b)] = mat.toarray()     
-  
+          if not store_sparse:
+             mat = mat.toarray()
+          
+          if chr_a == chr_b:
+            a, b = mat.shape
+            cols = np.arange(a-1)
+            rows = cols-1
+
+            if not np.all(mat[rows, cols] == mat[cols, rows]): # Not symmetric
+              mat += mat.T
+          
+          contacts[(chr_a, chr_b)] = mat  
+   
       else:
         offset, count = file_dict[key]
         chromo_limits[key] = offset * bin_size, (offset + count) * bin_size
