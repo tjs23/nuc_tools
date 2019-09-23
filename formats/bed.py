@@ -81,7 +81,7 @@ def save_data_track(file_path, data_dict, scale=1.0, as_float=False):
           value = -value
           strand = '-'
         
-        line = template % (chromo, start, end, label or '%d' % i, value * scale, strand)
+        line = template % (chromo, start, end, label or '%d' % i, value * scale, '+' if strand else '-')
         write(line)
 
 

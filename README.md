@@ -59,6 +59,10 @@ Differential Hi-C contact map analysis. Graphically presents the most significan
 counts or compartmental correalation (e.g. A/B compartment changes). Outputs files in PDF format
 and includes optional diagonal-only view.
 
+### contact_density
+
+Creates data tracks of Hi-C contact density (i.e. along the linear sequence), in BED format, for different sequence separation ranges and in trans.
+
 ### contact_insulation
 
 Calculation and analysis of Hi-C contact insulation, for multiple datasets, at user-specified chromosomal potions.

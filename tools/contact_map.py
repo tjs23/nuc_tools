@@ -841,7 +841,7 @@ def _get_num_isolated(positions, threshold=500000):
 def _is_detailed_data(data_track, step_size):
 
   m_width = np.median(np.abs(data_track['pos2']-data_track['pos1']))
-
+  
   if m_width < step_size:
     return False
   
@@ -1032,27 +1032,43 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
               starts = (pos_track['pos1']-track_start)/float(0.5*bin_size)
               ends = (pos_track['pos2']-track_start)/float(0.5*bin_size)
               ends = np.array([ends, starts+min_width]).max(axis=0)
-              x_ranges = zip(starts, ends - starts)
+              widths = ends - starts
+              values = pos_track['value']
  
               if len(neg_track):
-                y_range = ((t+0.5)/nx, 0.5/nx)
-              else:
-                y_range = (t/nx, 1.0/nx)
+                height =  0.5/nx
+                y_pos = np.full(widths.shape, (t+0.75)/nx)
  
-              ax_dt.broken_barh(x_ranges, y_range, color=colors[j], linewidth=0.0)
+              else:
+                height =  1.0/nx
+                y_pos = np.full(widths.shape, (t+0.5)/nx)
+              
+              vcolors = values[:,None]
+              vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
+              ax_dt.barh(y_pos, widths, height*values, starts,
+                         color=vcolors, linewidth=0.0)
+                           
           
             if len(neg_track):
               starts = (neg_track['pos1']-x_start)/float(0.5*bin_size)
               ends = (neg_track['pos2']-x_start)/float(0.5*bin_size)
               ends = np.array([ends, starts+min_width]).max(axis=0)
-              x_ranges = zip(starts, ends - starts)
+
+              widths = ends - starts
+              values = neg_track['value']
  
               if len(pos_track):
-                y_range = (t/nx, 0.5/nx)
-              else:
-                y_range = (t/nx, 1.0/nx)
+                height =  0.5/nx
+                y_pos = np.full(widths.shape, (t+0.25)/nx)
  
-              ax_dt.broken_barh(x_ranges, y_range, color=colors[j], linewidth=0.0)
+              else:
+                height =  1.0/nx
+                y_pos = np.full(widths.shape, (t+0.5)/nx)
+ 
+              vcolors = values[:,None]
+              vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
+              ax_dt.barh(y_pos, widths, height*values, starts,
+                         color=vcolors, linewidth=0.0)
 
           else:
             if len(pos_track):
@@ -1231,27 +1247,41 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             starts = (pos_track['pos1']-x_start)/float(bin_size)
             ends = (pos_track['pos2']-x_start)/float(bin_size)
             ends = np.array([ends, starts+min_width]).max(axis=0)
-            x_ranges = zip(starts, ends - starts)
+            widths = ends - starts
+            values = pos_track['value']
             
-            if len(neg_track):
-              y_range = ((t+0.5)/nx, 0.5/nx)
+            if len(neg_track):           
+              height =  0.5/nx
+              y_pos = np.full(widths.shape, (t+0.75)/nx)
+            
             else:
-              y_range = (t/nx, 1.0/nx)
-              
-            ax_bott.broken_barh(x_ranges, y_range, color=colors[i], linewidth=0.0)
+              height =  1.0/nx
+              y_pos = np.full(widths.shape, (t+0.5)/nx)            
+            
+            vcolors = values[:,None]
+            vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
+            ax_bott.barh(y_pos, widths, height*values, starts,
+                         color=vcolors, linewidth=0.0)
           
           if len(neg_track):
             starts = (neg_track['pos1']-x_start)/float(bin_size)
             ends = (neg_track['pos2']-x_start)/float(bin_size)
             ends = np.array([ends, starts+min_width]).max(axis=0)
-            x_ranges = zip(starts, ends - starts)
+            widths = ends - starts
+            values = neg_track['value']
             
-            if len(pos_track):
-              y_range = (t/nx, 0.5/nx)
+            if len(pos_track):           
+              height =  0.5/nx
+              y_pos = np.full(widths.shape, (t+0.25)/nx)
+            
             else:
-              y_range = (t/nx, 1.0/nx)
+              height =  1.0/nx
+              y_pos = np.full(widths.shape, (t+0.5)/nx)            
             
-            ax_bott.broken_barh(x_ranges, y_range, color=colors[i], linewidth=0.0)
+            vcolors = values[:,None]
+            vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
+            ax_bott.barh(y_pos, widths, height*values, starts,
+                         color=vcolors, linewidth=0.0)
 
         else:          
           if len(pos_track):
@@ -1318,6 +1348,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             ends = (pos_track['pos2']-y_start)/float(bin_size)
             ends = np.array([ends, starts+min_width]).max(axis=0)
             heights = ends - starts
+            values = pos_track['value']
             
             if len(neg_track):           
               width =  0.5/ny
@@ -1327,8 +1358,30 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
               width =  1.0/ny
               x_pos = np.full(heights.shape, (t+0.5)/ny)
                         
-            ax_left.bar(x_pos, heights, width, starts,
-                        color=colors[i], linewidth=0.0)
+            vcolors = values[:,None]
+            vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
+            ax_left.bar(x_pos, heights, width*values, starts,
+                        color=vcolors, linewidth=0.0)
+          
+          if len(neg_track):
+            starts = (neg_track['pos1']-y_start)/float(bin_size)
+            ends = (neg_track['pos2']-y_start)/float(bin_size)
+            ends = np.array([ends, starts+min_width]).max(axis=0)
+            heights = ends - starts   
+            values = neg_track['value']
+                    
+            if len(pos_track):           
+              width =  0.5/ny
+              x_pos = np.full(heights.shape, (t+0.25)/ny)
+            
+            else:
+              width =  1.0/ny
+              x_pos = np.full(heights.shape, (t+0.5)/ny)
+            
+            vcolors = values[:,None]
+            vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
+            ax_left.bar(x_pos, heights, width*values, starts,
+                        color=vcolors, linewidth=0.0)
         
         else:
           if len(pos_track):
@@ -1350,24 +1403,6 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
               extent=(t/nx,(t+1.0)/nx,0,a)
            
             ax_left.matshow(neg_hist, aspect='auto', cmap=tcmap, extent=extent)
-          
-          neg_track = track_data[~pos_strand]
-          if len(pos_track):
-            starts = (neg_track['pos1']-y_start)/float(bin_size)
-            ends = (neg_track['pos2']-y_start)/float(bin_size)
-            ends = np.array([ends, starts+min_width]).max(axis=0)
-            heights = ends - starts   
-                    
-            if len(neg_track):           
-              width =  0.5/ny
-              x_pos = np.full(heights.shape, (t+0.25)/ny)
-            
-            else:
-              width =  1.0/ny
-              x_pos = np.full(heights.shape, (t+0.5)/ny)
-            
-            ax_left.bar(x_pos, heights, width, starts,
-                        color=colors[i], linewidth=0.0)
         
       ax_left.set_xlim(*x_lim)
       ax.set_yticks([])

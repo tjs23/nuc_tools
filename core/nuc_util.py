@@ -308,8 +308,13 @@ def finalise_data_track(data_dict):
   mean_val = vsum/n
   
   if vmax > 5 * mean_val:
+    vmax = np.log10(vmax)
+  
     for chromo in data_dict:
-      data_dict[chromo]['value'] = np.log10(data_dict[chromo]['value'])
+      data_dict[chromo]['value'] = np.log10(data_dict[chromo]['value'])/vmax
+  
+  else:
+    data_dict[chromo]['value'] /= vmax
     
   return dict(data_dict)
 
