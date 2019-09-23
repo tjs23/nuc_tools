@@ -1043,7 +1043,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
                 height =  1.0/nx
                 y_pos = np.full(widths.shape, (t+0.5)/nx)
               
-              vcolors = values[:,None]
+              vcolors = values[:,None] * 0.75 + 0.25
               vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
               ax_dt.barh(y_pos, widths, height*values, starts,
                          color=vcolors, linewidth=0.0)
@@ -1065,7 +1065,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
                 height =  1.0/nx
                 y_pos = np.full(widths.shape, (t+0.5)/nx)
  
-              vcolors = values[:,None]
+              vcolors = values[:,None] * 0.75 + 0.25
               vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
               ax_dt.barh(y_pos, widths, height*values, starts,
                          color=vcolors, linewidth=0.0)
@@ -1258,7 +1258,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
               height =  1.0/nx
               y_pos = np.full(widths.shape, (t+0.5)/nx)            
             
-            vcolors = values[:,None]
+            vcolors = values[:,None] * 0.75 + 0.25
             vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
             ax_bott.barh(y_pos, widths, height*values, starts,
                          color=vcolors, linewidth=0.0)
@@ -1278,7 +1278,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
               height =  1.0/nx
               y_pos = np.full(widths.shape, (t+0.5)/nx)            
             
-            vcolors = values[:,None]
+            vcolors = values[:,None] * 0.75 + 0.25
             vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
             ax_bott.barh(y_pos, widths, height*values, starts,
                          color=vcolors, linewidth=0.0)
@@ -1358,7 +1358,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
               width =  1.0/ny
               x_pos = np.full(heights.shape, (t+0.5)/ny)
                         
-            vcolors = values[:,None]
+            vcolors = values[:,None] * 0.75 + 0.25
             vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
             ax_left.bar(x_pos, heights, width*values, starts,
                         color=vcolors, linewidth=0.0)
@@ -1378,7 +1378,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
               width =  1.0/ny
               x_pos = np.full(heights.shape, (t+0.5)/ny)
             
-            vcolors = values[:,None]
+            vcolors = values[:,None] * 0.75 + 0.25
             vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
             ax_left.bar(x_pos, heights, width*values, starts,
                         color=vcolors, linewidth=0.0)
@@ -2414,7 +2414,7 @@ def main(argv=None):
   check_paths += bed_paths     
   check_paths += wig_paths     
   check_paths += sam_paths     
-  for in_path in in_paths:
+  for in_path in check_paths:
     io.check_invalid_file(in_path)
   
   if cmap:

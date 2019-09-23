@@ -291,31 +291,74 @@ def points_region_intersect(pos, regions):
   return intersection
 
 
-def finalise_data_track(data_dict):
+def hist_to_data_track(hist, bin_size):
+  """
+  Convert a continous histogram of values (equal size bins) to a data track
+  """
 
-  vmax = 0.0
+  nz = hist.nonzero()[0]
+  pos = np.arange(0, len(hist)*bin_size, bin_size)[nz]
+  values = hist[nz]
+  
+  track = np.zeros(len(nz), dtype=DATA_TRACK_TYPE)
+  track['pos1'] = pos
+  track['pos2'] = pos+bin_size-1
+  track['value'] = values
+  track['strand'] = values > 0
+  track['orig_value'] = values[:]
+   
+  return track
+  
+
+def finalise_data_track(data_dict):
+  
+  vmax = float('-inf')
+  vmin = float('inf')
   vsum = 0.0
   n = 0.0
   for chromo in list(data_dict.keys()):
     if len(data_dict[chromo]):
       data_dict[chromo] = np.array(sorted(data_dict[chromo]), dtype=DATA_TRACK_TYPE)
-      vmax = max(vmax,  data_dict[chromo]['value'].max())
-      vsum += data_dict[chromo]['value'].sum()
+      values = data_dict[chromo]['value']
+      vmax = max(vmax,  values.max())
+      vmin = min(vmin,  values.min())
+      vsum += values.sum()
       n += len(data_dict[chromo])
     else:
       del data_dict[chromo]
     
   mean_val = vsum/n
   
-  if vmax > 5 * mean_val:
-    vmax = np.log10(vmax)
   
-    for chromo in data_dict:
-      data_dict[chromo]['value'] = np.log10(data_dict[chromo]['value'])/vmax
+  if (vmax-vmin) > 5 * (mean_val-vmin):
+    if vmin < 0:
+      vmax -= vmin
+      vmax = np.log10(vmax+1.0)
+      
+      for chromo in data_dict:
+        vals = data_dict[chromo]['value'] + 1
+        vals -= vmin
+        vals = np.log10(vals)
+        data_dict[chromo]['value'] = vals
+      
+    else:
+      vmax = np.log10(vmax+1.0)
+      
+      for chromo in data_dict:
+        data_dict[chromo]['value'] = np.log10(data_dict[chromo]['value']-vmin+1.0)/vmax
   
   else:
-    data_dict[chromo]['value'] /= vmax
-    
+    if vmin < 0:
+      #vmax = max(vmax, -vmin)
+      for chromo in data_dict:
+        data_dict[chromo]['value'] -= vmin
+        data_dict[chromo]['value'] /= vmax-vmin
+      
+    else:  
+      for chromo in data_dict:
+        data_dict[chromo]['value'] /= vmax
+  
+     
   return dict(data_dict)
 
 

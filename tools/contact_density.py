@@ -146,23 +146,9 @@ def contact_density(contact_path, out_path_root=None, bin_size=DEFAULT_BIN_SIZE,
     total = 0
     
     for chromo in data_dict:
-      hist = data_dict[chromo]
-      idx = hist.nonzero()[0]
-      pos = np.arange(0, len(hist)*bin_size, bin_size)[idx]
-      values = hist[idx]
-      n = len(idx)
+      data_dict[chromo] = util.hist_to_data_track(data_dict[chromo])
+      total += len(data_dict[chromo])
 
-      track = np.zeros(n, dtype=util.DATA_TRACK_TYPE)
-      track['pos1'] = pos
-      track['pos2'] = pos+bin_size-1
-      track['strand'] = np.ones(n)
-      track['value'] = values
-      track['orig_value'] = values[:]
-   
-      data_dict[chromo] = track
-      total += n
-    
-    print i, total
     if total:
       bed.save_data_track(out_file_path, data_dict, scale=1.0, as_float=False)
       util.info('Written {} regions to {}'.format(total, out_file_path))   

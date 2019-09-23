@@ -76,7 +76,7 @@ def read_fasta(path_or_io, as_dict=True, full_heads=False,
         name = line[1:].split()[0]  
         
     else:
-      seq.append(line)
+      seq.append(line.upper())
 
   if name:
     seq = join(seq)
