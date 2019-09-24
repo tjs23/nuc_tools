@@ -1,7 +1,6 @@
 import os
 
-from nuc_tools.core import nuc_io
-from nuc_tools.core import nuc_util
+from nuc_tools import io, util
 
 # #   Globals  # #
 
@@ -12,7 +11,7 @@ FASTQ_READ_CHUNK = 1048576
 
 def check_format(file_path):
   
-  file_obj = nuc_io.open_file(file_path, partial=True)
+  file_obj = io.open_file(file_path, partial=True)
     
   lines = file_obj.readlines(FASTQ_READ_CHUNK)
   lines = [l for l in lines if l.rstrip()]
@@ -30,7 +29,7 @@ def get_qual_scheme(file_path):
   Guess the quality scoring scheme for a FASTQ file
   """
   
-  file_obj = nuc_io.open_file(file_path)
+  file_obj = io.open_file(file_path)
   
   lines = file_obj.readlines(FASTQ_READ_CHUNK)
   
@@ -76,7 +75,7 @@ def pair_files(fastq_paths, pair_tags=('r_1','r_2'), err_msg='Could not pair FAS
   
   if len(fastq_paths) != len(set(fastq_paths)):
     msg = '%s Repeat file path present.'
-    nuc_util.critical(msg % (err_msg))
+    util.critical(msg % (err_msg))
       
   t1, t2 = pair_tags
   
@@ -88,7 +87,7 @@ def pair_files(fastq_paths, pair_tags=('r_1','r_2'), err_msg='Could not pair FAS
     
     if (t1 in base_name) and (t2 in base_name):
       msg = '%s Tags "%s" and "%s" are ambiguous in file %s'
-      nuc_util.critical(msg % (err_msg, t1, t2, base_name))
+      util.critical(msg % (err_msg, t1, t2, base_name))
     
     elif t1 in base_name:
       paths_1.append((path, dir_name, base_name))
@@ -98,14 +97,14 @@ def pair_files(fastq_paths, pair_tags=('r_1','r_2'), err_msg='Could not pair FAS
      
     else:
       msg = '%s File name %s does not contain tag "%s" or "%s"'
-      nuc_util.critical(msg % (err_msg, base_name, t1, t2))
+      util.critical(msg % (err_msg, base_name, t1, t2))
   
   n1 = len(paths_1)
   n2 = len(paths_2)
   
   if n1 != n2:
     msg = '%s Number of read 1 (%d) and read 2 (%d) files do not match'
-    nuc_util.critical(msg % (err_msg, n1, n2))
+    util.critical(msg % (err_msg, n1, n2))
   
   fastq_paths_r1 = []
   fastq_paths_r2 = []
@@ -124,7 +123,7 @@ def pair_files(fastq_paths, pair_tags=('r_1','r_2'), err_msg='Could not pair FAS
     if len(found) == 0:
       # No need to check unpaired read 2 files as these always result in an isolated read 1
       msg = '%s No read 2 file "%s" found to pair with %s'
-      nuc_util.critical(msg % (err_msg, seek_file, path_1))
+      util.critical(msg % (err_msg, seek_file, path_1))
          
     else: 
       # Repeat Read 2 files not possible as repeats checked earlier

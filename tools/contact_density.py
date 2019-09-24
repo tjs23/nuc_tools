@@ -5,7 +5,7 @@ import numpy as np
 PROG_NAME = 'contact_density'
 VERSION = '1.0.0'
 DESCRIPTION = 'Creates linear contact density data tracks, in BED format, from 2D Hi-C data for different sequence separation ranges and in trans'
-SEQ_SEP_THRESHOLDS = [int(1e5), int(1e6), int(1e7)]
+SEQ_SEP_THRESHOLDS = [int(1e4), int(5e5), int(1e7)]
 DEFAULT_BIN_SIZE = 25.0
 
 
@@ -146,7 +146,7 @@ def contact_density(contact_path, out_path_root=None, bin_size=DEFAULT_BIN_SIZE,
     total = 0
     
     for chromo in data_dict:
-      data_dict[chromo] = util.hist_to_data_track(data_dict[chromo])
+      data_dict[chromo] = util.hist_to_data_track(data_dict[chromo], bin_size)
       total += len(data_dict[chromo])
 
     if total:

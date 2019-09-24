@@ -3,6 +3,10 @@ import numpy as np
 from glob import glob
 from os.path import dirname
 
+np.seterr(all='raise')
+import warnings
+warnings.filterwarnings("error")
+
 PROG_NAME = 'data_track_compare'
 VERSION = '1.0.0'
 DESCRIPTION = 'Plot and measure similarities between data tracks in BED format'
@@ -300,8 +304,9 @@ def plot_data_correlations(title, data_dict, ref_data_paths, comp_data_paths, re
         
         if violin:
           x_pos = np.arange(0, NUM_QUANT_BINS)
+          print [len(p) for p in y_split], len(x_pos)
           vp = ax.violinplot(y_split, x_pos, points=50, widths=0.8, bw_method=0.25,
-                           showmeans=False, showextrema=False, showmedians=True)
+                             showmeans=False, showextrema=False, showmedians=True)
           ax.set_xlim((-1, NUM_QUANT_BINS))
           ax.set_xticks(np.arange(0, NUM_QUANT_BINS+1)-0.5)
           ax.set_xticklabels(bw*np.arange(0, NUM_QUANT_BINS+1), rotation=90.0)
@@ -506,9 +511,9 @@ def plot_seq_anchor_mat(raw_data_dict, chromo_limits, ref_data_paths, comp_data_
       
       mat = _get_anchor_mat(ref_region_dict, track_hist_dicts[d2], chromo_limits, bin_size, n_bins)
       
-      cax = ax.matshow(mat, cmap=colors, aspect='auto', vmin=0.0, vmax=1.5)
+      if len(mat):
+        cax = ax.matshow(mat, cmap=colors, aspect='auto', vmin=0.0, vmax=1.5)
   
-
       if row == n_comp-1:
         ax.set_xlabel(ref_labels[col], fontsize=9)
         ax.xaxis.set_tick_params(which='both', direction='out', bottom=True, top=False, labeltop=False, labelbottom=True)
