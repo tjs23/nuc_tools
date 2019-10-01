@@ -288,10 +288,12 @@ def main(argv=None):
   #                       help='Output file format. Default: %s. Available: %s' % (DEFAULT_FORMAT, avail_fmts))
 
   arg_parse.add_argument('-m', '--min-bin-count', default=DEFAULT_MIN_BINS, metavar='MIN_BINS', type=int, dest='m',
-                         help='The minimum number of bins for chromosomes/contigs; those with fewer than this are excluded from output')
+                         help='The minimum number of bins for chromosomes/contigs; those with fewer ' \
+                              'than this are excluded from output. Default: %d' % DEFAULT_MIN_BINS)
 
   arg_parse.add_argument('-t', '--min-trans-count', default=MIN_TRANS_COUNT, metavar='MIN_TRANS_COUNT', type=int, dest='t',
-                         help='The minimum number contacts for inter-chromosomal contact matrices; those with fewer than this are excluded from output')
+                         help='The minimum number contacts for inter-chromosomal contact matrices; ' \
+                              'those with fewer than this are excluded from output. Default: %d' % MIN_TRANS_COUNT)
 
   args = vars(arg_parse.parse_args(argv))
 
