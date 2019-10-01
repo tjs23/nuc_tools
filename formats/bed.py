@@ -126,7 +126,7 @@ def load_bed_data_track(file_path):
         label = '%d' % i
       
       if have_val:
-        score = float(data[4])
+        score = float(data[7])
       else:
         score = 1.0
                   

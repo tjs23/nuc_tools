@@ -27,7 +27,7 @@ def load_data_track(file_path, features=None):
   data_dicts = {}
   chromo_map = {}
   
-  with oio.pen_file(file_path, partial=True) as file_obj:
+  with io.open_file(file_path, partial=True) as file_obj:
   
     for line in file_obj:
       if line[0] == '#':
