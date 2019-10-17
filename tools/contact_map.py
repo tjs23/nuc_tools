@@ -25,7 +25,7 @@ DEFAULT_DIAG_REGION = 50.0
 COLORMAP_URL = 'https://matplotlib.org/tutorials/colors/colormaps.html'
 REGION_PATT = re.compile('(\S+):(\d+\.?\d*)-(\d+\.?\d*)')
 MIN_REGION_BINS = 10
-DT_COLORMAP = '#0080FF,#B0B000,#FF4000'
+DT_COLORMAP = '#000000,#0080FF,#B0B000,#FF4000,#FF00E0'
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -839,10 +839,12 @@ def _get_num_isolated(positions, threshold=500000):
 
 
 def _is_detailed_data(data_track, step_size):
-
+  
+  return True
+  
   m_width = np.median(np.abs(data_track['pos2']-data_track['pos1']))
   
-  if m_width < step_size:
+  if m_width < 2 * step_size:
     return False
   
   else:
@@ -1162,22 +1164,18 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
     else:
       xrotation = None
       tick_delta, nminor = _get_tick_delta(b, bin_size/unit, unit)
-      xlabel_pos = np.arange(0, b, tick_delta) # Pixel bins
-      
-      
+      xlabel_pos = np.arange(0, b, tick_delta) # Pixel bins      
       xlabels = [label_pat % ((x*bin_size+x_start)/unit) for x in xlabel_pos]
-      xlabel_pos -= 0.5
       xminor_tick_locator = AutoMinorLocator(nminor)
  
       tick_delta, nminor = _get_tick_delta(a, bin_size/unit, unit)
       ylabel_pos = np.arange(0, a, tick_delta) # Pixel bins
       ylabels = [label_pat % ((y*bin_size+y_start)/unit) for y in ylabel_pos]
-      ylabel_pos -= 0.5
       yminor_tick_locator = AutoMinorLocator(nminor)
     
     fig = plt.figure()
     
-    dt_size = 0.3
+    dt_size = 0.5
     padd = 0.1
     size = 8.0
     main_frac = 0.8
@@ -1196,13 +1194,14 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
         ax = fig.add_axes([padd + fx, padd, main_frac * (1.0-fx), main_frac]) # left, bottom, width, height
         ax_left = ax
         ax_bott = fig.add_axes([padd + fx, padd, main_frac * (1.0-fx), fy])
-      
+         
     elif y_data_tracks:
       fig.set_size_inches(size, size + dt_size)
       fy = dt_size / (size + dt_size)
       ax = fig.add_axes([padd, padd + fy, main_frac, main_frac * (1.0-fy)]) # left, bottom, width, height
       ax_left = fig.add_axes([padd, padd + fy, fx, main_frac * (1.0-fy)])
       ax_bott = ax
+        
       
     else:
       fig.set_size_inches(size, size)
@@ -1210,16 +1209,18 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
     
     if grid and grid is not True:
       grid = np.array(grid, float)
-      ax.hlines(grid-0.5, -0.5, float(b), color='#B0B0B0', alpha=0.5, linewidth=0.1)
-      ax.vlines(grid, float(a), -0.5, color='#B0B0B0', alpha=0.5, linewidth=0.1)
+      ax.hlines(grid, 0.0, float(b), color='#B0B0B0', alpha=0.5, linewidth=0.1)
+      ax.vlines(grid, float(a), 0.0, color='#B0B0B0', alpha=0.5, linewidth=0.1)
       
     kw = {'interpolation':'None', 'norm':norm, 'origin':'upper',
           'vmin':v_min, 'vmax':v_max}
-          
+    
+    extent = (0,b,a,0)
+    
     if do_ambig:
-      cax2 = ax.matshow(ambig_matrix, cmap=cmap2, **kw)
+      cax2 = ax.matshow(ambig_matrix, cmap=cmap2, extent=extent, **kw)
  
-    cax = ax.matshow(matrix, cmap=cmap, **kw)
+    cax = ax.matshow(matrix, cmap=cmap, extent=extent, **kw)
      
     if x_data_tracks:
       start = x_start
@@ -1304,18 +1305,18 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             
             ax_bott.matshow(neg_hist, aspect='auto', cmap=tcmap, extent=extent)
 
-        
       ax_bott.set_ylim(*y_lim)
       ax_bott.set_facecolor(cmap(0.0))
       
       x0, y0, w, h = ax_bott.get_position().bounds
       
-      legend_ax = fig.add_axes([0.0, y0, x0, h])
+      legend_ax = fig.add_axes([2*padd, 0.0, w, y0])
       for i, (track_label, track_data) in enumerate(x_data_tracks):
         legend_ax.plot([], alpha=dt_alpha, label=track_label, color=colors[i])
       
       legend_ax.set_axis_off()
-      legend_ax.legend(frameon=False, loc='upper right', fontsize=7)
+      legend_ax.legend(frameon=False, handlelength=1.0, columnspacing=1.0, handletextpad=0.5, borderpad=0.2,
+                       loc='lower left', fontsize=7, ncol=min(7, len(x_data_tracks)))
       
       ax.set_xticks([])
       ax_bott.set_yticks([])
@@ -1409,7 +1410,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       ax_left.set_xticks([])
       ax_left.set_facecolor(cmap(0.0))
     
-    ax.xaxis.tick_bottom()
+    
     if chromo_labels and len(xlabels) > 25:
       ax_bott.set_xticklabels(xlabels, fontsize=5, rotation=xrotation)
       ax_left.set_yticklabels(ylabels, fontsize=5)
@@ -1417,20 +1418,22 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
     else:
       ax_bott.set_xticklabels(xlabels, fontsize=9, rotation=xrotation)
       ax_left.set_yticklabels(ylabels, fontsize=9)
-
-    ax_bott.xaxis.set_ticks(xlabel_pos)
-    ax_bott.set_xlim(0, b)
+      
+    if x_data_tracks or y_data_tracks:
+      ax_left.tick_params(which='both', direction='out', left=True, right=False, labelright=False, labelleft=True, 
+                          labeltop=False, labelbottom=False, top=False, bottom=False, pad=8)
+      ax_bott.tick_params(which='both', direction='out', labeltop=False, labelbottom=True, top=False, bottom=True,
+                          left=False, right=False, labelright=False, labelleft=False, pad=8)
     
-    ax_bott.tick_params(which='both', direction='out', left=False, right=False,
-                        labelright=False, labelleft=False,
-                        labeltop=False, labelbottom=True,  top=False, bottom=True, pad=8)
-                 
+    else:
+      ax.tick_params(which='both', direction='out', left=True, right=False, labelright=False, labelleft=True,
+                     labeltop=False, labelbottom=True, top=False, bottom=True, pad=8)
+
     ax_left.yaxis.set_ticks(ylabel_pos)
     ax_left.set_ylim(a, 0)
- 
-    ax_left.tick_params(which='both', direction='out', left=True, right=False,
-                        labelright=False, labelleft=True,
-                        labeltop=False, labelbottom=False,  top=False, bottom=False, pad=8)
+    
+    ax_bott.xaxis.set_ticks(xlabel_pos)
+    ax_bott.set_xlim(0, b)
  
     if chromo_labels:
       ax_bott.set_xlabel('Chromosome')
@@ -1799,7 +1802,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
       util.warn('Wiggle file chromosome names do not correspond to any contact data chromosomes')
  
   for i, sam_path in enumerate(sam_paths):
-    data_dict = sam.load_data_track(sam_path)
+    data_dict = sam.load_data_track(sam_path, 1000)
        
     if set(data_dict) & set(chromos):
       data_track_dicts[sam_labels[i]] = data_dict
@@ -1885,7 +1888,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
         s, e = region
         
         if data_track_dicts:
-          for ft in data_track_dicts:
+          for ft in sorted(data_track_dicts):
             if chr_a in data_track_dicts[ft]:
               track = data_track_dicts[ft][chr_a]
               in_region = (track['pos1'] < e) & (track['pos1'] > s) | (track['pos2'] < e) & (track['pos2'] > s)
@@ -2211,13 +2214,17 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
         y_data_tracks = []
         
         if data_track_dicts:
-          for ft in data_track_dicts:
+          for ft in sorted(data_track_dicts):
             if chr_a in data_track_dicts[ft]:
               x_data_tracks.append((ft, data_track_dicts[ft][chr_a]))
-
+            else:
+              x_data_tracks.append((ft, np.array([], dtype=util.DATA_TRACK_TYPE)))
+            
             if chr_b in data_track_dicts[ft]:
               y_data_tracks.append((ft, data_track_dicts[ft][chr_b]))
- 
+            else:
+              y_data_tracks.append((ft, np.array([], dtype=util.DATA_TRACK_TYPE)))
+              
         plot_contact_matrix(matrix, pair_bin_size, title, scale_label, None, pair,
                             chromo_grid, stats_text, colors, bad_color,
                             x_data_tracks=x_data_tracks, y_data_tracks=y_data_tracks,

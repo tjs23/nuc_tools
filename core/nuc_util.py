@@ -73,8 +73,8 @@ def string_to_colormap(color_spec, cmap_name='user', n=255):
       cmap = LinearSegmentedColormap.from_list(name=cmap_name, colors=colors, N=n)    
     
     except ValueError as err:
-      util.warn(err)
-      util.critical('Invalid colour specification')
+      warn(err)
+      critical('Invalid colour specification')
   
   elif ',' in color_spec:
     colors = color_spec.split(',')
@@ -82,16 +82,16 @@ def string_to_colormap(color_spec, cmap_name='user', n=255):
       cmap = LinearSegmentedColormap.from_list(name=cmap_name, colors=colors, N=n)    
     
     except ValueError as err:
-      util.warn(err)
-      util.critical('Invalid colour specification')
+      warn(err)
+      critical('Invalid colour specification')
     
   else:
     try:
       cmap = plt.get_cmap(color_spec)
       
     except ValueError as err:
-      util.warn(err)
-      util.critical('Invalid colourmap name. See: %s' % COLORMAP_URL)
+      warn(err)
+      critical('Invalid colourmap name. See: %s' % COLORMAP_URL)
   
   return cmap
   
