@@ -148,6 +148,18 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
       rows = ((pos_1-start)/file_bin_size).astype(int)
       cols = ((pos_2-start)/file_bin_size).astype(int)
       
+      valid = rows >= 0
+      valid &= rows < n
+      valid &= cols >= 0
+      valid &= cols < n
+      
+      rows = rows[valid]
+      cols = cols[valid]
+      
+      if len(rows) != len(pos_1):
+        msg = 'Found {:,} out-of-bounds points, relative to contact map, in chromosome/contig {}'
+        util.warn(msg.format(len(pos_1)-len(rows), chr_a))  
+      
       counts = mat[(rows,cols)]
       
       if tsv_path:
