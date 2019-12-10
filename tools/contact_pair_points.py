@@ -97,16 +97,21 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
   all_counts = []
   all_deltas = []
   
+  from matplotlib import pyplot as plt
+  
   for i, in_path in enumerate(contact_paths):
     
     file_bin_size, chromo_limits, contacts = npz.load_npz_contacts(in_path, trans=False, store_sparse=True)
-    normalize_contacts(contacts, chromo_limits, file_bin_size, store_sparse=True)
+    count_scales = normalize_contacts(contacts, chromo_limits, file_bin_size, store_sparse=True)
     
     chromos = util.sort_chromosomes([x[0] for x in contacts])
     file_counts = []
     file_deltas = []
     
     for chr_a in chromos:
+      #if chr_a != 'chr1':
+      #  continue
+    
       chromo_pair = (chr_a, chr_a)
       loops = point_dict.get(chromo_pair)
       
@@ -124,16 +129,17 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
       
       mat = mat.astype(float)
       msum = mat.sum()
-      
+            
       if not msum:
         continue
       
-      mat *= 1e7/msum
+      mat *= 1e7/mat.max()
+      
       
       n = len(mat)
-      #medians = np.ones(n, float)
-      
       """
+      medians = np.ones(n, float)
+      
       for d in range(1, n):
         deltas = np.zeros(n-d, float)
         idx = np.array(range(n-d))
@@ -144,11 +150,24 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
         medians[d] = med              
       """
           
-      pos_1 = loops[:,0]
-      pos_2 = loops[:,1]
+      pos_1 = loops[:,0]-start
+      pos_2 = loops[:,1]-start
       
-      rows = ((pos_1-start)/file_bin_size).astype(int)
-      cols = ((pos_2-start)/file_bin_size).astype(int)
+      rows = (pos_1/file_bin_size).astype(int)
+      cols = (pos_2/file_bin_size).astype(int)
+      
+      dx1 = pos_1-(rows*file_bin_size)
+      dy1 = pos_2-(cols*file_bin_size)
+      
+      dx0 = file_bin_size-dx1
+      dy0 = file_bin_size-dy1
+      
+      # Calc weights for four bins overlapping loop square      
+      sq = float(file_bin_size ** 2)
+      w00 = (dx0*dy0)/sq
+      w01 = (dx0*dy1)/sq
+      w10 = (dx1*dy0)/sq
+      w11 = (dx1*dy1)/sq
       
       valid = rows >= 0
       valid &= rows < n
@@ -164,13 +183,9 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
         msg = 'Found {:,} out-of-bounds points, relative to contact map, in chromosome/contig {}'
         util.warn(msg.format(len(pos_1)-len(rows), chr_a))  
       
-      counts = np.zeros(nl) # Must be same len for each Hi-C file for comparisons
-      counts[valid] = mat[(rows,cols)] # Invalid remain zero
-
-      #counts[valid] += mat[(rows-1,cols-1)]/3.0 # Invalid remain zero
-      #counts[valid] += mat[(rows,cols-1)]/3.0 # Invalid remain zero
-      #counts[valid] += mat[(rows-1,cols)]/3.0 # Invalid remain zero
-      
+      counts = np.zeros(nl) # Must be same len for each Hi-C file for comparisons,  Invalid remain zero
+      counts[valid]  = w11[valid] * mat[(rows,cols)] + w01[valid] * mat[(rows-1,cols)] \
+                       + w10[valid] * mat[(rows,cols-1)] + w00[valid] * mat[(rows-1,cols-1)]      
       if tsv_path:
         counts_dict[chromo_pair].append(counts)
       
@@ -184,6 +199,26 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
     all_counts.append(file_counts)
     all_deltas.append(file_deltas)
   
+  
+  ref_counts = all_counts[0]
+  ref_nz = ref_counts > 0
+  
+  from scipy.stats import linregress
+  
+  # Normalise to reference Hi-C
+  
+  for i, counts in enumerate(all_counts[1:], 1):
+    nz = (counts > 0) & ref_nz
+    x = ref_counts[nz]
+    y = counts[nz]
+    grad, y0, r, p, stderr = linregress(x, y)
+    
+    counts[nz] -= y0
+    counts[nz] /= grad
+    
+  """
+  """
+    
   if tsv_path:
     util.warn('Only separations larger than the Hi-C bin size are written to TSV.')  
     with open(tsv_path, 'w') as file_obj:
@@ -245,7 +280,7 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
   colors = [hsv_to_rgb(h, 1.0, 0.5) for h in np.arange(0.0, 0.8, 1.0/n_inp)] 
   colors = ['#%02X%02X%02X' % (r*255, g*255, b*255) for r,g,b in colors]
   
-  score_range = (0.0, max_count)
+  score_range = (-2.0, max_count)
  
   fig = plt.figure()
   fig.set_size_inches(8.0, 12.0)
@@ -258,17 +293,14 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
   ax1.set_xlabel('Normalised contact $log_{10}$(count)')
   ax1.set_ylabel('Probability density')
   #ax1.set_xlim(score_range)
-  n_bins = 50
+  n_bins = 100
   
   for i, counts in enumerate(all_counts):
-    nz = (counts > 0)
-    hist, edges = np.histogram(np.log10(counts[nz]), normed=True, bins=n_bins) #  , range=score_range)
+    nz = (counts != 0)
+    hist, edges = np.histogram(np.log10(counts[nz]), normed=True, bins=n_bins, range=score_range)
     ax1.plot(edges[:-1], hist, alpha=0.5, linewidth=2, label=labels[i], color=colors[i])
   
   ax1.legend(loc=2)
-  
-  ref_counts = all_counts[0]
-  ref_nz = ref_counts > 0
   
   for i, counts in enumerate(all_counts[1:], 1):
     nz = (counts > 0) & ref_nz
@@ -332,10 +364,9 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
  
     cmap =  LinearSegmentedColormap.from_list(name='pcm%d' % i, colors=['#FFFFFF',colors[i], '#000000'], N=255)
     cmap.set_bad('#FFFFFF')
-    nz = (counts > 0) & ref_nz
-    #ax2.scatter(np.log10(ref_counts[nz]), np.log10(counts[nz]), alpha=0.2, s=2, label=labels[i], color=colors[i])
-    #ax2.plot(sorted(np.log10(ref_counts[nz]/counts[nz])), alpha=0.2,  label=labels[i], color=colors[i])
-    #counts, xedges, yedges, img = ax.hist2d(ref_counts[nz], counts[nz],
+    
+    nz = (counts != 0) & ref_nz
+
     counts, xedges, yedges, img = ax.hist2d(np.log10(ref_counts[nz]), np.log10(counts[nz]),
                                             label=labels[i], cmap=cmap, bins=(100,100), norm=LogNorm())
     cbar = plt.colorbar(img, ax=ax, orientation='vertical')

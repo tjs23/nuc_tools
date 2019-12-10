@@ -77,14 +77,17 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
     
     too_small = scale < (clip*med)
     too_large = scale > (med/clip)
-    
+
     scale[scale == 0] = 1.0
     scale = 1.0/scale
  
     scale[too_small] = 0.0
     scale[too_large] = 0.0
     
-    contact_scale[chr_a] = scale    
+    #nz = scale.nonzero()[0]
+    #scale *= len(nz)/scale[nz].sum()
+    
+    contact_scale[chr_a] = scale
   
   for chr_a, chr_b in pairs: # Sorted and available
     is_cis = chr_a == chr_b
@@ -125,17 +128,13 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
         contact_scale[chr_a] *= 2 # Everything was counted twice : divide by double the amount
       else:
         mat += mat.T
-    
-    if is_cis:
-      mat -= np.diag(np.diag(mat))
-      mat += mat.T
-      
+     
     scale_a = contact_scale[chr_a].astype(np.float32)
     scale_b = contact_scale[chr_b].astype(np.float32)
-    
+        
     mat *= np.sqrt(np.outer(scale_a, scale_b))
     
-    nnz = np.sqrt(len(scale_a.nonzero()[0]) * len(scale_b.nonzero()[0]))
+    nnz = len(scale_a.nonzero()[0]) * len(scale_b.nonzero()[0])
     
     msum = mat.sum()
     
@@ -159,7 +158,7 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
     contact_dict[(chr_a, chr_b)] = mat
   
   util.info(' .. normalised {} chromosomes/pairs'.format(len(pairs)), line_return=True)
-  
+
   
 def contact_compare(in_path_a, in_path_b, pdf_path=None, npz_path=None, bin_size=None,
                     compare_trans=False, min_contig_size=None, d_max=None,
