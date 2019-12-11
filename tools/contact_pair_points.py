@@ -99,18 +99,27 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
   
   from matplotlib import pyplot as plt
   
+  ref_mats = {}
+  ref_chromo_limits = None
+  
+  num_loops = 0
+  
   for i, in_path in enumerate(contact_paths):
     
     file_bin_size, chromo_limits, contacts = npz.load_npz_contacts(in_path, trans=False, store_sparse=True)
-    count_scales = normalize_contacts(contacts, chromo_limits, file_bin_size, store_sparse=True)
+    
+    #if ref_chromo_limits:
+    #  normalize_contacts(contacts, chromo_limits, file_bin_size, ref_chromo_limits, store_sparse=True)
+    #else:
+    #  ref_chromo_limits = chromo_limits
+    
+    normalize_contacts(contacts, chromo_limits, file_bin_size, store_sparse=True)
     
     chromos = util.sort_chromosomes([x[0] for x in contacts])
     file_counts = []
     file_deltas = []
     
     for chr_a in chromos:
-      #if chr_a != 'chr1':
-      #  continue
     
       chromo_pair = (chr_a, chr_a)
       loops = point_dict.get(chromo_pair)
@@ -120,6 +129,8 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
       
       loops = np.array(loops, float)
       nl = len(loops)
+      if i == 0:
+        num_loops += nl
       
       start, end = chromo_limits[chr_a]     
       mat = contacts[chromo_pair]
@@ -127,19 +138,17 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
       if hasattr(mat, 'toarray'):
         mat = mat.toarray()
       
+      n = len(mat)
       mat = mat.astype(float)
       msum = mat.sum()
             
       if not msum:
         continue
       
-      mat *= 1e7/mat.max()
+      mat *= 1e9/mat.sum()
       
-      
-      n = len(mat)
       """
       medians = np.ones(n, float)
-      
       for d in range(1, n):
         deltas = np.zeros(n-d, float)
         idx = np.array(range(n-d))
@@ -202,22 +211,6 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
   
   ref_counts = all_counts[0]
   ref_nz = ref_counts > 0
-  
-  from scipy.stats import linregress
-  
-  # Normalise to reference Hi-C
-  
-  for i, counts in enumerate(all_counts[1:], 1):
-    nz = (counts > 0) & ref_nz
-    x = ref_counts[nz]
-    y = counts[nz]
-    grad, y0, r, p, stderr = linregress(x, y)
-    
-    counts[nz] -= y0
-    counts[nz] /= grad
-    
-  """
-  """
     
   if tsv_path:
     util.warn('Only separations larger than the Hi-C bin size are written to TSV.')  
@@ -269,6 +262,9 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
   max_count = max([x.max() for x in all_counts])
   max_count = np.ceil(10.0*np.log10(max_count))/10.0
   
+  min_count = max([x[x > 0].min() for x in all_counts ])
+  min_count = np.floor(10.0*np.log10(min_count))/10.0
+  
   ss_min = min([x.min() for x in all_deltas])*file_bin_size/1e3 
   ss_max = max([x.max() for x in all_deltas])*file_bin_size/1e3 
   
@@ -280,19 +276,22 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
   colors = [hsv_to_rgb(h, 1.0, 0.5) for h in np.arange(0.0, 0.8, 1.0/n_inp)] 
   colors = ['#%02X%02X%02X' % (r*255, g*255, b*255) for r,g,b in colors]
   
-  score_range = (-2.0, max_count)
+  score_range = (min_count, max_count)
  
   fig = plt.figure()
-  fig.set_size_inches(8.0, 12.0)
+  fig.set_size_inches(10.0, 8.0)
+  ax1 = fig.add_axes([0.1, 0.10, 0.8, 0.8])
   
-  ax1 = fig.add_axes([0.1, 0.55, 0.8, 0.4])
-  ax2 = fig.add_axes([0.1, 0.10, 0.8, 0.4])
+  pair_file_name = os.path.basename(paired_region_path)
   
-  ax1.set_title('Hi-C counts (%d kb bins) at %s points' % (file_bin_size/1e3, os.path.basename(paired_region_path)))
+  if len(pair_file_name) > 80:
+    pair_file_name = pair_file_name[:80] + '...'
+
+  ax1.set_title('Hi-C count distributions ({:.1f} kb bins) for {:,} paired points\nin file {}'.format(file_bin_size/1e3, num_loops, pair_file_name))
   
   ax1.set_xlabel('Normalised contact $log_{10}$(count)')
   ax1.set_ylabel('Probability density')
-  #ax1.set_xlim(score_range)
+  ax1.set_xlim(score_range)
   n_bins = 100
   
   for i, counts in enumerate(all_counts):
@@ -301,6 +300,16 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
     ax1.plot(edges[:-1], hist, alpha=0.5, linewidth=2, label=labels[i], color=colors[i])
   
   ax1.legend(loc=2)
+  
+  if pdf:
+    pdf.savefig(dpi=100)
+  else:
+    plt.show() 
+  
+  fig = plt.figure()
+  fig.set_size_inches(10.0, 8.0)
+  ax = fig.add_axes([0.1, 0.10, 0.8, 0.8])
+  ax.set_title('Average Hi-C count ratios ({:.1f} kb bins) vs sequence separation'.format(file_bin_size/1e3))
   
   for i, counts in enumerate(all_counts[1:], 1):
     nz = (counts > 0) & ref_nz
@@ -311,63 +320,89 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
     data_dict = defaultdict(list) 
     for j, sep in enumerate(seps):
       data_dict[sep].append(ratios[j])
-    
-    lquart = []
-    uquart = []
-    medians = [] 
+
     x_vals = []
     means = []
     sems = []
     for sep in range(int(max_sep/file_bin_size)):
       if sep in data_dict:
         col_data = data_dict[sep]
-        q25, q50, q75 = np.percentile(col_data, [25.0, 50.0, 75.0])
-        medians.append(q50)
-        lquart.append(q25)
-        uquart.append(q75)
         means.append(np.mean(col_data))
         sems.append(sem(col_data))
         x_vals.append(file_bin_size/1e3 * sep)
     
-    medians = np.array(medians)
-    lquart = np.array(lquart)
-    uquart = np.array(uquart)
     means = np.array(means)
     sems = np.array(sems)
-    
-    #yerr = [medians-lquart, uquart-medians]
+    ax.plot(x_vals, means, alpha=0.5, label='%s/%s' % (labels[i],labels[0]), linewidth=2, color=colors[i])
+    ax.errorbar(x_vals, means, sems, alpha=0.5, color=colors[i], label='SEM')
 
-    ax2.plot(x_vals, means, alpha=0.3, label='%s/%s' % (labels[i],labels[0]), color=colors[i])
-    ax2.errorbar(x_vals, means, sems, alpha=0.3, color=colors[i])
-
-  ax2.set_xlabel('Seq. separation (kb)')
-  ax2.set_ylabel('Mean log(count_ratio)')
-  #ax2.set_xlim([])
+  ax.set_xlabel('Seq. separation (kb)')
+  ax.set_ylabel('Mean $log$(count_ratio)')
    
-  ax2.plot([ss_min, ss_max], [0.0, 0.0], color='#808080', alpha=0.5) 
-  ax2.legend(loc=4)
+  ax.plot([ss_min, ss_max], [0.0, 0.0], color='#808080', alpha=0.5, linestyle='--', linewidth=2) 
+  ax.legend(loc=4)
   
   if pdf:
     pdf.savefig(dpi=100)
   else:
     plt.show() 
   
+  fig = plt.figure()
+  fig.set_size_inches(10.0, 8.0)
+  ax2 = fig.add_axes([0.1, 0.10, 0.8, 0.8])
+  ax2.set_title('Average Hi-C count ratios ({:.1f} kb bins) vs $log_{{10}}$(sequence separation)'.format(file_bin_size/1e3))
+  
+  for i, counts in enumerate(all_counts[1:], 1):
+    nz = (counts > 0) & ref_nz
+  
+    ratios = np.log10(counts[nz]/ref_counts[nz])    
+    seps = all_deltas[i][nz] 
+    
+    data_dict = defaultdict(list) 
+    for j, sep in enumerate(seps):
+      data_dict[sep].append(ratios[j])
+
+    x_vals = []
+    means = []
+    sems = []
+    for sep in range(int(max_sep/file_bin_size)):
+      if sep in data_dict:
+        col_data = data_dict[sep]
+        means.append(np.mean(col_data))
+        sems.append(sem(col_data))
+        x_vals.append(file_bin_size * sep)
+    
+    means = np.array(means)
+    sems = np.array(sems)
+    ax2.plot(np.log10(x_vals), means, alpha=0.5, label='%s/%s' % (labels[i],labels[0]), linewidth=2, color=colors[i])
+    ax2.errorbar(np.log10(x_vals), means, sems, alpha=0.5, color=colors[i], label='SEM')
+
+  ax2.set_xlabel('$log_{10}$(Seq. separation)')
+  ax2.set_ylabel('Mean $log$(count_ratio)')
+
+  ax2.plot([np.log10(file_bin_size), np.log10(1e3*ss_max)], [0.0, 0.0], color='#808080', alpha=0.5, linestyle='--', linewidth=2) 
+  ax2.legend(loc='lower left')
+  
+  if pdf:
+    pdf.savefig(dpi=100)
+  else:
+    plt.show() 
   
   for i, counts in enumerate(all_counts[1:], 1):
     fig = plt.figure()
     fig.set_size_inches(10.0, 8.0)
     
     ax = fig.add_axes([0.1, 0.10, 0.8, 0.8])
-    ax.set_title('%s vs %s' % (labels[0], labels[i]))
+    ax.set_title('%s vs %s same bin comparison (%.1f kb)' % (labels[0], labels[i], file_bin_size/1e3))
     ax.set_xlabel('Normalised $log_{10}$(count), %s' % labels[0])
     ax.set_ylabel('Normalised $log_{10}$(count), other')
  
-    cmap =  LinearSegmentedColormap.from_list(name='pcm%d' % i, colors=['#FFFFFF',colors[i], '#000000'], N=255)
+    cmap =  LinearSegmentedColormap.from_list(name='pcm%d' % i, colors=['#FFFFFF', colors[i], '#000000', '#FFFFFF'], N=255)
     cmap.set_bad('#FFFFFF')
     
-    nz = (counts != 0) & ref_nz
+    nz = (counts > 0) & ref_nz
 
-    counts, xedges, yedges, img = ax.hist2d(np.log10(ref_counts[nz]), np.log10(counts[nz]),
+    counts, xedges, yedges, img = ax.hist2d(np.log10(ref_counts[nz]), np.log10(counts[nz]), range=(score_range, score_range),
                                             label=labels[i], cmap=cmap, bins=(100,100), norm=LogNorm())
     cbar = plt.colorbar(img, ax=ax, orientation='vertical')
     cbar.ax.tick_params(labelsize=9)

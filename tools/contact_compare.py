@@ -40,8 +40,8 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
     off = int(s/bin_size) # Offset in the original data
     chromo_offsets[chr_a] = off
     
-    s, e = new_chromo_limits[chr_a] # Range in new data
-    num_bins = int(math.ceil(e/bin_size)) 
+    s2, e2 = new_chromo_limits[chr_a] # Range in new data
+    num_bins = int(math.ceil(e2/bin_size)) 
     contact_scale[chr_a] = np.zeros(num_bins, float) # Always start from zero
     chromo_sizes[chr_a] = num_bins
      
@@ -65,9 +65,12 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
       pairs.append(pair)
       off_a = chromo_offsets[chr_a]
       off_b = chromo_offsets[chr_b]
-     
-      contact_scale[chr_a][off_a:off_a+a] += orig_mat.sum(axis=1)
-      contact_scale[chr_b][off_b:off_b+b] += orig_mat.sum(axis=0)
+      
+      n = min(off_a+a, len(contact_scale[chr_a])) # Matrix can exceed the new chromo limits
+      m = min(off_b+b, len(contact_scale[chr_b]))
+      
+      contact_scale[chr_a][off_a:n] += orig_mat[:n-off_a].sum(axis=1)
+      contact_scale[chr_b][off_b:m] += orig_mat[:,:m-off_b].sum(axis=0)
   
   # Make reciprocal and remove void regions
         
@@ -103,17 +106,29 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
       mat = mat.toarray()
     
     mat = mat.astype(np.float32)
+    
     a, b = mat.shape
     off_a = chromo_offsets[chr_a]
     lim_a = chromo_sizes[chr_a]
     off_b = chromo_offsets[chr_b]
     lim_b = chromo_sizes[chr_b]
     
-    if off_a or off_b or (lim_a-a-off_a) or (lim_b-b-off_b):
+    after_a = max(0, (lim_a-a-off_a))
+    after_b = max(0, (lim_b-b-off_b))
+    
+    if off_a or off_b or after_a or after_b:
       # all pairs use full range from zero
-      mat = np.pad(mat, [(off_a,lim_a-a-off_a), (off_b,lim_b-b-off_b)], 'constant') # will ensure square cis (it needn't be when only storing upper matrix)
+      mat = np.pad(mat, [(off_a,after_a), (off_b,after_b)], 'constant') # will ensure square cis (it needn't be when only storing upper matrix)
       a, b = mat.shape
+    
+    if a > lim_a:
+      a = lim_a
+      mat = mat[:a]
 
+    if b > lim_b:
+      b = lim_b
+      mat = mat[:,:b]
+    
     if is_cis:
       mat -= np.diag(np.diag(mat))
       cols = np.arange(a-1)
