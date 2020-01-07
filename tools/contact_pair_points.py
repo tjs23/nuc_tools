@@ -141,11 +141,6 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
       n = len(mat)
       mat = mat.astype(float)
       msum = mat.sum()
-            
-      if not msum:
-        continue
-      
-      mat *= 1e9/mat.sum()
       
       """
       medians = np.ones(n, float)
@@ -165,6 +160,16 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
       rows = (pos_1/file_bin_size).astype(int)
       cols = (pos_2/file_bin_size).astype(int)
       
+      deltas = np.abs(rows-cols) # num separating bins, irrespective of validity
+      counts = np.zeros(nl) # Must be same len for each Hi-C file for comparisons,  Invalid remain zero
+                  
+      if not msum:
+        file_counts.append(counts)
+        file_deltas.append(deltas)
+        continue
+      
+      mat *= 1e9/mat.sum()
+      
       dx1 = pos_1-(rows*file_bin_size)
       dy1 = pos_2-(cols*file_bin_size)
       
@@ -183,8 +188,6 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
       valid &= cols >= 0
       valid &= cols < n
       
-      deltas = np.abs(rows-cols) # num separating bins, irrespective of validity
-      
       rows = rows[valid]
       cols = cols[valid]
        
@@ -192,7 +195,6 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
         msg = 'Found {:,} out-of-bounds points, relative to contact map, in chromosome/contig {}'
         util.warn(msg.format(len(pos_1)-len(rows), chr_a))  
       
-      counts = np.zeros(nl) # Must be same len for each Hi-C file for comparisons,  Invalid remain zero
       counts[valid]  = w11[valid] * mat[(rows,cols)] + w01[valid] * mat[(rows-1,cols)] \
                        + w10[valid] * mat[(rows,cols-1)] + w00[valid] * mat[(rows-1,cols-1)]      
       if tsv_path:
