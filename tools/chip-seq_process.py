@@ -165,14 +165,10 @@ def read_chromo_names(file_path):
       else:
         contig, name = data[:2]
  
-        if contig in name_dicts[i]:
+        if contig in name_dict:
           msg ='Chromosome naming file "%s" contains a repeated sequence/contig name: %s'
           util.critical(msg % (file_path, contig))
- 
-        if name in contig_dicts[i]:
-          msg ='Chromosome naming file "%s" contains a repeated chromosome/segment name: %s'
-          util.critical(msg % (file_path, name))
- 
+
         name_dict[contig] = name
  
   if not name_dict:
@@ -184,7 +180,7 @@ def read_chromo_names(file_path):
 def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None, control_fastq_paths=None,
                      control_name=None, control_bam_path=None, chromo_names_path=None, align_exe=None,
                      qual_scheme=None, min_qual=DEFAULT_MIN_QUAL, max_sep=DEFAULT_MAX_SEP,
-                     adapt_seqs=None, num_cpu=None, keep_macs=False, full_out=False):
+                     adapt_seqs=None, num_cpu=None, keep_macs=False, full_out=False, frag_size=None):
 
   from nuc_tools import util, io, formats, parallel
   import shutil
@@ -304,8 +300,11 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
       control_fastq_1 = io.tag_file_name(path_root, 'clip_1', '.fastq')
       control_fastq_2 = io.tag_file_name(path_root, 'clip_2', '.fastq')      
       
-      clip_reads(fastq_1, control_fastq_1, qual_scheme, min_qual, adapt_seqs)
-      clip_reads(fastq_2, control_fastq_2, qual_scheme, min_qual, adapt_seqs)
+      if not os.path.exists(control_fastq_1):
+        clip_reads(fastq_1, control_fastq_1, qual_scheme, min_qual, adapt_seqs)
+
+      if not os.path.exists(control_fastq_2):
+        clip_reads(fastq_2, control_fastq_2, qual_scheme, min_qual, adapt_seqs)
     
       util.info('Mapping control paired-end FASTQ reads to genome index %s' % genome_index)
       
@@ -316,7 +315,8 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
       
       control_fastq_1 = io.tag_file_name(path_root, 'clip_1', '.fastq')
       
-      clip_reads(fastq_1, control_fastq_1, qual_scheme, min_qual, adapt_seqs)
+      if not os.path.exists(control_fastq_1):
+        clip_reads(fastq_1, control_fastq_1, qual_scheme, min_qual, adapt_seqs)
       
       util.info('Mapping control single-end FASTQ reads to genome index %s' % genome_index)
       
@@ -434,6 +434,11 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
     if not os.path.exists(narrow_bed_out):
       if nfq == 2:
         fmt = 'BAMPE'
+        
+        if frag_size:
+          util.warn('DNA fragment size specification (-fs) ignored for paired end reads' )
+          frag_size = None
+        
       else:
         fmt = 'BAM'
  
@@ -447,7 +452,10 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
  
       if control_bam_path:
         common_args += ['-c', control_bam_path]
- 
+      
+      if frag_size:
+        common_args += ['--nomodel', '--extsize', str(frag_size)]
+      
       cmd_args = common_args + ['-n', broad_name, '-B', '-q', '0.05', '--broad', '--outdir', peak_out_dir]
       util.info('Calling broad peaks')
       util.call(cmd_args)
@@ -569,7 +577,10 @@ def main(argv=None):
   arg_parse.add_argument('-qm', '--qual-min', default=DEFAULT_MIN_QUAL, metavar='MIN_QUALITY', type=int, dest='qm',
                          help='Minimum acceptable FASTQ quality score in range 0-40 for' \
                               ' clipping ends of reads. Default: %d' % DEFAULT_MIN_QUAL)
-                         
+                              
+  arg_parse.add_argument('-fs', '--frag-size', default=0, metavar='BP_LENGTH', dest='fs',
+                         type=int, help='Fix the MACS2 molecule fragment size (for single-end reads only), and do not estimate from the reads.')
+                        
   arg_parse.add_argument('-b', '--bowtie2-path', metavar='EXE_FILE', dest='b',
                          help='Path to bowtie2 (read aligner) executable: will be searched' \
                               ' for if not specified.')
@@ -620,8 +631,7 @@ def main(argv=None):
      util.critical('No ChIP FASTQ files specified')
   
   idx, fastq_path_groups, sample_names = zip(*fastq_inputs)
-  
-   
+     
   genome_index = args['g']
   out_dir = args['o']
   control_fastqs = args['c']
@@ -634,6 +644,7 @@ def main(argv=None):
   keep_macs = args['k']
   min_qual = args['qm']
   max_sep = args['m']
+  frag_size = args['fs']
   align_exe = args['b']
   num_cpu = args['n']
   adapt_seqs = args['ad'] or []
@@ -641,8 +652,8 @@ def main(argv=None):
   chip_seq_process(fastq_path_groups, sample_names,
                    genome_index, out_dir, control_fastqs,
                    control_name, control_bam, chromo_names, align_exe,
-                   qual_scheme, min_qual, max_sep,
-                   adapt_seqs, num_cpu, keep_macs, full_out)
+                   qual_scheme, min_qual, max_sep, adapt_seqs, num_cpu,
+                   keep_macs, full_out, frag_size)
    
 if __name__ == '__main__':
 
