@@ -15,7 +15,7 @@ def get_chromosomes(file_path):
       if CHR_KEY_SEP in key:
         chr_a, chr_b = key.split(CHR_KEY_SEP)
         chromos.add(chr_a)
-        chromos.add(chr_a)
+        chromos.add(chr_b)
   
   return chromos
   
