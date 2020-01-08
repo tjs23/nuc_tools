@@ -39,6 +39,7 @@ def poisson_wald(c1, c2, n1=None, n2=None,
 
   return z_stat, p_val
   
+  
 def contact_points(paired_region_path, contact_paths, pdf_path,
                    bin_size=DEFAULT_BIN_SIZE, labels=None,
                    screen_gfx=False, tsv_path=None, max_sep=4e6):
@@ -93,6 +94,22 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
         prev = (chromo, int(start), int(end), int(obs))
         prev_pair_id = pair_id
   
+  chromos = set()
+  for in_path in contact_paths:
+    file_chromos = npz.get_chromosomes(in_path)
+    
+    if chromos:
+      chromos &= file_chromos
+    else:
+      chromos = file_chromos
+  
+  if not chromos:
+    util.critical('No common chromosomes found for input Hi-C datasets')
+  
+  else:
+    chromos = util.sort_chromosomes(chromos)
+    util.info('Found {:,} common chromosomes/contigs in Hi-C datasets'.format(len(chromos)))
+  
   n_inp = len(contact_paths)
   all_counts = []
   all_deltas = []
@@ -115,7 +132,6 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
     
     normalize_contacts(contacts, chromo_limits, file_bin_size, store_sparse=True)
     
-    chromos = util.sort_chromosomes([x[0] for x in contacts])
     file_counts = []
     file_deltas = []
     
@@ -204,7 +220,7 @@ def contact_points(paired_region_path, contact_paths, pdf_path,
 
       file_counts.append(counts)
       file_deltas.append(deltas)
-    
+
     file_deltas = np.concatenate(file_deltas)
     file_counts = np.concatenate(file_counts)
     all_counts.append(file_counts)

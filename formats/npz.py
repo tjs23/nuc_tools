@@ -4,6 +4,22 @@ from scipy import sparse
 
 CHR_KEY_SEP = ' '
 
+def get_chromosomes(file_path):
+  
+  chromos = set()
+  
+  file_dict = np.load(file_path, allow_pickle=True)
+ 
+  for key in sorted(file_dict):
+    if key != 'params':
+      if CHR_KEY_SEP in key:
+        chr_a, chr_b = key.split(CHR_KEY_SEP)
+        chromos.add(chr_a)
+        chromos.add(chr_a)
+  
+  return chromos
+  
+  
 def load_npz_contacts(file_path, trans=True, store_sparse=False, display_counts=False):
   
   file_dict = np.load(file_path, allow_pickle=True)
@@ -29,6 +45,11 @@ def load_npz_contacts(file_path, trans=True, store_sparse=False, display_counts=
           
           if chr_a == chr_b:
             a, b = mat.shape
+            
+            if a != b:
+              a = min(a,b)
+              mat = mat[:a,:a]
+            
             cols = np.arange(a-1)
             rows = cols-1
 
