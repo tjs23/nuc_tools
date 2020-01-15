@@ -616,34 +616,27 @@ def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
   return counts, matrix, ambig_matrix, label_pos, chromo_offsets, trans_counts, ambig_groups
 
 
-def _get_tick_delta(n, bin_size, unit=1e6, max_ticks=8):
-   
-  val_max = n * bin_size
+def _get_tick_delta(n_bins, bin_size_units, max_ticks=10):
   
-  step = max(val_max/max_ticks, 2*bin_size)
-  #step = val_max/max_ticks
+  tick_delta = max(2, int(n_bins/float(max_ticks))) # Bins between ticks
   
-  sf = min(0, int(floor(np.log10(step))))
-
-  inc = 10.0 ** sf
+  tick_delta_units = tick_delta * bin_size_units
   
-  step = round(step, -sf)
-   
-  while (step % (5*inc) != 0):
-    step += inc
-    step = round(step, -sf)
- 
-  tick_delta = step/bin_size
+  sf = int(floor(np.log10(tick_delta_units)))
   
-  if tick_delta < 10:
-    nminor = tick_delta
+  tick_delta_units = round(tick_delta_units, -sf) # round to nearest 100, 10, 1, 0.1 etc
   
-  else:
-    nminor = step/(5*inc)
- 
-    if nminor < 2:
-      nminor = step/inc
-    
+  step = 10 ** sf
+  
+  while (tick_delta_units % 5 != 0):
+    tick_delta_units += step
+  
+  tick_delta = tick_delta_units/bin_size_units
+  nminor = tick_delta # default to tick at each bin
+  
+  if nminor > max_ticks:
+     nminor = 5
+  
   return tick_delta, nminor
 
 
@@ -953,7 +946,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       diag_mat_ambig = None
 
     diag_mat = get_diag_region(diag_thick, matrix, double_diag)
-    tick_delta, nminor = _get_tick_delta(w, 0.5*bin_size/unit)
+    tick_delta, nminor = _get_tick_delta(w, bin_size/unit)
         
     for i in range(nax):
       xminor_tick_locator = AutoMinorLocator(nminor)
@@ -1163,12 +1156,12 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
  
     else:
       xrotation = None
-      tick_delta, nminor = _get_tick_delta(b, bin_size/unit, unit)
+      tick_delta, nminor = _get_tick_delta(b, bin_size/unit)
       xlabel_pos = np.arange(0, b, tick_delta) # Pixel bins      
       xlabels = [label_pat % ((x*bin_size+x_start)/unit) for x in xlabel_pos]
       xminor_tick_locator = AutoMinorLocator(nminor)
  
-      tick_delta, nminor = _get_tick_delta(a, bin_size/unit, unit)
+      tick_delta, nminor = _get_tick_delta(a, bin_size/unit)
       ylabel_pos = np.arange(0, a, tick_delta) # Pixel bins
       ylabels = [label_pat % ((y*bin_size+y_start)/unit) for y in ylabel_pos]
       yminor_tick_locator = AutoMinorLocator(nminor)
