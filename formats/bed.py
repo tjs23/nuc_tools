@@ -101,11 +101,28 @@ def load_bed_data_track(file_path):
     while line[0] == '#':
       line = file_obj.readline() 
     
-    n_fields = len(line.split())
+    data = line.split()
+    n_fields = len(data)
     have_anno = n_fields > 3
-    have_val = n_fields > 4
     have_strand = n_fields > 5
+    val_idx = 0 
+ 
+    if 4 < n_fields < 7:
+      val_idx = 4
+ 
+    elif n_fields > 6:
+      for i in range(6, n_fields):
+        try:
+          test = float(data[i])
+          val_idx = i
+          break
+          
+        except ValueError as err:
+          continue  
       
+      else:
+        val_idx = 4
+    
   with io.open_file(file_path) as file_obj:
 
     for i, line in enumerate(file_obj):
@@ -125,8 +142,9 @@ def load_bed_data_track(file_path):
       else:
         label = '%d' % i
       
-      if have_val:
-        score = float(data[7])
+      if val_idx:
+        score = float(data[val_idx])
+        
       else:
         score = 1.0
                   
