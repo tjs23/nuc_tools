@@ -189,7 +189,7 @@ def check_file_labels(file_labels, file_paths):
     
   for i, label in enumerate(file_labels):
     file_labels[i] = file_labels[i].replace('_',' ')
-  
+
   return file_labels
   
 

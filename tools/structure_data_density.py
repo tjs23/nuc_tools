@@ -985,16 +985,7 @@ def structure_data_density(struc_paths1, struc_paths2, data_tracks, data_labels=
     file_name = DEFAULT_PDF_OUT.format(job, n_structs, len(data_tracks))
     out_path = os.path.join(dir_path, file_name)
 
-  if data_labels:
-    for i, label in enumerate(data_labels):
-      data_labels[i] = label.replace('_',' ')
-      
-    while len(data_labels) < len(data_tracks):
-      i = len(data_labels)
-      data_labels.append(io.get_file_root(data_tracks[i]))
-      
-  else:
-    data_labels = [io.get_file_root(x) for x in data_tracks]
+  data_labels = io.check_file_labels(data_labels, data_tracks)
   
   if cache_dir and not os.path.exists(cache_dir):
     io.makedirs(cache_dir, exist_ok=True)

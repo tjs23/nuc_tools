@@ -6,6 +6,8 @@ from os.path import dirname
 np.seterr(all='raise')
 import warnings
 warnings.filterwarnings("error")
+warnings.filterwarnings("ignore", message="numpy.dtype size changed")
+warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
 
 PROG_NAME = 'data_track_compare'
 VERSION = '1.0.0'
@@ -24,10 +26,11 @@ PDF_DPI = 200
 HIST_BINS2D = 50
 
 LOG_THRESH = 4
+INF = float('inf')
 
 NUM_QUANT_BINS = 10
 
-PLOT_CMAP = LinearSegmentedColormap.from_list(name='PLOT_CMAP', colors=['#00C0C0','#0040FF','#FF0000','#C0C000','#808080'], N=255)   
+PLOT_CMAP = LinearSegmentedColormap.from_list(name='PLOT_CMAP', colors=['#FF0000','#0050FF','#BBBB00','#808080','#FF00FF', '#00BBBB', '#00BB00', '#8000FF', '#FF8000'], N=255)   
 
 def _load_bin_data(data_paths, bin_size):
   
@@ -82,9 +85,76 @@ def _load_bin_data(data_paths, bin_size):
                                                    
   return binned_data_dict, data_dict, chromo_limits
 
+
+def plot_value_distribs(data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, pdf):
+  
+  data_labels = []
+  data_paths = []
+
+  for i, ref_data_path in enumerate(ref_data_paths):
+    if ref_data_path not in data_paths:
+      data_paths.append(ref_data_path)
+      data_labels.append(ref_labels[i])
+
+  for i, comp_data_path in enumerate(comp_data_paths):
+    if ref_data_path not in data_paths:
+      data_paths.append(comp_data_path)
+      data_labels.append(comp_labels[i])
+  
+  n_data = len(data_paths)
+  n_rows = int(math.ceil(math.sqrt(n_data)))
+  n_cols = int(math.ceil(n_data / float(n_rows))) 
+  
+  fig, axarr = plt.subplots(n_rows, n_cols, squeeze=False) # , sharex=True, sharey=True)
+    
+  plt.subplots_adjust(left=0.12, bottom=0.1, right=0.95, top=0.94, wspace=0.3, hspace=0.2)
+  
+  for i, d1 in enumerate(data_paths):
+    row = int(i//n_cols)
+    col = i % n_cols
+    
+    data_regions, data_values = data_dict[d1]
+    
+    vals = np.concatenate([data_values[chromo] for chromo in data_values])
+    vals = vals[vals > 0] 
+    vals = np.log10(vals)
+    label = data_labels[i]
+    
+    ax = axarr[row, col]
+    ax.tick_params(axis='both', which='major', labelsize=7)
+    ax.tick_params(axis='both', which='minor', labelsize=7)    
+    
+    hist, edges = np.histogram(vals, bins=100)
+    
+    ax.plot(edges[:-1], hist, alpha=0.67, color=PLOT_CMAP(i/float(n_data-1)), label=label + '\nn=%d' % len(vals))
+    ax.legend(fontsize=7)
+
+  fig.text(0.5, 0.975, 'Data value distributions', color='#000000',
+           horizontalalignment='center',
+           verticalalignment='center', rotation=0,
+           fontsize=13, transform=fig.transFigure)
+    
+  fig.text(0.025, 0.5, 'Count', color='#000000',
+           horizontalalignment='center',
+           verticalalignment='center', rotation=90,
+           fontsize=13, transform=fig.transFigure)
+
+  fig.text(0.5, 0.025, '$log_{10}$(Data value)', color='#000000',
+           horizontalalignment='center',
+           verticalalignment='center', rotation=0,
+           fontsize=13, transform=fig.transFigure)
+            
+  if pdf:
+    pdf.savefig(dpi=PDF_DPI)
+  else:
+    plt.show()
+    
+  plt.close()     
+    
+  
 def plot_data_line_correlations(data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, pdf):
 
-  from scipy import stats
+  from scipy.stats import rankdata, sem
   
   n_ref = len(ref_data_paths)
   n_comp = len(comp_data_paths)
@@ -105,11 +175,17 @@ def plot_data_line_correlations(data_dict, ref_data_paths, comp_data_paths, ref_
   
   nq = NUM_QUANT_BINS
   x_label = 'Precentile bin'
+  y_max_all = 0.0
+  y_min_all = 0.0
+  used_labels = set()
+  used = np.zeros((n_rows, n_cols))
   
   for i, d1 in enumerate(ref_data_paths):
     row = int(i//n_cols)
     col = i % n_cols
-    
+     
+    used[row, col] = 1
+   
     vals1 = data_dict[d1]
     nzy = vals1 > 0
 
@@ -122,13 +198,21 @@ def plot_data_line_correlations(data_dict, ref_data_paths, comp_data_paths, ref_
     #ax.set_ylim(*y_lim)
     
     x_lim = (0.0, 100.0)
+    y_max = 0.0
+    y_min = INF
     
-    
+    if i == 0:
+      for j, d2 in enumerate(comp_data_paths):
+        color = PLOT_CMAP(j/float(n_comp-1))
+        label = comp_labels[j]
+        ax.plot([], alpha=0.65, color=color, label=label)    
     
     for j, d2 in enumerate(comp_data_paths):
       if j == i:
         continue
-    
+     
+      color = PLOT_CMAP(j/float(n_comp-1))    
+      
       vals2 = data_dict[d2]
       nzx = vals2 > 0
       nz = nzx & nzy
@@ -138,11 +222,12 @@ def plot_data_line_correlations(data_dict, ref_data_paths, comp_data_paths, ref_
       
       y_vals = np.log10(y_vals)
       
-      x_vals = stats.rankdata(x_vals)
+      x_vals = rankdata(x_vals)
       x_vals /= float(len(x_vals))
       idx = x_vals.argsort()
       x_vals = x_vals[idx]
       y_vals = y_vals[idx]
+     
  
       bw = 100/nq
  
@@ -152,20 +237,25 @@ def plot_data_line_correlations(data_dict, ref_data_paths, comp_data_paths, ref_
       
       y_med = np.array([np.mean(d) for d in y_split])
       
-      y_sem = np.array([stats.sem(d) for d in y_split])
-      
+      y_sem = np.array([sem(d) for d in y_split])
+     
+      y_upp = y_med + y_sem
+      y_low = y_med - y_sem
+     
+      y_max = max(y_max, y_upp.max())
+      y_min = min(y_min, y_low.max())
+       
       #y_q25 = [np.percentile(d, 25.0) for d in y_split]
       #y_q75 = [np.percentile(d, 75.0) for d in y_split]
       
       #ax.plot(x_pos, y_med, label=comp_labels[col], alpha=0.5)
 
-      ax.errorbar(x_pos, y_med, y_sem, linewidth=1, alpha=0.67, color=PLOT_CMAP(j/float(n_comp-1)), label=comp_labels[j], zorder=j+n_comp)
+      ax.errorbar(x_pos, y_med, y_sem, linewidth=1, alpha=0.4, color=color, zorder=j+n_comp)
       
       #ax.fill_between(x_pos, y_q25, y_q75, linewidth=0, alpha=0.2, color=color, zorder=j)
       
-      
-    ax.set_xlim((0, nq)) 
-    
+    y_max_all = max(y_max_all, y_max)
+    y_min_all = max(y_min_all, y_max)
     ax.set_ylabel(ref_labels[i], fontsize=9)
     
     if row == n_rows-1:
@@ -176,19 +266,23 @@ def plot_data_line_correlations(data_dict, ref_data_paths, comp_data_paths, ref_
       ax.set_xticks([])
    
   fig.legend(frameon=False, fontsize=9, loc=8, ncol=int((n_ref+1)/2))
-  
-  i += 1
-  while i < (n_rows*n_cols):
-    row = int(i//n_cols)
-    col = i % n_cols
-    axarr[row, col].axis('off')
-    
-    axarr[row-1, col].set_xticks(np.arange(0, nq+1)-0.5)
-    axarr[row-1, col].set_xticklabels(bw*np.arange(0, nq+1))
-    axarr[row-1, col].set_xlabel(x_label, fontsize=9)
-    
-    i += 1
 
+  for col in range(n_cols):
+    lr = used[:,col].sum()-1
+    
+    for row in range(n_rows):
+      ax = axarr[row, col]
+      ax.grid(True, which='major', axis='x', alpha=0.5, linestyle='--')
+      #ax.set_ylim(y_min_all, 1.1*y_max_all)
+      
+      if row < lr:
+        ax.set_xticklabels([])
+         
+      elif row == lr:
+        ax.set_xlabel(x_label, fontsize=8)        
+      
+      else:
+        ax.axis('off')
   
   fig.text(0.025, 0.5, 'Mean $log_{10}$(Data value)', color='#000000',
            horizontalalignment='center',
@@ -206,7 +300,7 @@ def plot_data_line_correlations(data_dict, ref_data_paths, comp_data_paths, ref_
 def plot_data_correlations(title, data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf,
                            quantile_x=False, quantile_y=False, violin=False, boxplot=False):
   
-  from scipy import stats
+  from scipy.stats import sem, rankdata, pearsonr, spearmanr
   
   n_ref = len(ref_data_paths)
   n_comp = len(comp_data_paths)
@@ -281,18 +375,18 @@ def plot_data_correlations(title, data_dict, ref_data_paths, comp_data_paths, re
       x_vals = vals2[nz]
       
       n = len(x_vals)  
-      r, p = stats.pearsonr(x_vals, y_vals)
-      rho, p = stats.spearmanr(x_vals, y_vals)
+      r, p = pearsonr(x_vals, y_vals)
+      rho, p = spearmanr(x_vals, y_vals)
       
       if log_y:
         y_vals = np.log10(y_vals)
       elif quantile_y:
-        y_vals = stats.rankdata(y_vals)
-        y_vals /= float(len(y_vals))
-
+        y_vals = rankdata(y_vals)
+        y_vals *= 100.0 / float(len(y_vals))
+        
       if violin or boxplot:
         color = PLOT_CMAP(col/float(n_comp-1))
-        x_vals = stats.rankdata(x_vals)
+        x_vals = rankdata(x_vals)
         x_vals /= float(len(x_vals))
         idx = x_vals.argsort()
         x_vals = x_vals[idx]
@@ -301,11 +395,10 @@ def plot_data_correlations(title, data_dict, ref_data_paths, comp_data_paths, re
         bw = 100/NUM_QUANT_BINS
          
         y_split = np.array_split(y_vals, NUM_QUANT_BINS)
-        
+ 
         if violin:
           x_pos = np.arange(0, NUM_QUANT_BINS)
-          print [len(p) for p in y_split], len(x_pos)
-          vp = ax.violinplot(y_split, x_pos, points=50, widths=0.8, bw_method=0.25,
+          vp = ax.violinplot(y_split, x_pos, points=25, widths=0.8, bw_method=0.25,
                              showmeans=False, showextrema=False, showmedians=True)
           ax.set_xlim((-1, NUM_QUANT_BINS))
           ax.set_xticks(np.arange(0, NUM_QUANT_BINS+1)-0.5)
@@ -336,7 +429,7 @@ def plot_data_correlations(title, data_dict, ref_data_paths, comp_data_paths, re
         if log_x:
           x_vals = np.log10(x_vals)
         elif quantile_x:
-          x_vals = 100 * stats.rankdata(x_vals)
+          x_vals = 100 * rankdata(x_vals)
           x_vals /= float(len(x_vals))
           
         ax.hist2d(x_vals, y_vals, 
@@ -397,7 +490,7 @@ def plot_data_correlations(title, data_dict, ref_data_paths, comp_data_paths, re
   plt.close()  
 
 
-def _get_anchor_mat(ref_region_dict, track_hist_dict, chromo_limits, bin_size, n_bins):
+def _get_anchor_mat(ref_region_dict, ref_hist_dict, track_hist_dict, chromo_limits, bin_size, n_bins):
   
   
   hist_mat = []
@@ -420,7 +513,7 @@ def _get_anchor_mat(ref_region_dict, track_hist_dict, chromo_limits, bin_size, n
     m = len(hist)
     n = len(middles)
     
-    idx =  (middles-start)/bin_size # Indices of region centres in chromo track hist
+    idx =  ((middles-start)//bin_size).astype(int) # Indices of region centres in chromo track hist
     
     # For each need cut-out region of other track as hist - then stacked
     
@@ -434,15 +527,19 @@ def _get_anchor_mat(ref_region_dict, track_hist_dict, chromo_limits, bin_size, n
     mat[overhang] = 0
     mat = mat.reshape(n, n_bins)
     
-    mv = mat.max(axis=1)
-    nz = mv > 0
+    #nz = mat.max(axis=1 > 0)
+    #mat = mat[nz]
     
-    mat = mat[nz]
-    mv = mv[nz]
-    
-    mx = mat.argmax(axis=1)
+    #mx = mat.argmax(axis=1)
     #sc = mv * (hw - np.abs(mx-hw))
-    sc = (mat * w).sum(axis=1)
+    #sc = (mat * w).sum(axis=1)
+    
+    #ref_hist = ref_hist_dict[chromo]
+    #ref_mat = ref_hist[ranges]
+    #ref_mat[overhang] = 0
+    #ref_mat = ref_mat.reshape(n, n_bins)
+    
+    sc = mat.max(axis=1)
     
     #mat /= mv[:,None]
         
@@ -504,12 +601,29 @@ def plot_seq_anchor_mat(raw_data_dict, chromo_limits, ref_data_paths, comp_data_
       track_hist_dicts[d2][chromo] = track_hist/med
        
   for col, d1 in enumerate(ref_data_paths):
-    ref_region_dict = raw_data_dict[d1][0]
-  
+    ref_region_dict, ref_value_dict = raw_data_dict[d1]
+    
+    ref_hist_dict = {}
+    meds = []
+    
+    for chromo in chromo_limits:
+      start, end = chromo_limits[chromo]
+      ref_hist = np.log10(1.0+ util.bin_region_values(ref_region_dict[chromo], ref_value_dict[chromo], bin_size, start, end)) 
+      ref_hist_dict[chromo] = ref_hist
+      idx = (ref_hist>0).nonzero()[0]
+      
+      if len(idx):
+        meds.append(np.median(ref_hist[idx]))
+    
+    med = np.median(meds)
+    for chromo in chromo_limits:
+      ref_hist = ref_hist_dict[chromo]
+      ref_hist_dict[chromo] = ref_hist/med
+    
     for row, d2 in enumerate(comp_data_paths):
       ax = axarr[row, col]
       
-      mat = _get_anchor_mat(ref_region_dict, track_hist_dicts[d2], chromo_limits, bin_size, n_bins)
+      mat = _get_anchor_mat(ref_region_dict, ref_hist_dict, track_hist_dicts[d2], chromo_limits, bin_size, n_bins)
       
       if len(mat):
         cax = ax.matshow(mat, cmap=colors, aspect='auto', vmin=0.0, vmax=1.5)
@@ -586,8 +700,8 @@ def _get_seq_seps(ref_region_dict, region_dict):
     dn_deltas.append(deltas_dn[idx])
     up_deltas.append(deltas[~idx])
      
-  up_deltas = np.clip(np.concatenate(up_deltas, axis=0), 1, sys.maxint)
-  dn_deltas = np.clip(np.concatenate(dn_deltas, axis=0), 1, sys.maxint)
+  up_deltas = np.clip(np.concatenate(up_deltas, axis=0), 1, INF)
+  dn_deltas = np.clip(np.concatenate(dn_deltas, axis=0), 1, INF)
   
   return up_deltas, dn_deltas
 
@@ -604,7 +718,7 @@ def plot_seq_sep_distribs(raw_data_dict, ref_data_paths, comp_data_paths, ref_la
   
   fig, axarr = plt.subplots(n_rows, n_cols, squeeze=False) # , sharex=True, sharey=True)
     
-  plt.subplots_adjust(left=0.12, bottom=0.15, right=0.95, top=0.9, wspace=0.15, hspace=0.2)
+  plt.subplots_adjust(left=0.12, bottom=0.15, right=0.85, top=0.9, wspace=0.15, hspace=0.2)
 
   fig.text(0.5, 0.95, 'Separations to closest sites', color='#000000',
           horizontalalignment='center',
@@ -628,6 +742,7 @@ def plot_seq_sep_distribs(raw_data_dict, ref_data_paths, comp_data_paths, ref_la
   
   xl, xu = x_range
   y_max_all = 0.0
+  used_labels = set()
   
   for i, d1 in enumerate(ref_data_paths):
     row = int(i//n_cols)
@@ -644,11 +759,19 @@ def plot_seq_sep_distribs(raw_data_dict, ref_data_paths, comp_data_paths, ref_la
     num_sites = sum(len(raw_data_dict[d1][0][c]) for c in raw_data_dict[d1][0])
     y_max = 0.0
     
+    if i == 0:
+      for j, d2 in enumerate(comp_data_paths):
+        color = PLOT_CMAP(j/float(n_comp-1))
+        label = comp_labels[j]
+        ax.plot([], alpha=0.65, color=color, label=label)
+        
     for j, d2 in enumerate(comp_data_paths):
       
       if j == i:
         continue
         
+      color = PLOT_CMAP(j/float(n_comp-1))
+      
       up_seq_seps, dn_seq_seps = _get_seq_seps(raw_data_dict[d1][0], raw_data_dict[d2][0])
       
       if log:
@@ -667,33 +790,27 @@ def plot_seq_sep_distribs(raw_data_dict, ref_data_paths, comp_data_paths, ref_la
       y_max = max(y_max, hist.max())
       
       x_vals = np.linspace(xl, xu, n_bins*2)
-      
-      color = PLOT_CMAP(j/float(n_comp-1))
 
-      ax.plot(x_vals, hist, linewidth=1, alpha=0.67, color=color, label=comp_labels[j], zorder=j+n_comp)
-    
-    if log:
-      y_max_all = max(y_max_all, y_max)
-    
-    else:
-      y_max = max(1.0, y_max)
-      ax.set_ylim(-0.05*y_max, 1.1*y_max)
+      ax.plot(x_vals, hist, linewidth=0.5, alpha=0.65, color=color, zorder=j+n_comp)
             
+    y_max_all = max(y_max_all, y_max)
     ax.set_title('{}  $n={:,}$'.format(ref_labels[i], num_sites), fontsize=8)
    
-  fig.legend(frameon=False, fontsize=9, loc=8, ncol=int((n_ref+1)/2))
+  fig.legend(frameon=False, fontsize=9, loc=5, ncol=1)
   
   for col in range(n_cols):
     lr = used[:,col].sum()-1
     
     for row in range(n_rows):
       ax = axarr[row, col]
+      ax.grid(True, which='major', axis='x', alpha=0.5, linestyle='--')
+      ax.set_ylim(-0.05*y_max_all, 1.1*y_max_all)
       
       if log:
         ax.set_ylim(-0.05*y_max_all, 1.1*y_max_all)
       
       if row < lr:
-        ax.set_xticks([])
+        ax.set_xticklabels([])
          
       elif row == lr:
         ax.set_xlabel(x_label, fontsize=8)
@@ -753,6 +870,8 @@ def data_track_compare(ref_data_paths, comp_data_paths, ref_labels, comp_labels,
   
   data_dict, raw_data_dict, chromo_limits = _load_bin_data(ref_data_paths+comp_data_paths, bin_size)
   
+  plot_value_distribs(raw_data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, pdf)
+
   plot_seq_anchor_mat(raw_data_dict, chromo_limits, ref_data_paths, comp_data_paths, ref_labels, comp_labels, colors, pdf, seq_reg_size)
   
   plot_seq_sep_distribs(raw_data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, pdf, seq_reg_size)
@@ -761,13 +880,13 @@ def data_track_compare(ref_data_paths, comp_data_paths, ref_labels, comp_labels,
   
   plot_data_line_correlations(data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, pdf)
       
-  plot_data_correlations('correlation', data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf)
+  #plot_data_correlations('correlation', data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf)
   
-  plot_data_correlations('semi-quantile', data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf, quantile_x=True)
+  #plot_data_correlations('semi-quantile', data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf, quantile_x=True)
 
-  plot_data_correlations('quantile bin violin', data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf, violin=True)
+  plot_data_correlations('quantile bin violin', data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf, quantile_y=False, violin=True)
 
-  plot_data_correlations('quantile bin box', data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf, boxplot=True)
+  #plot_data_correlations('quantile bin box', data_dict, ref_data_paths, comp_data_paths, ref_labels, comp_labels, bin_size, colors, pdf, quantile_x=True, boxplot=True)
   
   if pdf:
     pdf.close()
