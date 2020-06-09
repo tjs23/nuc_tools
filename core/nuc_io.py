@@ -8,7 +8,7 @@ import glob
 
 from io import BufferedReader, BufferedWriter
 
-import nuc_util as util
+import core.nuc_util as util
 
 # #   Globals  # #
 
@@ -270,19 +270,21 @@ def open_file(file_path, mode=None, buffer_size=FILE_BUFFER_SIZE, gzip_exts=('.g
   """
   GZIP agnostic file opening
   """
+  import io
   
   if os.path.splitext(file_path)[1].lower() in gzip_exts:
     if mode and 'w' in mode:
-      file_obj = BufferedWriter(gzip.open(file_path, mode), buffer_size)
+      file_obj = io.TextIOWrapper(BufferedWriter(gzip.open(file_path, mode), buffer_size), encoding='utf-8')
+      
     else:
       if partial:
-        file_obj = BufferedReader(gzip.open(file_path, mode or 'rt'), buffer_size)
+        file_obj = io.TextIOWrapper(BufferedReader(gzip.open(file_path, mode or 'rb'), buffer_size), encoding="utf-8")
         
       else:
         try:
           file_obj = subprocess.Popen(['zcat', file_path], stdout=subprocess.PIPE).stdout
         except OSError:
-          file_obj = BufferedReader(gzip.open(file_path, mode or 'rt'), buffer_size)
+          file_obj = io.TextIOWrapper(BufferedReader(gzip.open(file_path, mode or 'rb'), buffer_size), encoding="utf-8")
  
   else:
     file_obj = open(file_path, mode or 'rU', buffer_size)

@@ -14,7 +14,7 @@ LOG_FILE_OBJ     = None # Created when needed
 DATA_TRACK_TYPE = np.dtype([('pos1', 'uint32'), ('pos2', 'uint32'), ('strand', 'bool'),
                            ('value', 'float32'), ('orig_value', 'float32'), ('label', 'S32')])
 
-import nuc_parallel as parallel
+import core.nuc_parallel as parallel
 
 # #   Srcreen reporting  # # 
 
