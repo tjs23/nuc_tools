@@ -8,7 +8,7 @@ from collections import defaultdict
 def load_data_track(file_path, bin_size=1000, min_qual=10):
   
   chromos_sizes = dict(get_bam_chromo_sizes(file_path))
-  
+
   data_hists_pos = {c: np.zeros(int(chromos_sizes[c]//bin_size)+1, 'uint16') for c in chromos_sizes}
   data_hists_neg = {c: np.zeros(int(chromos_sizes[c]//bin_size)+1, 'uint16') for c in chromos_sizes}
  
@@ -60,14 +60,26 @@ def get_bam_chromo_sizes(bam_file_path):
   # Looks in header of BAM file to get chromosome/contig names and their lengths  
   
   if not os.path.exists(bam_file_path + '.bai'):
-    util.info('Indexing {}'.format(bam_file_path))
-    cmd_args = ['samtools', 'index', bam_file_path]
-    proc = subprocess.Popen(cmd_args, shell=False,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE)
- 
-    std_out_data, std_err_data = proc.communicate()
+    sort_path = os.path.splitext(bam_file_path)[0] + '_sort.bam'
     
+    if not os.path.exists(sort_path + '.bai'):
+      util.info('Sorting and indexing {}'.format(bam_file_path))
+      cmd_args = ['samtools', 'sort', bam_file_path, '-o', sort_path]
+      proc = subprocess.Popen(cmd_args, shell=False,
+                              stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE)
+ 
+      std_out_data, std_err_data = proc.communicate()
+
+      cmd_args = ['samtools', 'index', sort_path]
+      proc = subprocess.Popen(cmd_args, shell=False,
+                              stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE)
+ 
+      std_out_data, std_err_data = proc.communicate()
+    
+    bam_file_path = sort_path
+
   cmd_args = ['samtools', 'idxstats', bam_file_path]
   
   proc = subprocess.Popen(cmd_args, shell=False,
@@ -75,6 +87,8 @@ def get_bam_chromo_sizes(bam_file_path):
                           stderr=subprocess.PIPE)
                           
   std_out_data, std_err_data = proc.communicate()
+  
+  
   chromos_sizes = [] 
   
   for line in std_out_data.decode('ascii').split('\n'):

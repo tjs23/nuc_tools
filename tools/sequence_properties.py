@@ -18,7 +18,7 @@ def sequence_properties(fastq_paths, out_path_root=None, bin_size=DEFAULT_BIN_SI
   if out_path_root:
     out_path_root = os.path.splitext(out_path_root)[0]
   else:
-    out_path_root = os.path.splitext(hfastq_paths[0])[0]
+    out_path_root = os.path.splitext(fastq_paths[0])[0]
   
   gcat_data = {}
   nn_data = {}

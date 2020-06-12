@@ -33,7 +33,13 @@ def get_qual_scheme(file_path):
   
   lines = file_obj.readlines(FASTQ_READ_CHUNK)
   
-  while lines[0][0] != '@': # Just in case of headers or other nonsense
+  if not lines:
+    util.critical('File "{}" contains no data'.format(file_path))
+    
+  while (not lines[0]) or (lines[0][0] != '@'): # Just in case of headers or other nonsense
+    if not lines[0]:
+      util.warn('Blank like skipped near top of file "{}"'.format(file_path))
+      
     lines.pop(0)
   
   n_reads = 0
@@ -65,7 +71,7 @@ def get_qual_scheme(file_path):
       scheme = 'phred64'
   
   else:
-    warn('FASTQ quality scheme could not be determined. Assuming Phred+33 (Illumina 1.8+)')
+    util.warn('FASTQ quality scheme could not be determined. Assuming Phred+33 (Illumina 1.8+)')
     scheme = 'phred33'
 
   return scheme
