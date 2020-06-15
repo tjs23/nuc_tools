@@ -1,6 +1,7 @@
 import fnmatch
 import gzip
 import os
+import sys
 import re
 import subprocess
 import numpy as np
@@ -274,20 +275,27 @@ def open_file(file_path, mode=None, buffer_size=FILE_BUFFER_SIZE, gzip_exts=('.g
   
   if os.path.splitext(file_path)[1].lower() in gzip_exts:
     if mode and 'w' in mode:
-      file_obj = io.TextIOWrapper(BufferedWriter(gzip.open(file_path, mode), buffer_size), encoding='utf-8')
+      file_obj = BufferedWriter(gzip.open(file_path, mode), buffer_size)
       
     else:
       if partial:
-        file_obj = io.TextIOWrapper(BufferedReader(gzip.open(file_path, mode or 'rb'), buffer_size), encoding="utf-8")
+        file_obj = BufferedReader(gzip.open(file_path, mode or 'rb'), buffer_size)
         
       else:
         try:
           file_obj = subprocess.Popen(['zcat', file_path], stdout=subprocess.PIPE).stdout
         except OSError:
-          file_obj = io.TextIOWrapper(BufferedReader(gzip.open(file_path, mode or 'rb'), buffer_size), encoding="utf-8")
+          file_obj = BufferedReader(gzip.open(file_path, mode or 'rb'), buffer_size)
+    
+    if sys.version_info.major > 2:
+      file_obj = io.TextIOWrapper(file_obj, encoding="utf-8")
  
   else:
-    file_obj = open(file_path, mode or 'rU', buffer_size)
+    if sys.version_info.major > 2:
+      file_obj = open(file_path, mode or 'rU', buffer_size, encoding='utf-8')
+      
+    else:
+      file_obj = open(file_path, mode or 'rU', buffer_size)
   
   return file_obj
  

@@ -29,7 +29,7 @@ def get_qual_scheme(file_path):
   Guess the quality scoring scheme for a FASTQ file
   """
   
-  file_obj = io.open_file(file_path)
+  file_obj = io.open_file(file_path, partial=True)
   
   lines = file_obj.readlines(FASTQ_READ_CHUNK)
   
