@@ -2325,7 +2325,7 @@ def main(argv=None):
 
   arg_parse.add_argument('-norm', default=False, action='store_true', dest="norm",
                          help='Normalise the contact map so that displayed values are relative to (non-zero) mean of the contact map; ' \
-			      'useful for comparing maps with different numbers of contacts. ' \
+                              'useful for comparing maps with different numbers of contacts. ' \
                               'This option will be ignored if the -corr option is specified.')
 
   arg_parse.add_argument('-grid', default=False, action='store_true', dest="grid",

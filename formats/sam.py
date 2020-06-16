@@ -14,8 +14,7 @@ def load_data_track(file_path, bin_size=1000, min_qual=10):
  
   cmd_args = ['samtools', 'view','-F','4','-q', str(min_qual), file_path]
   
-  proc = subprocess.Popen(cmd_args, shell=False,
- 			  stdout=subprocess.PIPE)
+  proc = subprocess.Popen(cmd_args, shell=False, stdout=subprocess.PIPE)
  
   util.info('Reading {}'.format(file_path))
  
@@ -45,10 +44,10 @@ def load_data_track(file_path, bin_size=1000, min_qual=10):
       add = data_dict[chromo].add
  
       for i in idx:
- 	start = i * bin_size
- 	end = start+bin_size-1
- 	value = hist[i]
- 	add((start, end, strand, value, value, label))
+        start = i * bin_size
+        end = start+bin_size-1
+        value = hist[i]
+        add((start, end, strand, value, value, label))
 
   util.info(' .. processed {:,} BAM/SAM entries'.format(n))
 
