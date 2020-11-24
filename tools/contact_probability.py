@@ -19,7 +19,7 @@ def load_seq_seps(contact_paths, labels, region_dict, bin_size):
   from nuc_tools import util, io
   from formats import ncc, npz, bed
   
-  seq_seq_data = []
+  seq_sep_data = []
   
   for i, in_path in enumerate(contact_paths):
     util.info('Processing %s (%s)' % (in_path, labels[i]))
@@ -151,21 +151,21 @@ def load_seq_seps(contact_paths, labels, region_dict, bin_size):
     seq_seps = np.concatenate(seq_seps)
     weights = np.concatenate(weights)
     
-    seq_seq_data.append((seq_seps, weights, seq_seps_r, weights_r, counts))
+    seq_sep_data.append((seq_seps, weights, seq_seps_r, weights_r, counts))
     
     util.info('  .. found {:,} values'.format(len(seq_seps)))
     
-  return seq_seq_data
+  return seq_sep_data
   
   
 
-def plot_seq_sep_distrib(seq_seq_data, labels, region_label, bin_size, max_sep=1e8, pdf=None):
+def plot_seq_sep_distrib(seq_sep_data, labels, region_label, bin_size, max_sep=1e8, pdf=None):
 
-  n_cont = len(seq_seq_data)
+  n_cont = len(seq_sep_data)
   colors = [PLOT_CMAP(x) for x in np.linspace(0.0, float(n_cont), n_cont)]
   bin_size *= 1e3
   
-  if seq_seq_data[0][2]:
+  if seq_sep_data[0][2]:
     fig, axarr = plt.subplots(2,2)
     ax0 = axarr[0,0]
     ax1 = axarr[0,1]
@@ -187,7 +187,7 @@ def plot_seq_sep_distrib(seq_seq_data, labels, region_label, bin_size, max_sep=1
   y_mins = []
   y_maxs = []
    
-  for i, (seq_seps, weights, seq_seps_r, weights_r, c) in enumerate(seq_seq_data):
+  for i, (seq_seps, weights, seq_seps_r, weights_r, c) in enumerate(seq_sep_data):
     hist, edges = np.histogram(seq_seps, bins=bins, weights=weights, density=True)
 
     idx = hist.nonzero()
@@ -264,9 +264,9 @@ def plot_seq_sep_distrib(seq_seq_data, labels, region_label, bin_size, max_sep=1
   plt.close()    
 
 
-def plot_count_distribs(seq_seq_data, labels, bin_size, pdf):
+def plot_count_distribs(seq_sep_data, labels, bin_size, pdf):
 
-  n_plots = len(seq_seq_data)
+  n_plots = len(seq_sep_data)
 
   n_rows = int(math.ceil(math.sqrt(n_plots)))
   n_cols = int(math.ceil(n_plots / float(n_rows)))
@@ -287,9 +287,9 @@ def plot_count_distribs(seq_seq_data, labels, bin_size, pdf):
   
   x_min = int(np.log10(bin_size*1e3))
   
-  x_max = int(math.ceil(np.log10(max([d[0].max() for d in seq_seq_data]))))
+  x_max = int(math.ceil(np.log10(max([d[0].max() for d in seq_sep_data]))))
   y_min = 0
-  y_max = np.log10(max([d[4].max() for d in seq_seq_data]))
+  y_max = np.log10(max([d[4].max() for d in seq_sep_data]))
   
   x_bins = 50
   y_bins = 50
@@ -298,7 +298,7 @@ def plot_count_distribs(seq_seq_data, labels, bin_size, pdf):
   x_ticks = np.linspace(0, x_bins, nx_ticks)
   x_labels = ['$10^{%d}$' % x for x in np.linspace(x_min, x_max, nx_ticks)]
   
-  y_vals = np.arange(y_min, y_max, 0.5)
+  y_vals = np.arange(y_min, y_max+0.5, 0.5)
   y_ticks = np.linspace(0, y_bins*(y_vals[-1]/float(y_max)), len(y_vals))
   
   y_labels = ['$10^{%.1f}$' % x for x in y_vals]
@@ -307,7 +307,7 @@ def plot_count_distribs(seq_seq_data, labels, bin_size, pdf):
   #x_bins = np.linspace(0, x_bins*bin_size*1e3, x_bins)
   y_bins = np.logspace(y_min, y_max, y_bins)
    
-  for i,(ss, wt, ss2, wt2, counts) in enumerate(seq_seq_data):
+  for i,(ss, wt, ss2, wt2, counts) in enumerate(seq_sep_data):
     row = int(i//n_cols)
     col = i % n_cols
   
@@ -413,16 +413,13 @@ def contact_probability(contact_paths, out_pdf_path=None, region_path=None, bin_
     pdf = None
   else:
     pdf = PdfPages(out_pdf_path) 
-  
-  
-  seq_seq_data = load_seq_seps(contact_paths, labels, region_dict, bin_size*1e3)
     
-  plot_seq_sep_distrib(seq_seq_data, labels, region_label,
+  seq_sep_data = load_seq_seps(contact_paths, labels, region_dict, bin_size*1e3)
+    
+  plot_seq_sep_distrib(seq_sep_data, labels, region_label,
                        bin_size, pdf=pdf)     
   
-  
-  plot_count_distribs(seq_seq_data, labels, bin_size, pdf)
-  
+  plot_count_distribs(seq_sep_data, labels, bin_size, pdf)  
   
   if pdf:
     pdf.close()
