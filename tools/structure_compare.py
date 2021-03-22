@@ -43,10 +43,10 @@ def plot_structure_compare(seq_pos_dict1, coords_dict1, struc_label1,
     a = max(a1, a2) 
     b = min(b1, b2) 
   
-    i1 = (a-a1)/bin_size
-    j1 = (b-a1)/bin_size
-    i2 = (a-a2)/bin_size
-    j2 = (b-a2)/bin_size
+    i1 = (a-a1)//bin_size
+    j1 = (b-a1)//bin_size
+    i2 = (a-a2)//bin_size
+    j2 = (b-a2)//bin_size
  
     coord_models1.append(coords_dict1[chromo][:,i1:j1])
     coord_models2.append(coords_dict2[chromo][:,i2:j2])
