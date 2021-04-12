@@ -169,7 +169,7 @@ def normalize_contacts(contact_dict, chromo_limits, bin_size, new_chromo_limits=
 
 def _downsample_matrix(in_array, new_shape, pad=False):
   
-  from scipy.misc import imresize
+  from scipy.ndimage import zoom
     
   p, q = in_array.shape
   n, m = new_shape
@@ -191,9 +191,10 @@ def _downsample_matrix(in_array, new_shape, pad=False):
   
   else:
     count = in_array.sum()
-    mat = imresize(in_array, (n,m), mode='F')
+    mat = zoom(in_array, (n/float(p), m/float(q)), output=float, order=3,
+               mode='constant', cval=0.0, prefilter=True)
     mat *= count/float(mat.sum())
-  
+    
   return mat
 
 
@@ -1897,7 +1898,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
           matrix, ambig_matrix = get_region_list_matrix(contacts[pair], region,
                                                         bin_size2, ambig_groups)
         
-        cn_cont = int(matrix.sum()) / 2
+        cn_cont = int(matrix.sum()) // 2
  
         if use_corr:
           matrix = get_corr_mat(matrix)
@@ -1910,7 +1911,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
               matrix2, ambig_matrix2 = get_region_list_matrix(contacts2[pair], region,
                                                               bin_size2, ambig_groups)
  
-            cn_cont2 = int(matrix2.sum())/2
+            cn_cont2 = int(matrix2.sum()) // 2
             matrix2 = get_corr_mat(matrix2)
             idx = np.tril_indices(len(matrix), 1)
             matrix[idx] = matrix2[idx]
@@ -1926,7 +1927,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
             matrix2, ambig_matrix2 = get_region_list_matrix(contacts2[pair], region,
                                                             bin_size2, ambig_groups)
  
-          cn_cont2 = int(matrix2.sum())/2
+          cn_cont2 = int(matrix2.sum()) // 2
           m = len(matrix)
           idx = np.tril_indices(m, 1)
           matrix[idx] = matrix2[idx]
@@ -2104,7 +2105,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
  
         cn_cont = int(matrix.sum())
         if is_cis:
-          cn_cont /= 2
+          cn_cont //= 2
  
         if use_corr:
           if is_cis:
@@ -2119,7 +2120,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
                 matrix2, ambig_matrix2 = get_single_list_matrix(contacts2[key], limits_a2, limits_b2,
                                                                 is_cis, pair_bin_size, ambig_groups)
  
-              cn_cont2 = int(matrix2.sum())/2
+              cn_cont2 = int(matrix2.sum()) // 2
               matrix2 = get_corr_mat(matrix2)
               idx = np.tril_indices(len(matrix), 1)
               matrix[idx] = matrix2[idx]
@@ -2152,7 +2153,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
             matrix2, ambig_matrix2 = get_single_list_matrix(contacts2[key], limits_a, limits_b, is_cis,
                                                             pair_bin_size, ambig_groups)
  
-          cn_cont2 = int(matrix2.sum())/2
+          cn_cont2 = int(matrix2.sum()) // 2
           m = len(matrix)
           idx = np.tril_indices(m, 1)
           matrix[idx] = matrix2[idx]
