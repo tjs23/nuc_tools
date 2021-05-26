@@ -441,7 +441,7 @@ def bin_region_values(regions, values, bin_size, start, end):
   s = int(start/bin_size)
   e = 1 + int(end/bin_size) # Limit, not last index
   n_bins = e-s
-  value_hist = np.zeros(n_bins, float)
+  value_hist = np.zeros(n_bins, 'float32')
   
   if not len(regions):
     return value_hist
