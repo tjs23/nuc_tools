@@ -1,38 +1,90 @@
 import os
 
+from math import log, exp
+
+from time import time
+
 import numpy as np
 
 from collections import defaultdict
 
 MIN_SEP = 100
 SEP_THRESHOLD = 2e7
+SEP_SCALE = 0.5 * SEP_THRESHOLD
 
 def _get_network_score(chr_a, chr_b, pos_a, pos_b, bin_a, bin_b,
-                       unambig_bins, chromo_bins, second_level=False):
+                       unambig_bins, chromo_bins, secondary_limit=0.0, primary_limit=3.0):
   
+  plim = 10.0 ** primary_limit
+  score_l = 1.0
+  score_u = 1.0
   unambig_bins_get = unambig_bins.get
-  close = []
   
-  for a in range(bin_a-1, bin_a+2):
-    for b in range(bin_b-1, bin_b+2):
+  a_bins = (bin_a-1, bin_a, bin_a+1)
+  b_bins = (bin_b-1, bin_b, bin_b+1)
+  
+  for a in a_bins:
+    rev = a < bin_a
+    peri_a = a != bin_a
+    
+    for b in b_bins:
       key2 = (chr_a, chr_b, a, b)
+      
+      unambig = unambig_bins_get(key2)
+      
+      if unambig:
+        if rev:
+          unambig = unambig[::-1]
+        
+        if bin_a == a and bin_b == b:
+          for pos_1, pos_2 in unambig:
+            delta_1 = pos_1-pos_a
+            delta_2 = pos_2-pos_b
  
-      unambig = unambig_bins_get(key2, [])
- 
-      if a < bin_a:
-        unambig = unambig[::-1]
- 
-      for pos_1, pos_2 in unambig:
-        delta_1 = abs(pos_1-pos_a)
-        delta_2 = abs(pos_2-pos_b)
- 
-        if delta_1 and delta_2 and (delta_1 < SEP_THRESHOLD) and (delta_2 < SEP_THRESHOLD):
-          close.append((pos_1-pos_a, pos_2-pos_b))
- 
-        elif delta_1 > SEP_THRESHOLD and (a != bin_a):
-          break
+            if delta_1 and delta_2:
+              if delta_1 < 0.0:
+                delta_1 = max(-delta_1, MIN_SEP)/SEP_SCALE
+                score_l += exp(-delta_1*delta_1)
+              else:
+                delta_1 = max(delta_1, MIN_SEP)/SEP_SCALE
+                score_u += exp(-delta_1*delta_1)
 
-  if second_level:
+              if delta_2 < 0.0:
+                delta_2 = max(-delta_2, MIN_SEP)/SEP_SCALE
+                score_l += exp(-delta_2*delta_2)
+              else:
+                delta_2 = max(delta_2, MIN_SEP)/SEP_SCALE
+                score_u += exp(-delta_2*delta_2)
+             
+         
+        else:
+          for pos_1, pos_2 in unambig:
+            delta_1 = pos_1-pos_a
+            delta_2 = pos_2-pos_b
+ 
+            if (abs(delta_1) < SEP_THRESHOLD) and (abs(delta_2) < SEP_THRESHOLD):
+ 
+              if delta_1 < 0.0:
+                delta_1 = max(-delta_1, MIN_SEP)/SEP_SCALE
+                score_l += exp(-delta_1*delta_1)
+              else:
+                delta_1 = max(delta_1, MIN_SEP)/SEP_SCALE
+                score_u += exp(-delta_1*delta_1)
+
+              if delta_2 < 0.0:
+                delta_2 = max(-delta_2, MIN_SEP)/SEP_SCALE
+                score_l += exp(-delta_2*delta_2)
+              else:
+                delta_2 = max(delta_2, MIN_SEP)/SEP_SCALE
+                score_u += exp(-delta_2*delta_2)
+ 
+            elif peri_a and abs(delta_1) > SEP_THRESHOLD:
+              break
+        
+        if score_l * score_u > plim:
+          return primary_limit
+        
+  if secondary_limit and log(score_l * score_u, 10.0) < secondary_limit: # If not goot enough, check deeper
     intermed_a = defaultdict(list)
     intermed_b = defaultdict(list)
  
@@ -78,26 +130,16 @@ def _get_network_score(chr_a, chr_b, pos_a, pos_b, bin_a, bin_b,
           delta_3 = abs(pos_1-pos_2)
  
           if delta_3 and delta_3 < SEP_THRESHOLD:
-            close.append((delta_1, delta_2, delta_3))
+            for d in (delta_1, delta_2, delta_3):
 
-  score_l = 1.0
-  score_u = 1.0
-  
-  for deltas in close:
-    s = 0.0
-    
-    for i, d in enumerate(deltas):
+              if d < 0.0:
+                d = max(-d, MIN_SEP)/SEP_SCALE
+                score_l += exp(-d*d)
+              else:
+                d = max(d, MIN_SEP)/SEP_SCALE
+                score_u += exp(-d*d)
 
-      if d < 0.0:
-        d = max(-d, MIN_SEP)/SEP_THRESHOLD
-        s = np.exp(-d*d/0.25)
-        score_l += s
-      else:
-        d = max(d, MIN_SEP)/SEP_THRESHOLD
-        s = np.exp(-d*d/0.25)
-        score_u += s
-    
-  return np.log10(score_l * score_u)
+  return log(score_l * score_u, 10.0)
 
 
 def _write_ambig_filtered_ncc(in_file_path, out_ncc_path, resolved_ag=None, removed_ag=None):
@@ -286,6 +328,7 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01):
   msg_template = ' .. Processed:{:>7,} Removed:{:>7,}'
   
   removed_ag = set()
+  resolved_ag = {}
   
   msg = 'Removing unambiguous inter-homologue contacts from anomolously dense regions'
   print(msg)
@@ -315,27 +358,39 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01):
   
   for ag in ag_data:
     pairs = ag_data[ag]
+    n_pairs = len(pairs)
+    keep = []
     
-    if len(pairs) == 1:
-      for key, pos_a, pos_b, line_idx in pairs:
-        chr_a, chr_b, bin_a, bin_b = key
+    for key, pos_a, pos_b, line_idx in pairs:
+      chr_a, chr_b, bin_a, bin_b = key
  
-        if (chr_a != chr_b) and (key in bin_counts):
-          count = bin_counts[key]
+      if (chr_a != chr_b) and (key in bin_counts):
+        count = bin_counts[key]
+      
+        if count < upper_dens_thresh:
+          keep.append(line_idx)
         
-          if (count > upper_dens_thresh):
-            removed_ag.add(ag)
-          
-            if key in unambig_bins:
-              del unambig_bins[key]
-
+        elif (n_pairs == 1) and (key in unambig_bins):
+          del unambig_bins[key]
+        
+      else:
+        keep.append(line_idx)
+        
+    if keep:
+      if len(keep) < n_pairs:
+        resolved_ag[ag] = keep
+    
+    else:      
+      removed_ag.add(ag)
+    
   msg = ' .. removed {:,}'.format(len(removed_ag))
+  msg = ' .. partly resolved {:,}'.format(len(resolved_ag))
   print(msg)
 
   scores = []
   it = 0
 
-  unambig_pairs = [(g, ag_data[g][0]) for g in ag_data if len(ag_data[g]) == 1 and g not in removed_ag]
+  unambig_pairs = [(g, ag_data[g][0]) for g in ag_data if len(ag_data[g]) == 1 and (g not in removed_ag)] #  and (g not in resolved_ag)]
  
   msg = 'Scoring {:,} unambiguous pairs'.format(len(unambig_pairs))
   print(msg)
@@ -353,7 +408,7 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01):
     contacts = unambig_bins[key]
  
     if contacts:
-      score = _get_network_score(chr_a, chr_b, pos_a, pos_b, bin_a, bin_b, unambig_bins, chromo_bins) 
+      score = _get_network_score(chr_a, chr_b, pos_a, pos_b, bin_a, bin_b, unambig_bins, chromo_bins, secondary_limit=threshold) 
     else:
       score = 0.0
 
@@ -361,7 +416,7 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01):
       removed_ag.add(ag)
   
   
-  _write_ambig_filtered_ncc(in_ncc_path, out_ncc_path, resolved_ag=None, removed_ag=removed_ag)
+  _write_ambig_filtered_ncc(in_ncc_path, out_ncc_path, resolved_ag=resolved_ag, removed_ag=removed_ag)
 
   msg = msg_template.format(it, len(removed_ag))     
   print(msg)
@@ -370,7 +425,7 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01):
 def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
                      score_threshold=2.0, min_trans_relay=5, remove_pos_ambig=False):
 
-  msg_template = ' .. Processed:{:>7,} Resolved:{:>7,}'
+  msg_template = ' .. Processed:{:>7,} Resolved:{:>7,} Time taken:{:.3f} s'
 
   msg = 'Reading contact data'
   print(msg)
@@ -420,11 +475,14 @@ def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
   
   scores = [[], [], [], []]
   it = 0  
+  t0 = time()
     
   for ag in ag_data:
     it += 1
-    if it % 1000 == 0:
-      msg = msg_template.format(it, len(resolved_ag))
+    if it % 10000 == 0:
+      t1 = time()
+      msg = msg_template.format(it, len(resolved_ag), t1-t0)
+      t0 = t1
       print(msg)
     
     if ag in removed_ag:
@@ -438,13 +496,7 @@ def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
     if len(pairs) > 16:
       removed_ag.add(ag)
       continue
-       
-    #  for key, pos_a, pos_b, line_idx in pairs:
-    #    chr_pair = tuple(key[:2])
-    #    print(chr_pair, pos_a, pos_b) 
-    #  
-    #  continue  
-        
+
     poss_pairs = []
     for key, pos_a, pos_b, line_idx in pairs:
       chr_pair = tuple(key[:2])
@@ -457,7 +509,7 @@ def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
          key, pos_a, pos_b, line_idx = poss_pairs[0]
          chr_a, chr_b, bin_a, bin_b = key
          
-         if nonambig_bins[key] and _get_network_score(chr_a, chr_b, pos_a, pos_b, bin_a, bin_b, unambig_bins, chromo_bins, second_level=False):
+         if nonambig_bins.get(key) and _get_network_score(chr_a, chr_b, pos_a, pos_b, bin_a, bin_b, unambig_bins, chromo_bins):
            resolved_ag[ag] = (line_idx,)
          else:
            removed_ag.add(ag)
@@ -466,28 +518,24 @@ def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
       
       else:
         resolved_ag[ag] = tuple([x[3] for x in poss_pairs]) # Might be refined further
-      
+
     line_indices = []
     group_scores = [0.0] * 16
-    unambig_bins_get = unambig_bins.get
     
     for p, (key, pos_a, pos_b, line_idx) in enumerate(pairs):
       line_indices.append(line_idx)
       chr_a, chr_b, bin_a, bin_b = key
-      contacts = nonambig_bins[key]
+      contacts = nonambig_bins.get(key)
  
       if contacts:
-        score = _get_network_score(chr_a, chr_b, pos_a, pos_b, bin_a, bin_b, unambig_bins, chromo_bins, second_level=False)
+        score = _get_network_score(chr_a, chr_b, pos_a, pos_b, bin_a, bin_b, unambig_bins, chromo_bins)
  
       else:
         score = 0.0
             
       group_scores[p] = score
-           
+
     a, b, c, *d = np.argsort(group_scores)[::-1]
-    
-    #for i, j in enumerate([a, b, c, d]):
-    #  scores[i].append(group_scores[j])
           
     if group_scores[a]  >  score_threshold * group_scores[b]:
       resolved_ag[ag] = (line_indices[a],)
@@ -498,7 +546,7 @@ def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
     elif group_scores[a] == 0.0: # Best is isolated
       if remove_isolated:
         removed_ag.add(ag)
-        
+
   if remove_pos_ambig: 
     removed_ag.update(pos_ambig)
   
@@ -528,7 +576,8 @@ if __name__ == '__main__':
   
   from tools.contact_map import contact_map
     
-  ncc_file_path = '/data/hi-c/hybrid/fastq/SRR5229047_r1_r2_1CDS1-154.ncc'
+  ncc_file_path = '/data/hi-c/hybrid/fastq/SRR5229047_r1_r2_1CDS1-153.ncc'
+  ncc_file_path = '/data/hi-c/hybrid/fastq/SRR5229055_r1_r2_1CDS2-145.ncc'
   
   file_root = os.path.splitext(ncc_file_path)[0]
   
@@ -560,7 +609,7 @@ if __name__ == '__main__':
   resolve_contacts(filter1_ncc_path, filter2_ncc_path)
   
   contact_map([filter2_ncc_path], filter2_pdf, bin_size=None,
-               no_separate_cis=True, is_single_cell=True)
+              no_separate_cis=True, is_single_cell=True)
   
   # Strict again and remove isolated ambigous
   resolve_contacts(filter2_ncc_path, filter3_ncc_path, remove_isolated=True)
@@ -568,7 +617,13 @@ if __name__ == '__main__':
   contact_map([filter3_ncc_path], filter3_pdf, bin_size=None, bin_size2=250.0,
                no_separate_cis=True, is_single_cell=True)
   
- 
+# To do 
+
+# Use row masking in NCC
+# Smaller/smoother bins for initial cleanup
+# test with nuc3d 
+
+
  
 """
 all ncc files (more than 40) for Nagano dip3 is on /mnt/delphi/scratch/shared/dip_ncc/dip_3
