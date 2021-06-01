@@ -27,6 +27,9 @@ def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=int, n_max=N
       chr_b, f_start_b, f_end_b, start_b, end_b, strand_b, \
       ambig_group, pair_id, swap_pair = line.split()
       
+      if ambig_group.endswith('.0'): # Inactive
+        continue
+      
       if (chr_a != chr_b) and not trans:
         continue
 

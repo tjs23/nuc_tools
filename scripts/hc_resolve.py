@@ -142,7 +142,7 @@ def _get_network_score(chr_a, chr_b, pos_a, pos_b, bin_a, bin_b,
   return log(score_l * score_u, 10.0)
 
 
-def _write_ambig_filtered_ncc(in_file_path, out_ncc_path, resolved_ag=None, removed_ag=None):
+def _write_ambig_filtered_ncc(in_file_path, out_ncc_path, ag_data, resolved_ag=None, removed_ag=None):
   
   if not resolved_ag:
     resolved_ag = {}
@@ -172,21 +172,31 @@ def _write_ambig_filtered_ncc(in_file_path, out_ncc_path, resolved_ag=None, remo
       else:
         ambig_group = int(ambig_code)    
       
+      sz = len(ag_data[ambig_group])
+      
       if ambig_group in resolved_ag:    
-        if i in resolved_ag[ambig_group]:
-          n += 1
-          
-          if ambig_group in seen_res_group:
-            row[12] = '0.1'
-          else:
-            seen_res_group.add(ambig_group)
-            row[12] = '%d.1'  % (len(resolved_ag[ambig_group]),)
-          
-          write(' '.join(row)+'\n')
+        keep = 1 if i in resolved_ag[ambig_group] else 0 # Else inactivate
+        
+        if ambig_group in seen_res_group:
+          row[12] = '0.%d' % (keep,)
+        else:
+          seen_res_group.add(ambig_group)
+          row[12] = '%d.%d'  % (sz,keep)
+                    
+        line = ' '.join(row)+'\n'
 
-      elif ambig_group not in removed_ag:
-        n += 1
-        write(line)    
+      elif ambig_group in removed_ag: # Inactivate
+        if ambig_group in seen_res_group:
+          row[12] = '0.0'
+        else:
+          seen_res_group.add(ambig_group)
+          row[12] = '%d.0'  % (sz,)
+           
+        line = ' '.join(row)+'\n'
+        
+      write(line)    
+      
+      n += 1
 
   msg = "Written {:,} of {:,} lines to {}".format(n, i+1, out_ncc_path)
   
@@ -211,12 +221,16 @@ def _load_bin_sort_ncc(in_ncc_path, sep_threshold=SEP_THRESHOLD):
     for line in in_file_obj:
       chr_a, start_a, end_a, f_start_a, f_end_a, strand_a, chr_b, start_b, end_b, \
         f_start_b, f_end_b, strand_b, ambig_code, pair_id, swap_pair = line.split()
-
+        
       if '.' in ambig_code: # Updated NCC format
         if int(float(ambig_code)) > 0:
-          ambig_group += 1
+          ambig_group += 1 # Count even if inactive; keep consistent group numbering
+
       else:
         ambig_group = int(ambig_code)          
+
+      if ambig_code.endswith('.0'): # Inactive
+        continue
       
       if strand_a == '+':
         pos_a = int(f_end_a)
@@ -262,6 +276,9 @@ def _load_bin_sort_ncc(in_ncc_path, sep_threshold=SEP_THRESHOLD):
           ambig_group += 1
       else:
         ambig_group = int(ambig_code)          
+
+      if ambig_code.endswith('.0'): # Inactive
+        continue
       
       if strand_a == '+':
         pos_a = int(f_end_a)
@@ -321,11 +338,15 @@ def _load_bin_sort_ncc(in_ncc_path, sep_threshold=SEP_THRESHOLD):
   return ag_data, pos_ambig, chromo_bins, nonambig_bins, unambig_bins, ambig_bins, dict(chromo_pair_counts)
 
 
-def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01):
+def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01, sep_threshold=SEP_THRESHOLD, homo_trans_dens_quant=90.0):
   
   ag_data, pos_ambig, chromo_bins, nonambig_bins, unambig_bins, ambig_bins, chromo_pair_counts = _load_bin_sort_ncc(in_ncc_path)
  
   msg_template = ' .. Processed:{:>7,} Removed:{:>7,}'
+  
+  all_bins = {}
+  for key in set(ambig_bins) | set(nonambig_bins):
+    all_bins[key] = ambig_bins.get(key, []) + nonambig_bins.get(key, [])
   
   removed_ag = set()
   resolved_ag = {}
@@ -334,19 +355,19 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01):
   print(msg)
   
   bin_counts = {}
-  for key in set(ambig_bins) | set(nonambig_bins):
+  for key in all_bins:
     chr_a, chr_b, bin_a, bin_b = key
     root_a = chr_a.split('.')[0]
     root_b = chr_b.split('.')[0]
     
     if root_a == root_b:
-      n_contacts = len(ambig_bins.get(key, [])) + len(nonambig_bins.get(key, []))
+      n_contacts = len(all_bins[key])
       
       if n_contacts:
         bin_counts[key] = n_contacts
   
   counts = list(bin_counts.values())
-  upper_dens_thresh = np.percentile(counts, 80)
+  upper_dens_thresh = np.percentile(counts, homo_trans_dens_quant)
   
   """
   print('Quantiles', np.log10(np.percentile(counts, [1,5,10,50,80])))
@@ -364,26 +385,57 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01):
     for key, pos_a, pos_b, line_idx in pairs:
       chr_a, chr_b, bin_a, bin_b = key
  
-      if (chr_a != chr_b) and (key in bin_counts):
+      if (chr_a != chr_b) and (key in bin_counts): # Homolog trans only
         count = bin_counts[key]
-      
+        
+        if count < upper_dens_thresh:
+          for a in range(bin_a-1, bin_a+2):
+            for b in range(bin_b-1, bin_b+2):
+              if a == bin_a and b == bin_b:
+                continue
+ 
+              key2 =  (chr_a, chr_b, a, b)
+ 
+              for pos1, pos2, ag1 in all_bins.get(key2, []):
+                if (abs(pos1-pos_a) < sep_threshold) and (abs(pos2-pos_b) < sep_threshold):
+                  count += 1
+ 
+                  if count > upper_dens_thresh:
+                    break
+              
+              else:
+                continue
+              break
+            
+            else:
+              continue
+            break  
+              
         if count < upper_dens_thresh:
           keep.append(line_idx)
         
         elif (n_pairs == 1) and (key in unambig_bins):
-          del unambig_bins[key]
-        
+          
+          contacts = []
+          for pos1, pos2 in unambig_bins[key]:
+            if (pos1 != pos_a) or (pos2 != pos_b):
+              contacts.append((pos1, pos1))
+          
+          unambig_bins[key] = contacts
+          
       else:
         keep.append(line_idx)
         
     if keep:
       if len(keep) < n_pairs:
-        resolved_ag[ag] = keep
+        resolved_ag[ag] = keep        
     
     else:      
       removed_ag.add(ag)
     
   msg = ' .. removed {:,}'.format(len(removed_ag))
+  print(msg)
+ 
   msg = ' .. partly resolved {:,}'.format(len(resolved_ag))
   print(msg)
 
@@ -405,6 +457,9 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01):
     group_score = 0.0 
     chr_a, chr_b, bin_a, bin_b = key
 
+    if key not in unambig_bins:
+      print(key, ag, ag in removed_ag, ag in resolved_ag, len(ag_data[ag]))
+      
     contacts = unambig_bins[key]
  
     if contacts:
@@ -416,7 +471,7 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01):
       removed_ag.add(ag)
   
   
-  _write_ambig_filtered_ncc(in_ncc_path, out_ncc_path, resolved_ag=resolved_ag, removed_ag=removed_ag)
+  _write_ambig_filtered_ncc(in_ncc_path, out_ncc_path, ag_data, resolved_ag=resolved_ag, removed_ag=removed_ag)
 
   msg = msg_template.format(it, len(removed_ag))     
   print(msg)
@@ -465,10 +520,10 @@ def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
       trans_close[(chr_a, chr_b)] = n_inter
       trans_close[(chr_b, chr_a)] = n_inter
   
-  from matplotlib import pyplot as plt
-  vals = sorted(trans_close.values())
-  plt.hist(vals, bins=50, range=(0,50))
-  plt.show()     
+  #from matplotlib import pyplot as plt
+  #vals = sorted(trans_close.values())
+  #plt.hist(vals, bins=50, range=(0,50))
+  #plt.show()     
 
   msg = 'Filtering with network scores'
   print(msg)
@@ -550,7 +605,7 @@ def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
   if remove_pos_ambig: 
     removed_ag.update(pos_ambig)
   
-  _write_ambig_filtered_ncc(in_ncc_path, out_ncc_path, resolved_ag, removed_ag)
+  _write_ambig_filtered_ncc(in_ncc_path, out_ncc_path, ag_data, resolved_ag, removed_ag)
   
   msg = msg_template.format(it, len(resolved_ag), n_pos_ambig)
   print(msg)  
@@ -559,24 +614,15 @@ def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
 if __name__ == '__main__': 
   
   
-  # Get second degree contact score distribution for unambigous trans contacts with bigger bins
-  # - these define quantiles for thresholds
-  
-  # Remove all unambig homo-trans
-  
-  # Positional ambiguities should be ignored
-  #  More than 4 pairs
-  #  Chromos involved are not soley homologous
-    
   # All functions take an NCC file and create a filtered NCC file
   
   # Cleanup ambig so noise doesn't affect disambiguation too much
   import sys
-  sys.path.append('/home/tjs23/gh/nuc_processing/nuc_tools/')
+  sys.path.append('/home/tjs23/gh/nuc_tools/')
   
   from tools.contact_map import contact_map
     
-  ncc_file_path = '/data/hi-c/hybrid/fastq/SRR5229047_r1_r2_1CDS1-153.ncc'
+  #ncc_file_path = '/data/hi-c/hybrid/fastq/SRR5229047_r1_r2_1CDS1-153.ncc'
   ncc_file_path = '/data/hi-c/hybrid/fastq/SRR5229055_r1_r2_1CDS2-145.ncc'
   
   file_root = os.path.splitext(ncc_file_path)[0]
@@ -618,9 +664,6 @@ if __name__ == '__main__':
                no_separate_cis=True, is_single_cell=True)
   
 # To do 
-
-# Use row masking in NCC
-# Smaller/smoother bins for initial cleanup
 # test with nuc3d 
 
 
@@ -659,12 +702,6 @@ At /mnt/delphi/wb104/nuc_dynamics2_runs/diploid_3. And /mnt/delphi \u2014> /home
 folder delphi/wb104/nuc_dynamics2_runs/dip3 or dip_3--find the 400k final ncc.
 
 delphi:/home/scratch/shared/dip_ncc/dip_3/
-
-CDS1-153.ncc  CDS1-176.ncc  CDS1-187.ncc  CDS1-223.ncc  CDS1-236.ncc  CDS1-283.ncc  CDS1-305.ncc  CDS1-326.ncc  CDS1-346.ncc  CDS1-362.ncc  CDS1-367.ncc
-CDS1-154.ncc  CDS1-182.ncc  CDS1-204.ncc  CDS1-224.ncc  CDS1-242.ncc  CDS1-285.ncc  CDS1-306.ncc  CDS1-333.ncc  CDS1-352.ncc  CDS1-363.ncc  CDS1-372.ncc
-CDS1-157.ncc  CDS1-183.ncc  CDS1-212.ncc  CDS1-227.ncc  CDS1-254.ncc  CDS1-295.ncc  CDS1-307.ncc  CDS1-337.ncc  CDS1-353.ncc  CDS1-364.ncc  CDS1-373.ncc
-CDS1-173.ncc  CDS1-184.ncc  CDS1-213.ncc  CDS1-232.ncc  CDS1-274.ncc  CDS1-297.ncc  CDS1-323.ncc  CDS1-343.ncc  CDS1-354.ncc  CDS1-365.ncc  CDS1-374.ncc
-CDS1-174.ncc  CDS1-185.ncc  CDS1-215.ncc  CDS1-234.ncc  CDS1-275.ncc  CDS1-303.ncc  CDS1-325.ncc  CDS1-344.ncc  CDS1-355.ncc  CDS1-366.ncc  CDS1-375.ncc
 
 Processed data at:
 
