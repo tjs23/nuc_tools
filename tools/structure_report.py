@@ -33,7 +33,12 @@ def structure_report(n3d_paths):
     seq_pos_dict, coords_dict = n3d.load_n3d_coords(n3d_path)
     coords_dict, rmsd_mat, model_mean_rmsds, particle_rmsds = util.align_chromo_coords(coords_dict, seq_pos_dict, dist_scale=False)
     
-    model_rmsds = rmsd_mat.ravel()
+    model_rmsds = []
+    m = len(rmsd_mat)
+    for j in range(m-1):
+      for k in range(j+1,m):
+        model_rmsds.append(rmsd_mat[j,k])
+    
     chromos = util.sort_chromosomes(coords_dict.keys())
     chromo = chromos[0]
     
