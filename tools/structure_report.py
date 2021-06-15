@@ -19,11 +19,11 @@ def structure_report(n3d_paths):
   
   fn_format = '%{}.{}s'.format(indent, indent)
   
-  head0 = [' ' * indent,'      ','    ','      ','   ----- Coordinate RMSDs ----']
+  head0 = [' ' * indent,'      ','    ','      ','   -------- Coordinate RMSDs -------']
   
   print('\t'.join(head0))
 
-  head = [fn_format % 'File','p_size','n_chr','n_coord','    p50','     m0','    m50','   m100']
+  head = [fn_format % 'File','p_size','n_chr','n_coord','    p50','     m0','    m50','   m100','t50m50']
   
   print('\t'.join(head))
   
@@ -33,12 +33,17 @@ def structure_report(n3d_paths):
     seq_pos_dict, coords_dict = n3d.load_n3d_coords(n3d_path)
     coords_dict, rmsd_mat, model_mean_rmsds, particle_rmsds = util.align_chromo_coords(coords_dict, seq_pos_dict, dist_scale=False)
     
+    best_idx = set(model_mean_rmsds.argsort()[:min(1, int(m/2))])
     model_rmsds = []
+    best_model_rmsds = []
     m = len(rmsd_mat)
     for j in range(m-1):
       for k in range(j+1,m):
         model_rmsds.append(rmsd_mat[j,k])
-    
+        
+        if j in best_idx and k in best_idx:
+          best_model_rmsds.append(rmsd_mat[j,k])
+        
     chromos = util.sort_chromosomes(coords_dict.keys())
     chromo = chromos[0]
     
@@ -50,18 +55,20 @@ def structure_report(n3d_paths):
     med_model_rmsd = np.median(model_rmsds)
     min_model_rmsd = np.min(model_rmsds)
     max_model_rmsd = np.max(model_rmsds)
+    best_med_rmsd = np.median(best_model_rmsds)
+    
     
     sort_key = (bin_size, med_model_rmsd, n_particles)
     file_name = fn_format % file_names[i]
     
-    row = (file_name, bin_size, n_chromos, n_particles, med_particle_rmsd, min_model_rmsd, med_model_rmsd, max_model_rmsd)
+    row = (file_name, bin_size, n_chromos, n_particles, med_particle_rmsd, min_model_rmsd, med_model_rmsd, max_model_rmsd, best_med_rmsd)
     
     data.append((sort_key, row))
   
   data.sort()
   
   for sort_key, row in data:
-    line = '{}\t{:6d}\t{:>5,}\t{:>7,}\t{:7.3f}\t{:7.3f}\t{:7.3f}\t{:7.3f}'.format(*row)
+    line = '{}\t{:6d}\t{:>5,}\t{:>7,}\t{:7.3f}\t{:7.3f}\t{:7.3f}\t{:7.3f}\t{:7.3f}'.format(*row)
     
     print(line)
   
