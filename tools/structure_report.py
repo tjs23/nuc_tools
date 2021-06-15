@@ -33,10 +33,10 @@ def structure_report(n3d_paths):
     seq_pos_dict, coords_dict = n3d.load_n3d_coords(n3d_path)
     coords_dict, rmsd_mat, model_mean_rmsds, particle_rmsds = util.align_chromo_coords(coords_dict, seq_pos_dict, dist_scale=False)
     
+    m = len(rmsd_mat)
     best_idx = set(model_mean_rmsds.argsort()[:min(1, int(m/2))])
     model_rmsds = []
     best_model_rmsds = []
-    m = len(rmsd_mat)
     for j in range(m-1):
       for k in range(j+1,m):
         model_rmsds.append(rmsd_mat[j,k])
