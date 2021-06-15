@@ -263,6 +263,7 @@ def _load_bin_sort_ncc(in_ncc_path, sep_threshold=SEP_THRESHOLD):
     
   # Bin and group
   ambig_bins = defaultdict(list)
+  i = -1 # File could be empty
   
   with open(in_ncc_path) as in_file_obj:
     ambig_group = 0
@@ -276,7 +277,7 @@ def _load_bin_sort_ncc(in_ncc_path, sep_threshold=SEP_THRESHOLD):
           ambig_group += 1
       else:
         ambig_group = int(ambig_code)          
-
+      
       if ambig_code.endswith('.0'): # Inactive
         continue
       
@@ -317,9 +318,11 @@ def _load_bin_sort_ncc(in_ncc_path, sep_threshold=SEP_THRESHOLD):
   unambig_bins = {}
   chromo_pair_counts = defaultdict(int)
   chromo_bins = set()
-
+  chromos = set()
+  
   for key in nonambig_bins:
     chr_a, chr_b, bin_a, bin_b = key
+    chromos.update((chr_a, chr_b))
     vals = sorted(nonambig_bins[key]) # Sort by 1st chromo pos
     unambig = [x[:2] for x in vals if len(ag_data[x[2]]) == 1]
  
@@ -335,12 +338,12 @@ def _load_bin_sort_ncc(in_ncc_path, sep_threshold=SEP_THRESHOLD):
   msg = ' .. done'
   print(msg)
  
-  return ag_data, pos_ambig, chromo_bins, nonambig_bins, unambig_bins, ambig_bins, dict(chromo_pair_counts)
+  return sorted(chromos), ag_data, pos_ambig, chromo_bins, nonambig_bins, unambig_bins, ambig_bins, dict(chromo_pair_counts)
 
 
 def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01, sep_threshold=SEP_THRESHOLD, homo_trans_dens_quant=90.0):
   
-  ag_data, pos_ambig, chromo_bins, nonambig_bins, unambig_bins, ambig_bins, chromo_pair_counts = _load_bin_sort_ncc(in_ncc_path)
+  chromos, ag_data, pos_ambig, chromo_bins, nonambig_bins, unambig_bins, ambig_bins, chromo_pair_counts = _load_bin_sort_ncc(in_ncc_path)
  
   msg_template = ' .. Processed:{:>7,} Removed:{:>7,}'
   
@@ -351,7 +354,7 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01, sep_thres
   removed_ag = set()
   resolved_ag = {}
   
-  msg = 'Removing unambiguous inter-homologue contacts from anomolously dense regions'
+  msg = 'Removing inter-homologue contacts from anomolously dense regions'
   print(msg)
   
   bin_counts = {}
@@ -365,6 +368,9 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01, sep_thres
       
       if n_contacts:
         bin_counts[key] = n_contacts
+  
+  if not bin_counts:
+    return 0
   
   counts = list(bin_counts.values())
   upper_dens_thresh = np.percentile(counts, homo_trans_dens_quant)
@@ -382,7 +388,7 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01, sep_thres
     n_pairs = len(pairs)
     keep = []
     
-    for key, pos_a, pos_b, line_idx in pairs:
+    for j, (key, pos_a, pos_b, line_idx) in enumerate(pairs):
       chr_a, chr_b, bin_a, bin_b = key
  
       if (chr_a != chr_b) and (key in bin_counts): # Homolog trans only
@@ -411,8 +417,8 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01, sep_thres
               continue
             break  
               
-        if count < upper_dens_thresh:
-          keep.append(line_idx)
+        if (count < upper_dens_thresh) and (n_pairs > 1): # ONly keep ambiguous holologous trans
+          keep.append(j)
         
         elif (n_pairs == 1) and (key in unambig_bins):
           
@@ -424,11 +430,17 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01, sep_thres
           unambig_bins[key] = contacts
           
       else:
-        keep.append(line_idx)
+        keep.append(j)
+    
+    n_keep = len(keep)
         
-    if keep:
-      if len(keep) < n_pairs:
-        resolved_ag[ag] = keep        
+    if n_keep:
+      if n_keep < n_pairs:
+        new_pairs = [pairs[j] for j in keep]
+        ag_data[ag] = new_pairs
+      
+        if n_keep > 1: # Still ambiguous
+          resolved_ag[ag] = [x[3] for x in new_pairs] # Line indices        
     
     else:      
       removed_ag.add(ag)
@@ -456,17 +468,14 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01, sep_thres
  
     group_score = 0.0 
     chr_a, chr_b, bin_a, bin_b = key
-
-    if key not in unambig_bins:
-      print(key, ag, ag in removed_ag, ag in resolved_ag, len(ag_data[ag]))
       
     contacts = unambig_bins[key]
  
     if contacts:
-      score = _get_network_score(chr_a, chr_b, pos_a, pos_b, bin_a, bin_b, unambig_bins, chromo_bins, secondary_limit=threshold) 
+      score = _get_network_score(chr_a, chr_b, pos_a, pos_b, bin_a, bin_b, unambig_bins, chromo_bins) # , secondary_limit=threshold) 
     else:
       score = 0.0
-
+     
     if score < threshold:
       removed_ag.add(ag)
   
@@ -475,7 +484,9 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01, sep_thres
 
   msg = msg_template.format(it, len(removed_ag))     
   print(msg)
-
+  
+  return len(ag_data)
+  
 
 def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
                      score_threshold=2.0, min_trans_relay=5, remove_pos_ambig=False):
@@ -489,36 +500,36 @@ def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
   removed_ag = set()
   n_pos_ambig = 0
   
-  ag_data, pos_ambig, chromo_bins, nonambig_bins, unambig_bins, ambig_bins, chromo_pair_counts = _load_bin_sort_ncc(in_ncc_path)
+  chromos, ag_data, pos_ambig, chromo_bins, nonambig_bins, unambig_bins, ambig_bins, chromo_pair_counts = _load_bin_sort_ncc(in_ncc_path)
 
-  roots = set()
-  chromos = set()
-  for chr_a, chr_b in chromo_pair_counts:
-    roots.add(chr_a.split('.')[0])
-    roots.add(chr_b.split('.')[0])
-    chromos.add(chr_a)
-    chromos.add(chr_b)
+  trans_close = {}
+  missing_cis = set()
   
-  chromos = list(chromos)  
-  trans_close = {} 
-  
-  for i, chr_a in enumerate(chromos[:-1]):
+  for i, chr_a in enumerate(chromos):
     for chr_b in chromos[i:]:
-      n_inter = chromo_pair_counts.get((chr_a, chr_b), 0)
+      n_pair = chromo_pair_counts.get((chr_a, chr_b), 0)
+      
+      if chr_a == chr_b:
+         if n_pair < min_trans_relay:
+          missing_cis.add((chr_a, chr_b))
+          msg = f'Chromosome {chr_a} is missing!'
+          print(msg)
+        
+      else:
+        for chr_c in chromos:
+          if chr_c in (chr_a, chr_b):
+            continue
  
-      for chr_c in chromos:
-        if chr_c in (chr_a, chr_b):
-          continue
+          a = chromo_pair_counts.get((chr_a, chr_c), 0)
+          b = chromo_pair_counts.get((chr_b, chr_c), 0)
+          c = chromo_pair_counts.get((chr_c, chr_a), 0)
+          d = chromo_pair_counts.get((chr_c, chr_b), 0)
  
-        a = chromo_pair_counts.get((chr_a, chr_c), 0)
-        b = chromo_pair_counts.get((chr_b, chr_c), 0)
-        c = chromo_pair_counts.get((chr_c, chr_a), 0)
-        d = chromo_pair_counts.get((chr_c, chr_b), 0)
+          n_pair += np.sqrt((a + c) * (b + d))
  
-        n_inter += np.sqrt((a + c) * (b + d))
+        trans_close[(chr_a, chr_b)] = n_pair
+        trans_close[(chr_b, chr_a)] = n_pair
  
-      trans_close[(chr_a, chr_b)] = n_inter
-      trans_close[(chr_b, chr_a)] = n_inter
   
   #from matplotlib import pyplot as plt
   #vals = sorted(trans_close.values())
@@ -556,14 +567,18 @@ def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
     for key, pos_a, pos_b, line_idx in pairs:
       chr_pair = tuple(key[:2])
       
+      if chr_pair in missing_cis:
+        continue
+        
       if (chr_pair not in trans_close) or (trans_close[chr_pair] >= min_trans_relay): 
         poss_pairs.append((key, pos_a, pos_b, line_idx))
     
-    if poss_pairs and len(poss_pairs) < len(pairs): # A chromo pair can be excluded
+    n_poss = len(poss_pairs)
+    if poss_pairs and n_poss < len(pairs): # A chromo pair can be excluded
       if len(poss_pairs) == 1: # Only one sensible trans possibility
          key, pos_a, pos_b, line_idx = poss_pairs[0]
          chr_a, chr_b, bin_a, bin_b = key
-         
+          
          if nonambig_bins.get(key) and _get_network_score(chr_a, chr_b, pos_a, pos_b, bin_a, bin_b, unambig_bins, chromo_bins):
            resolved_ag[ag] = (line_idx,)
          else:
@@ -575,19 +590,22 @@ def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
         resolved_ag[ag] = tuple([x[3] for x in poss_pairs]) # Might be refined further
 
     line_indices = []
-    group_scores = [0.0] * 16
+    group_scores = [0.0] * max(3, len(pairs))
     
     for p, (key, pos_a, pos_b, line_idx) in enumerate(pairs):
       line_indices.append(line_idx)
       chr_a, chr_b, bin_a, bin_b = key
       contacts = nonambig_bins.get(key)
+     
+      if (chr_a, chr_b) in missing_cis:
+        score = 0.0
  
-      if contacts:
+      elif contacts:
         score = _get_network_score(chr_a, chr_b, pos_a, pos_b, bin_a, bin_b, unambig_bins, chromo_bins)
  
       else:
         score = 0.0
-            
+        
       group_scores[p] = score
 
     a, b, c, *d = np.argsort(group_scores)[::-1]
@@ -621,50 +639,43 @@ if __name__ == '__main__':
   sys.path.append('/home/tjs23/gh/nuc_tools/')
   
   from tools.contact_map import contact_map
+  
+  from glob import glob
+  
+  #ncc_file_paths = glob('/data/hi-c/hybrid/ncc/SR*-*[1234567890].ncc')
+  ncc_file_paths = glob('/data/hi-c/hybrid/laue_hybrid/SLX*.ncc')
     
-  #ncc_file_path = '/data/hi-c/hybrid/fastq/SRR5229047_r1_r2_1CDS1-153.ncc'
-  ncc_file_path = '/data/hi-c/hybrid/fastq/SRR5229055_r1_r2_1CDS2-145.ncc'
-  
-  file_root = os.path.splitext(ncc_file_path)[0]
-  
-  clean_ncc_path   = file_root + '_clean.ncc'
-  filter1_ncc_path = file_root + '_filter1.ncc'
-  filter2_ncc_path = file_root + '_filter2.ncc'
-  filter3_ncc_path = file_root + '_resolved.ncc'
+  for ncc_file_path in ncc_file_paths:
+    file_root = os.path.splitext(ncc_file_path)[0]
  
-  clean_pdf   = file_root + '_clean.pdf'
-  filter1_pdf = file_root + '_filter1.pdf'
-  filter2_pdf = file_root + '_filter2.pdf'
-  filter3_pdf = file_root + '_resolved.pdf'
-  
-  
-  remove_isolated_unambig(ncc_file_path, clean_ncc_path) 
-  
-  contact_map([clean_ncc_path], clean_pdf, bin_size=None,
-               no_separate_cis=True, is_single_cell=True)
-  
-  # The contact resolution iterative process 
+    tag = file_root.split('_')[-1]
+    if tag in ('clean','filter'):
+      continue
  
-  # Permissive
-  resolve_contacts(clean_ncc_path, filter1_ncc_path, score_threshold=5.0)
+    clean_ncc_path   = file_root + '_clean.ncc'
+    filter_ncc_path = file_root + '_filter.ncc'
+    
+    #if os.path.exists(filter_ncc_path):
+    #  continue
+    
+    clean_pdf   = file_root + '_clean.pdf'
+    filter_pdf = file_root + '_filter.pdf'
+ 
+    #show_chromos = ('chr1.a', 'chr1.b', 'chr2.a', 'chr2.b')
+    show_chromos = None
+    
+    n = remove_isolated_unambig(ncc_file_path, clean_ncc_path)
+    
+    if n > 1e5:
+       contact_map([clean_ncc_path], clean_pdf, bin_size=None, show_chromos=show_chromos,
+                    no_separate_cis=True, is_single_cell=True)
+       
+       # Cautious threshold
+       resolve_contacts(clean_ncc_path, filter_ncc_path, score_threshold=5.0, remove_isolated=True)
 
-  contact_map([filter1_ncc_path], filter1_pdf, bin_size=None,
-               no_separate_cis=True, is_single_cell=True)
-  
-  # More strict
-  resolve_contacts(filter1_ncc_path, filter2_ncc_path)
-  
-  contact_map([filter2_ncc_path], filter2_pdf, bin_size=None,
-              no_separate_cis=True, is_single_cell=True)
-  
-  # Strict again and remove isolated ambigous
-  resolve_contacts(filter2_ncc_path, filter3_ncc_path, remove_isolated=True)
+       contact_map([filter_ncc_path], filter_pdf, bin_size=None, show_chromos=show_chromos,
+                    no_separate_cis=True, is_single_cell=True)
  
-  contact_map([filter3_ncc_path], filter3_pdf, bin_size=None, bin_size2=250.0,
-               no_separate_cis=True, is_single_cell=True)
-  
-# To do 
-# test with nuc3d 
 
 
  

@@ -33,6 +33,7 @@ def structure_report(n3d_paths):
     seq_pos_dict, coords_dict = n3d.load_n3d_coords(n3d_path)
     coords_dict, rmsd_mat, model_mean_rmsds, particle_rmsds = util.align_chromo_coords(coords_dict, seq_pos_dict, dist_scale=False)
     
+    model_rmsds = rmsd_mat.ravel()
     chromos = util.sort_chromosomes(coords_dict.keys())
     chromo = chromos[0]
     
@@ -41,9 +42,9 @@ def structure_report(n3d_paths):
     n_chromos = len(chromos)
     n_particles = len(particle_rmsds)
     med_particle_rmsd = np.median(particle_rmsds)
-    med_model_rmsd = np.median(model_mean_rmsds)
-    min_model_rmsd = np.min(model_mean_rmsds)
-    max_model_rmsd = np.max(model_mean_rmsds)
+    med_model_rmsd = np.median(model_rmsds)
+    min_model_rmsd = np.min(model_rmsds)
+    max_model_rmsd = np.max(model_rmsds)
     
     sort_key = (bin_size, med_model_rmsd, n_particles)
     file_name = fn_format % file_names[i]

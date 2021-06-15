@@ -561,6 +561,7 @@ def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
   trans_groups = set()
   cis_groups = set()
   n_isol = 0
+  n_pairs = 0
   
   for i, chr_1 in enumerate(chromos):
     for chr_2 in chromos[i:]:
@@ -575,8 +576,8 @@ def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
       if contact_list is None: # Nothing for this pair: common for single-cell Hi-C
         continue
       
-      ni = _get_num_isolated(contact_list)
-      n_isol += ni
+      ni = 0
+      isol = _get_isolated(contact_list)
       s_a, off_a, size_a = chromo_offsets[chr_a]
       s_b, off_b, size_b = chromo_offsets[chr_b]
 
@@ -593,14 +594,21 @@ def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
 
         a = off_a + int((p_a-s_a)/bin_size)
         b = off_b + int((p_b-s_b)/bin_size)
+  
  
         if ambig_groups[ag] == 1:
           matrix[a, b] += nobs
           matrix[b, a] += nobs
- 
+          n_pairs += 1
+          
+          if (p_a, p_b) in isol:
+            ni += 1
+  
         else:
           ambig_matrix[a, b] += nobs
           ambig_matrix[b, a] += nobs
+      
+      n_isol += ni
      
       if chr_a != chr_b:
         s1, e1 = chromo_limits[chr_a]
@@ -612,7 +620,7 @@ def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
   n_trans = len(trans_groups)
   n_cis = len(cis_groups)
   n_cont = len(ambig_groups)
-  counts = (n_cont, n_cis, n_trans, n_homolog, n_ambig, n_isol)
+  counts = (n_cont, n_cis, n_trans, n_homolog, n_ambig, n_pairs, n_isol)
   
   return counts, matrix, ambig_matrix, label_pos, chromo_offsets, trans_counts, ambig_groups
 
@@ -793,9 +801,9 @@ def _get_mito_fraction(contacts, bin_size, min_sep=1e2, sep_range=(10**6.5, 10**
   return frac, score_cat
 
 
-def _get_num_isolated(positions, threshold=500000):
+def _get_isolated(positions, threshold=int(2e6)):
 
-  num_isolated = 0
+  isolated = set()
   bin_offsets = ((-1,-1), (-1,0), (-1,1), (0,-1), (0,1), (1,-1), (1,0), (1,1))
 
   idx = defaultdict(list)
@@ -827,9 +835,9 @@ def _get_num_isolated(positions, threshold=500000):
           break
 
       else:
-        num_isolated += 1
+        isolated.add((pA, pB))
 
-  return num_isolated
+  return isolated
 
 
 def _is_detailed_data(data_track, step_size):
@@ -1741,7 +1749,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
   else:
     ret = get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits)
     count_list, full_matrix, ambig_matrix, label_pos, offsets, trans_counts, ambig_groups = ret
-    n_cont, n_cis, n_trans, n_homolog, n_ambig, n_isol = count_list
+    n_cont, n_cis, n_trans, n_homolog, n_ambig, n_pairs, n_isol = count_list
 
   if n_cont < (0.5e6 * len(chromos)) and not is_single_cell:
     util.warn('Contact map is sparse but single-cell "-sc" option not used')
@@ -1757,7 +1765,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
     else:
       ret = get_contact_lists_matrix(contacts2, bin_size, chromos, chromo_limits)
       count_list2, full_matrix2, ambig_matrix2, label_pos2, offsets2, trans_counts2, ambig_groups2 = ret
-      n_cont2, n_cis2, n_trans2, n_homolog2, n_ambig2, n_isol2 = count_list2
+      n_cont2, n_cis2, n_trans2, n_homolog2, n_ambig2, n_pairs2, n_isol2 = count_list2
   
   data_track_dicts = {}
   
@@ -2029,10 +2037,10 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
       extra_texts = []
  
       if n_isol is not None:
-        isol_frac = 100.0 * n_isol / float(n_cont or 1)
+        isol_frac = 100.0 * n_isol / float(n_pairs or 1)
  
         if contacts2:
-          isol_frac2 = 100.0 * n_isol2 / float(n_cont2 or 1)
+          isol_frac2 = 100.0 * n_isol2 / float(n_pairs2 or 1)
           extra_texts.append('Isolated:{:.2f}%\{:.2f}%'.format(isol_frac, isol_frac2))
         else:
           extra_texts.append('Isolated:{:.2f}%'.format(isol_frac))

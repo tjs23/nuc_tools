@@ -1,4 +1,5 @@
 import numpy as np
+from collections import defaultdict
 
 # #   Globals  # #
 
@@ -19,22 +20,31 @@ def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=int, n_max=N
     num_obs = 1
  
     contact_dict = {}
-    chromosomes = set()
+    inactive_min = defaultdict(int)
+    inactive_max = defaultdict(int)
     n = 0
+    ambig_group = 0
     
     for line in file_obj:
       chr_a, f_start_a, f_end_a, start_a, end_a, strand_a, \
       chr_b, f_start_b, f_end_b, start_b, end_b, strand_b, \
-      ambig_group, pair_id, swap_pair = line.split()
+      ambig_code, pair_id, swap_pair = line.split()
       
-      if ambig_group.endswith('.0'): # Inactive
-        continue
+      if int(float(ambig_code)) > 0:
+        ambig_group += 1 # Count even if inactive; keep consistent group numbering
       
       if (chr_a != chr_b) and not trans:
         continue
 
       pos_a = int(f_start_a if strand_a == '+' else f_end_a)
       pos_b = int(f_start_b if strand_b == '+' else f_end_b)
+        
+      if ambig_code.endswith('.0'): # Inactive
+        inactive_min[chr_a] = min(pos_a, inactive_min[chr_a] or 1e12)
+        inactive_min[chr_b] = min(pos_b, inactive_min[chr_b] or 1e12)
+        inactive_max[chr_a] = max(pos_a, inactive_max[chr_a])
+        inactive_max[chr_b] = max(pos_b, inactive_max[chr_b])
+        continue
         
       if chr_a > chr_b:
         chr_a, chr_b = chr_b, chr_a
@@ -44,8 +54,6 @@ def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=int, n_max=N
       if key not in contact_dict:
         contact_dict[key] = []
          
-      chromosomes.add(chr_a)
-      chromosomes.add(chr_b)
       contact_dict[key].append((pos_a, pos_b, num_obs, int(pair_id)))
       n += 1
 
@@ -78,9 +86,7 @@ def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=int, n_max=N
       chromo_limits[chr_b] = [min(prev_min, min_b), max(prev_max, max_b)]
     else:
       chromo_limits[chr_b] = [min_b, max_b]
-    
-    contact_dict[key] = contacts.T
-    
+
   if not pair_key:
     pairs = sorted(contact_dict)
     
@@ -91,8 +97,13 @@ def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=int, n_max=N
         contact_dict[chr_a][chr_b] = contact_dict[pair]
       
       del contact_dict[pair]        
+  
+  # Find limits for chromos with no active contacts
+  for chr_a in inactive_min:
+    if chr_a not in chromo_limits:
+      chromo_limits[chr_a] = [inactive_min[chr_a], inactive_max[chr_a]]
         
-  chromosomes = sorted(chromosomes)      
+  chromosomes = sorted(contact_dict)      
         
   return chromosomes, chromo_limits, contact_dict
 
