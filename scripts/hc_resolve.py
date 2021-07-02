@@ -9,11 +9,11 @@ import numpy as np
 from collections import defaultdict
 
 MIN_SEP = 100
-SEP_THRESHOLD = 2e7
+SEP_THRESHOLD = 4e7
 SEP_SCALE = 0.5 * SEP_THRESHOLD
 
 def _get_network_score(chr_a, chr_b, pos_a, pos_b, bin_a, bin_b,
-                       unambig_bins, chromo_bins, secondary_limit=0.0, primary_limit=3.0):
+                       unambig_bins, chromo_bins, primary_limit=8.0, secondary_limit=0.0):
   
   plim = 10.0 ** primary_limit
   score_l = 1.0
@@ -487,67 +487,26 @@ def remove_isolated_unambig(in_ncc_path, out_ncc_path, threshold=0.01, sep_thres
   
   return len(ag_data)
   
+  
+def network_filter_ambig(ag_data, missing_cis, trans_close, nonambig_bins, unambig_bins, chromo_bins,
+                         score_threshold, min_trans_relay=5, remove_isolated=False, max_pairs=16):
 
-def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
-                     score_threshold=2.0, min_trans_relay=5, remove_pos_ambig=False):
-
-  msg_template = ' .. Processed:{:>7,} Resolved:{:>7,} Time taken:{:.3f} s'
-
-  msg = 'Reading contact data'
-  print(msg)
+  msg_template = ' .. Processed:{:>7,} Resolved:{:>7,} Step_time:{:.3f} s Time taken:{:5.2f} s'
   
   resolved_ag = {}
   removed_ag = set()
-  n_pos_ambig = 0
-  
-  chromos, ag_data, pos_ambig, chromo_bins, nonambig_bins, unambig_bins, ambig_bins, chromo_pair_counts = _load_bin_sort_ncc(in_ncc_path)
-
-  trans_close = {}
-  missing_cis = set()
-  
-  for i, chr_a in enumerate(chromos):
-    for chr_b in chromos[i:]:
-      n_pair = chromo_pair_counts.get((chr_a, chr_b), 0)
-      
-      if chr_a == chr_b:
-         if n_pair < min_trans_relay:
-          missing_cis.add((chr_a, chr_b))
-          msg = f'Chromosome {chr_a} is missing!'
-          print(msg)
-        
-      else:
-        for chr_c in chromos:
-          if chr_c in (chr_a, chr_b):
-            continue
- 
-          a = chromo_pair_counts.get((chr_a, chr_c), 0)
-          b = chromo_pair_counts.get((chr_b, chr_c), 0)
-          c = chromo_pair_counts.get((chr_c, chr_a), 0)
-          d = chromo_pair_counts.get((chr_c, chr_b), 0)
- 
-          n_pair += np.sqrt((a + c) * (b + d))
- 
-        trans_close[(chr_a, chr_b)] = n_pair
-        trans_close[(chr_b, chr_a)] = n_pair
- 
-  
-  #from matplotlib import pyplot as plt
-  #vals = sorted(trans_close.values())
-  #plt.hist(vals, bins=50, range=(0,50))
-  #plt.show()     
-
-  msg = 'Filtering with network scores'
-  print(msg)
   
   scores = [[], [], [], []]
-  it = 0  
-  t0 = time()
+  start_time = t0 = time()
+  
+  
+  qc = []
     
-  for ag in ag_data:
-    it += 1
-    if it % 10000 == 0:
+  for j, ag in enumerate(ag_data):
+  
+    if j % 10000 == 0:
       t1 = time()
-      msg = msg_template.format(it, len(resolved_ag), t1-t0)
+      msg = msg_template.format(j, len(resolved_ag), t1-t0, t1-start_time)
       t0 = t1
       print(msg)
     
@@ -559,7 +518,7 @@ def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
     if len(pairs) == 1:
       continue
       
-    if len(pairs) > 16:
+    if len(pairs) > max_pairs:
       removed_ag.add(ag)
       continue
 
@@ -590,7 +549,7 @@ def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
         resolved_ag[ag] = tuple([x[3] for x in poss_pairs]) # Might be refined further
 
     line_indices = []
-    group_scores = [0.0] * max(3, len(pairs))
+    group_scores = [0.0] * max(4, len(pairs))
     
     for p, (key, pos_a, pos_b, line_idx) in enumerate(pairs):
       line_indices.append(line_idx)
@@ -603,30 +562,142 @@ def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=False,
       elif contacts:
         score = _get_network_score(chr_a, chr_b, pos_a, pos_b, bin_a, bin_b, unambig_bins, chromo_bins)
  
+        if score and chr_a != chr_b:
+          qc.append(score)
+ 
       else:
         score = 0.0
         
       group_scores[p] = score
 
-    a, b, c, *d = np.argsort(group_scores)[::-1]
+    a, b, c, d, *e = np.argsort(group_scores)[::-1]
+    
+    if group_scores[a] < 1.0: # Best is isolated
+      if remove_isolated:
+        if ag in resolved_ag:
+          del resolved_ag[ag]
           
-    if group_scores[a]  >  score_threshold * group_scores[b]:
+        removed_ag.add(ag)
+     
+    elif group_scores[a]  >  score_threshold * group_scores[b]:
       resolved_ag[ag] = (line_indices[a],)
       
     elif group_scores[b]  >  score_threshold * group_scores[c]: # First two were close
       resolved_ag[ag] = (line_indices[a], line_indices[b])
+
+    elif group_scores[c]  >  score_threshold * group_scores[d]: # First three were close
+      resolved_ag[ag] = (line_indices[a], line_indices[b], line_indices[c])
+    
+ 
+  #from matplotlib import pyplot as plt
+  
+  #fig, ax1 = plt.subplots()
+  
+  #ax1.hist(qc, bins=250)
+  
+  #plt.show()     
+    
+  return resolved_ag, removed_ag
+  
+  
+  
+def resolve_contacts(in_ncc_path, out_ncc_path, remove_isolated=True, score_threshold=2.0,
+                     remove_pos_ambig=False, primary_weight=5, trans_relay_percentile=5.0):
+
+  msg_template = 'Processed:{:>7,} Resolved:{:>7,}'
+
+  msg = 'Reading contact data'
+  print(msg)
+  
+  chromos, ag_data, pos_ambig, chromo_bins, nonambig_bins, unambig_bins, ambig_bins, chromo_pair_counts = _load_bin_sort_ncc(in_ncc_path)
+
+  missing_cis = set()
+  
+  for i, chr_a in enumerate(chromos):
+    for chr_b in chromos[i:]:
+      n_pair = chromo_pair_counts.get((chr_a, chr_b), 0)
       
-    elif group_scores[a] == 0.0: # Best is isolated
-      if remove_isolated:
-        removed_ag.add(ag)
+      if chr_a == chr_b:
+        if n_pair < primary_weight:
+          missing_cis.add((chr_a, chr_b))
+          msg = f'Chromosome {chr_a} is missing!'
+          print(msg)
+  
+  # Do a light disambiguation initially, which gives better trans relay stats
+  # - min_trans_relay should come from stats
+
+  msg = 'Primary filtering with network scores'
+  print(msg)
+  
+  temp_ncc_path = os.path.splitext(out_ncc_path)[0] + '_temp.ncc'
+  
+  resolved_ag, removed_ag = network_filter_ambig(ag_data, missing_cis, {}, nonambig_bins, unambig_bins,
+                                                 chromo_bins, score_threshold)
+
+  _write_ambig_filtered_ncc(in_ncc_path, temp_ncc_path, ag_data, resolved_ag, removed_ag)
+  
+  chromos, ag_data, pos_ambig, chromo_bins, nonambig_bins, unambig_bins, ambig_bins, chromo_pair_counts = _load_bin_sort_ncc(temp_ncc_path)
+  
+  print(msg_template.format(len(ag_data), len(resolved_ag)))  
+  
+  trans_close = {}  
+  for i, chr_a in enumerate(chromos):
+    for chr_b in chromos[i:]:
+
+      if chr_a != chr_b:
+        n_pair = primary_weight * chromo_pair_counts.get((chr_a, chr_b), 0)
+        
+        for chr_c in chromos:
+          if chr_c in (chr_a, chr_b):
+            continue
+ 
+          a = chromo_pair_counts.get((chr_a, chr_c), 0)
+          b = chromo_pair_counts.get((chr_b, chr_c), 0)
+          c = chromo_pair_counts.get((chr_c, chr_a), 0)
+          d = chromo_pair_counts.get((chr_c, chr_b), 0)
+ 
+          n_pair += np.sqrt((a + c) * (b + d))
+ 
+        trans_close[(chr_a, chr_b)] = n_pair
+        trans_close[(chr_b, chr_a)] = n_pair
+ 
+  
+  from matplotlib import pyplot as plt
+  
+  trans_vals = sorted([x for x in trans_close.values() if x])
+
+  """
+  fig, (ax1, ax2) = plt.subplots(2, 1)
+  
+  vals1 = sorted([x for x in trans_close0.values() if x])
+  
+  print(np.percentile(vals1, [1,2,5,10]))
+  print(np.percentile(trans_vals, [1,2,5,10]))
+  
+  ax1.hist(vals1, bins=100, range=(0, 100))
+  
+  ax2.hist(tras_vals, bins=100, range=(0, 100))
+  
+  plt.show()     
+  """
+  
+  min_trans_relay = np.percentile(trans_vals, trans_relay_percentile)
+
+
+  msg = 'Secondary filtering with network scores'
+  print(msg)
+
+  chromos, ag_data, pos_ambig, chromo_bins, nonambig_bins, unambig_bins, ambig_bins, chromo_pair_counts = _load_bin_sort_ncc(in_ncc_path)
+
+  resolved_ag, removed_ag = network_filter_ambig(ag_data, missing_cis, trans_close, nonambig_bins, unambig_bins,
+                                                 chromo_bins, score_threshold, min_trans_relay, remove_isolated)  
 
   if remove_pos_ambig: 
     removed_ag.update(pos_ambig)
   
   _write_ambig_filtered_ncc(in_ncc_path, out_ncc_path, ag_data, resolved_ag, removed_ag)
   
-  msg = msg_template.format(it, len(resolved_ag), n_pos_ambig)
-  print(msg)  
+  print(msg_template.format(len(ag_data), len(resolved_ag)))  
 
 
 if __name__ == '__main__': 
@@ -642,24 +713,26 @@ if __name__ == '__main__':
   
   from glob import glob
   
-  #ncc_file_paths = glob('/data/hi-c/hybrid/ncc/SR*-*[1234567890].ncc')
-  ncc_file_paths = glob('/data/hi-c/hybrid/laue_hybrid/SLX*.ncc')
+  ncc_file_paths = glob('/data/hi-c/hybrid/ncc/SR*-*[1234567890].ncc') + glob('/data/hi-c/hybrid/laue_hybrid/SLX*.ncc') + glob('/data/hi-c/hybrid/Hi-C_53_SLX-18853/SLX*.ncc')
+  ncc_file_paths = ['/data/hi-c/hybrid/Hi-C_53_SLX-18853/SLX-18853_INLINE_HJWKFDRXX_s_1_r_1_2_P83F7.ncc']
     
   for ncc_file_path in ncc_file_paths:
     file_root = os.path.splitext(ncc_file_path)[0]
  
     tag = file_root.split('_')[-1]
-    if tag in ('clean','filter'):
+    if tag in ('clean','filter','refilter','extra'):
       continue
  
     clean_ncc_path   = file_root + '_clean.ncc'
     filter_ncc_path = file_root + '_filter.ncc'
+    extra_ncc_path = file_root + '_filter_temp.ncc'
     
     #if os.path.exists(filter_ncc_path):
     #  continue
     
     clean_pdf   = file_root + '_clean.pdf'
     filter_pdf = file_root + '_filter.pdf'
+    extra_pdf = file_root + '_filter_temp.pdf'
  
     #show_chromos = ('chr1.a', 'chr1.b', 'chr2.a', 'chr2.b')
     show_chromos = None
@@ -671,10 +744,17 @@ if __name__ == '__main__':
                     no_separate_cis=True, is_single_cell=True)
        
        # Cautious threshold
-       resolve_contacts(clean_ncc_path, filter_ncc_path, score_threshold=5.0, remove_isolated=True)
+       resolve_contacts(clean_ncc_path, filter_ncc_path, score_threshold=10.0, remove_isolated=True)
+
+       contact_map([extra_ncc_path], extra_pdf, bin_size=None, show_chromos=show_chromos,
+                    no_separate_cis=True, is_single_cell=True)
 
        contact_map([filter_ncc_path], filter_pdf, bin_size=None, show_chromos=show_chromos,
                     no_separate_cis=True, is_single_cell=True)
+
+       # More permissive threshold
+       #resolve_contacts(filter_ncc_path, extra_ncc_path, score_threshold=2.0, remove_isolated=True)
+
  
 
 
@@ -717,6 +797,23 @@ delphi:/home/scratch/shared/dip_ncc/dip_3/
 Processed data at:
 
 munro-i7:/data/hi-c/hybrid/fastq
+
+
+                                                                      	      	    	      	    -------- Coordinate RMSDs -------
+                                                                  File	p_size	n_chr	n_coord	   mt50	    p50	     m0	    m50	   m100
+    SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB924h_P92J16_filter_8000.n3d	  8000	   39	    665	  0.348	  0.155	  0.085	  0.422	  0.704
+    SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB924h_P92J17_filter_8000.n3d	  8000	   39	    665	  1.070	  1.374	  0.130	  2.426	  4.647
+    SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB924h_P92I17_filter_8000.n3d	  8000	   38	    643	  1.560	  1.402	  0.198	  2.783	  4.390
+SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB9Nanog2iL_P91F6_filter_8000.n3d	  8000	   39	    661	  3.260	  2.410	  1.298	  4.489	  9.231
+SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB9Nanog2iL_P90H5_filter_8000.n3d	  8000	   38	    651	  8.922	  6.076	  5.320	 10.020	 13.532
+
+    SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB924h_P92J16_filter_8000.n3d	  8000	   39	    665	  0.348	  0.155	  0.085	  0.422	  0.704
+    SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB924h_P92J17_filter_8000.n3d	  8000	   40	    687	  0.630	  0.812	  0.270	  1.218	  3.950
+    SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB924h_P92I17_filter_8000.n3d	  8000	   40	    687	  0.767	  0.877	  0.539	  0.953	  3.731
+SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB9Nanog2iL_P91F6_filter_8000.n3d	  8000	   40	    687	  1.193	  1.950	  0.718	  3.636	  4.709
+SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB9Nanog2iL_P90H5_filter_8000.n3d	  8000	   40	    687	  1.314	  2.002	  0.938	  3.120	  5.714
+
+
 
 """      
       

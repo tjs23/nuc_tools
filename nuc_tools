@@ -4,4 +4,4 @@ export NUC_TOOLS_DIR="$(dirname "$(readlink -f $0)")"
 export PYTHONPATH="${PYTHONPATH}:.:${NUC_TOOLS_DIR}"
 
 #python -m nuc_processing.NucProcess $*
-python ${NUC_TOOLS_DIR}/nuc_tools.py $*
+python3 ${NUC_TOOLS_DIR}/nuc_tools.py $*
