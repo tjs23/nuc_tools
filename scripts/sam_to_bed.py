@@ -14,7 +14,7 @@ file_end = '_%dk.bed' % int(bin_size/1e3)
 
 for sam_path in sam_paths:
   
-  bed_path = os.path.splitext()[0] + file_end
+  bed_path = os.path.splitext(sam_path)[0] + file_end
   
   util.info('Loading and binning {}'.format(sam_path))
   
