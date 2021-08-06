@@ -36,7 +36,7 @@ def load_data_track(file_path, bin_size=1000, min_qual=10):
   data_dict = defaultdict(set)
   label = ''
  
-  for strand, data_hists in (('+', data_hists_pos), ('-', data_hists_neg)):
+  for strand, data_hists in ((True, data_hists_pos), (False, data_hists_neg)):
     for chromo in data_hists:
       hist = data_hists[chromo]
       idx = hist.nonzero()[0]
