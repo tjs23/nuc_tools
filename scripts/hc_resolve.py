@@ -707,7 +707,7 @@ if __name__ == '__main__':
   
   # Cleanup ambig so noise doesn't affect disambiguation too much
   import sys
-  sys.path.append(os.path.dirname(__file__))
+  sys.path.append(os.path.dirname(os.path.dirname(__file__)))
   
   from tools.contact_map import contact_map
   
