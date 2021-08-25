@@ -5,38 +5,43 @@ import numpy as np
 PROG_NAME = 'contact_density'
 VERSION = '1.0.0'
 DESCRIPTION = 'Creates linear contact density data tracks, in BED format, from 2D Hi-C data for different sequence separation ranges and in trans'
-SEQ_SEP_THRESHOLDS = [int(1e4), int(5e5), int(1e7)]
+SEQ_SEP_THRESHOLDS = [10,100,1000]
 DEFAULT_BIN_SIZE = 25.0
 
 
 # Ad an all cis counts track cis
 
-def contact_density(contact_path, out_path_root=None, bin_size=DEFAULT_BIN_SIZE, seq_sep_thresholds=SEQ_SEP_THRESHOLDS):
+def contact_density(contact_path, out_path_root=None, bin_size=DEFAULT_BIN_SIZE, seq_sep_thresholds=SEQ_SEP_THRESHOLDS, use_trans=False):
 
   from nuc_tools import util, io
   from formats import ncc, npz, bed
+  
+  seq_sep_thresholds = sorted([int(1e3 * x) for x in seq_sep_thresholds])
     
   if  out_path_root:
     out_path_root = os.path.splitext(out_path_root)[0]
   else:
     out_path_root = os.path.splitext(contact_path)[0] + '_contact_density'
   
-  util.info('  .. loading')
   
   if io.is_ncc(contact_path):
     file_bin_size = None
     bin_size = int(bin_size * 1e3)
-    util.info('  .. loading')
-    chromosomes, chromo_limits, contacts = ncc.load_file(in_path, trans=True, dtype=np.int32)
+    util.info('  .. loading NCC contacts {}'.format(contact_path))
+    chromosomes, chromo_limits, contacts = ncc.load_file(contact_path, trans=use_trans, dtype=np.int32)
     
   else:
-    file_bin_size, chromo_limits, contacts = npz.load_npz_contacts(contact_path, trans=True)
+    util.info('  .. loading NPZ contacts {}'.format(contact_path))
+    file_bin_size, chromo_limits, contacts = npz.load_npz_contacts(contact_path, trans=use_trans)
     bin_size = file_bin_size
     chromosomes = chromo_limits.keys()
   
   chromosomes = util.sort_chromosomes(chromosomes)
   
-  n_tracks = len(SEQ_SEP_THRESHOLDS) + 3 # Add very big, plus all cis, plus trans
+  n_tracks = len(seq_sep_thresholds) + 2 # Add very big, plus all ciss
+  
+  if use_trans:
+    n_tracks += 1
   
   data_tracks = []
   
@@ -50,12 +55,14 @@ def contact_density(contact_path, out_path_root=None, bin_size=DEFAULT_BIN_SIZE,
   
     data_tracks.append(data_dict)
   
-  thr_max_min = ((SEQ_SEP_THRESHOLDS[0], None),
-                 (SEQ_SEP_THRESHOLDS[1], SEQ_SEP_THRESHOLDS[0]),
-                 (SEQ_SEP_THRESHOLDS[2], SEQ_SEP_THRESHOLDS[1]),
-                 (None, SEQ_SEP_THRESHOLDS[2]),
-                 (None, None))
-                 
+  thr_max_min = [(seq_sep_thresholds[0], None)]
+  
+  for i, th in enumerate(seq_sep_thresholds[1:], 1):
+    thr_max_min.append((th, seq_sep_thresholds[i-1]))
+  
+  thr_max_min.append((None, seq_sep_thresholds[-1]))
+  thr_max_min.append((None, None))
+                   
   track_tags = []
   for mx, mn in thr_max_min:
     if mx and mn:
@@ -65,11 +72,12 @@ def contact_density(contact_path, out_path_root=None, bin_size=DEFAULT_BIN_SIZE,
     elif mn:
       tag = '%dk+' % (mn/1e3)
     else:
-      tag = 'cis'
+      tag = 'all'
       
     track_tags.append(tag)
-    
-  track_tags.append('trans')  
+  
+  if use_trans:  
+    track_tags.append('trans')  
   
   for chr_a, chr_b in contacts:
     chromo_pair= (chr_a, chr_b)
@@ -90,7 +98,7 @@ def contact_density(contact_path, out_path_root=None, bin_size=DEFAULT_BIN_SIZE,
           idx = (rows, cols)
           seq_sep = d * file_bin_size
        
-          if d and (seq_sep >= SEQ_SEP_THRESHOLDS[data_idx]) and ((d-1) * file_bin_size < SEQ_SEP_THRESHOLDS[data_idx]):
+          if d and (seq_sep >= seq_sep_thresholds[data_idx]) and ((d-1) * file_bin_size < seq_sep_thresholds[data_idx]):
             data_idx += 1
           
           data_dict = data_tracks[data_idx]
@@ -98,17 +106,25 @@ def contact_density(contact_path, out_path_root=None, bin_size=DEFAULT_BIN_SIZE,
           data_dict[chr_a][d:] += matrix[idx] # cols
         
         # all cis
-        data_dict = data_tracks[-2]
+        data_dict = data_tracks[data_idx+1]
         data_dict[chr_a] += matrix.sum(axis=1)
         data_dict[chr_b] += matrix.sum(axis=0)        
         
-      else: # trans
-        data_dict = data_tracks[-1]
-        data_dict[chr_a] += matrix.sum(axis=1)
-        data_dict[chr_b] += matrix.sum(axis=0)
+      elif use_trans:
+        data_dict_all   = data_tracks[-2]
+        data_dict_trans = data_tracks[-1]
+        msum = matrix.sum(axis=1)
+        
+        data_dict_all[chr_a] += msum
+        data_dict_trans[chr_a] += msum
+
+        msum = matrix.sum(axis=0)
+        data_dict_all[chr_b] += msum
+        data_dict_trans[chr_b] += msum
      
     else:
       contact_array = contacts[chromo_pair]
+      
       seq_pos_a = contact_array[:,0]
       seq_pos_b = contact_array[:,1]
       chromo_counts = contact_array[:,2]
@@ -120,7 +136,7 @@ def contact_density(contact_path, out_path_root=None, bin_size=DEFAULT_BIN_SIZE,
       if chr_a == chr_b:
         for i, (th_max, th_min) in enumerate(thr_max_min): # Short/long range seq separation limits
           if th_max and th_min:
-            idx = seps < th_max & seps >= th_min
+            idx = (seps < th_max) & (seps >= th_min)
           elif th_max:
             idx = seps < th_max
           elif th_min:
@@ -134,12 +150,17 @@ def contact_density(contact_path, out_path_root=None, bin_size=DEFAULT_BIN_SIZE,
           data_dict[chr_a] += bin_counts_a
           data_dict[chr_a] += bin_counts_b
         
-      else:
+      elif use_trans:
         bin_counts_a, null = np.histogram(bins_a, bins=n_a, range=(0,n_a))
         bin_counts_b, null = np.histogram(bins_b, bins=n_b, range=(0,n_b))
-        data_dict = data_tracks[-1]
-        data_dict[chr_a][bins_a] += bin_counts_a
-        data_dict[chr_b][bins_a] += bin_counts_b
+        
+        data_dict = data_tracks[-1] # Trans only
+        data_dict[chr_a] += bin_counts_a
+        data_dict[chr_b] += bin_counts_b
+
+        data_dict = data_tracks[-2] # All
+        data_dict[chr_a] += bin_counts_a
+        data_dict[chr_b] += bin_counts_b
   
   for i, data_dict in enumerate(data_tracks):
     out_file_path = '{}_{}.bed'.format(out_path_root, track_tags[i])
@@ -172,22 +193,31 @@ def main(argv=None):
 
   arg_parse.add_argument('-s', '--bin-size', default=DEFAULT_BIN_SIZE, metavar='BIN_SIZE', type=float, dest="s",
                          help='For NCC format input, the binned region size for output data track, in kilobases. ' \
-                              'Defaults to %.1f kb but not not used if NPZ data is input: here the native bin size of the contact map is used.' % DEFAULT_BIN_SIZE)
+                              'Defaults to %.1f kb but totally ignored if NPZ data is input: here the native bin size of the contact map is used.' % DEFAULT_BIN_SIZE)
 
   arg_parse.add_argument('-o', '--out-file-root',metavar='OUT_FILE_ROOT', dest='o',
                          help='Optional file path to specify where output data track files will be saved.' \
                               'All output file names will be appended with the different sequence separation thresholds.')
   
+  thresh_text = '{} {} {}'.format(*SEQ_SEP_THRESHOLDS)
+  
+  arg_parse.add_argument('-k', '--kb-thresh', metavar='KB_THRESHOLD', nargs='*', dest="k", type=float, 
+                         help='Sequence separation thresholds (in kb) for stratifying contact density. Default: %s' % thresh_text)
+
+  arg_parse.add_argument('-t', '--trans', default=False, action='store_true', dest="t",
+                         help='Also, consider inter-chromosomal (trans) contacts as a separate category')
  
   args = vars(arg_parse.parse_args(argv))
 
   contact_path = args['i']
   out_path_root = args['o']
   bin_size = args['s']
+  thresholds = args['k']
+  use_trans = args['t']
   
   io.check_invalid_file(contact_path)  
   
-  contact_density(contact_path, out_path_root, bin_size)
+  contact_density(contact_path, out_path_root, bin_size, thresholds, use_trans)
   
 
 if __name__ == "__main__":
