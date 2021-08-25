@@ -147,8 +147,8 @@ def main(argv=None):
   arg_parse.add_argument(metavar='FASTA_FILES', nargs='+', dest='i',
                          help='One or more input sequence files in FASTA format. e.g. of a genome. Accepts wildcards.')
 
-  arg_parse.add_argument('-s', '--bin-size', default=DEFAULT_BIN_SIZE, metavar='BIN_SIZE', type=float, dest="s",
-                         help='The binned region size for output data tracks, in kilobases. Default is %.1f kb.' % DEFAULT_BIN_SIZE)
+  arg_parse.add_argument('-s', '--bin-size', default=DEFAULT_BIN_SIZE, metavar='BIN_SIZE', type=int, dest="s",
+                         help='The binned region size for output data tracks, in base pairs. Default is %d bp.' % DEFAULT_BIN_SIZE)
 
   arg_parse.add_argument('-o', '--out-file-root',metavar='OUT_FILE_ROOT', dest='o',
                          help='Optional file path to specify where output data track files will be saved.' \
