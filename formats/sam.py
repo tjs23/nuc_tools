@@ -5,14 +5,14 @@ from nuc_tools import util
 
 from collections import defaultdict
 
-def load_data_track(file_path, bin_size=1000, min_qual=10):
+def load_data_track(file_path, bin_size=1000, min_qual=10, num_cpu=4):
   
   chromos_sizes = dict(get_bam_chromo_sizes(file_path))
 
   data_hists_pos = {c: np.zeros(int(chromos_sizes[c]//bin_size)+1, 'uint16') for c in chromos_sizes}
   data_hists_neg = {c: np.zeros(int(chromos_sizes[c]//bin_size)+1, 'uint16') for c in chromos_sizes}
  
-  cmd_args = ['samtools', 'view','-F','4','-q', str(min_qual), file_path]
+  cmd_args = ['samtools', 'view','-F','4','-q', str(min_qual), '-@', str(num_cpu), file_path]
   
   proc = subprocess.Popen(cmd_args, shell=False, stdout=subprocess.PIPE)
  

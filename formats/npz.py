@@ -22,7 +22,7 @@ def get_chromosomes(file_path):
   
 def load_npz_contacts(file_path, trans=True, store_sparse=False, display_counts=False):
   
-  file_dict = np.load(file_path, allow_pickle=True)
+  file_dict = np.load(file_path, allow_pickle=True, encoding='latin1')
   
   chromo_limits = {}
   contacts = {}
@@ -38,25 +38,33 @@ def load_npz_contacts(file_path, trans=True, store_sparse=False, display_counts=
         chr_a, chr_b = key.split(CHR_KEY_SEP)
         
         if (chr_a == chr_b) or trans:
-          mat = file_dict[key][()]
           
+          try:
+            mat = file_dict[key][()]
+          except UnicodeError as err:
+            print(err)
+            print('*'*25)
+            print(key, chr_a, chr_b)
+            continue
+            
           if not store_sparse:
              mat = mat.toarray()
-          
+ 
           if chr_a == chr_b:
             a, b = mat.shape
-            
+ 
             if a != b:
               a = min(a,b)
               mat = mat[:a,:a]
-            
+ 
             cols = np.arange(a-1)
             rows = cols-1
 
             if not np.all(mat[rows, cols] == mat[cols, rows]): # Not symmetric
               mat += mat.T
+ 
+          contacts[(chr_a, chr_b)] = mat                                                
           
-          contacts[(chr_a, chr_b)] = mat  
    
       else:
         offset, count = file_dict[key]
