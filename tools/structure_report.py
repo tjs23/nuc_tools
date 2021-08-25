@@ -74,13 +74,17 @@ def structure_report(n3d_paths):
     line = '{}\t{:6d}\t{:>5,}\t{:>7,}\t{:7.3f}\t{:7.3f}\t{:7.3f}\t{:7.3f}\t{:7.3f}'.format(*row)
     
     print(line)
+
+
+  line = '\n-- Column Key --\nmt50: Median model RMSD for top 50% of models\n p50: Median particle RMSD\n  m0: Minimum model-model RMSD\n m50: Median model-model RMSD\nm100: Maximum model-model RMSD\n'
+  print(line)
   
   from matplotlib import pyplot as plt
   
   alpha = 5
   
-  y_vals1 = [x[0][1] for x in data]
-  y_vals2 = [x[0][2] for x in data]
+  y_vals1 = [x[0][1] for x in data] # best_med_rmsd
+  y_vals2 = [x[0][2] for x in data] # med_model_rmsd
   y_max = max(max(y_vals1), max(y_vals2))
   
   fig, (ax1, ax2) = plt.subplots(2, 1)
@@ -88,14 +92,20 @@ def structure_report(n3d_paths):
   y_max = int(y_max+1.0)
   bins = np.linspace(0, y_max, 4*y_max)
   
-  ax1.plot(y_vals1, alpha=alpha)
-  ax1.plot(y_vals2, alpha=alpha)
+  ax1.plot(y_vals1, alpha=alpha, label='Median RMSD top models')
+  ax1.plot(y_vals2, alpha=alpha, label='Median RMSD')
+  ax1.set_xlabel('Structure')
+  ax1.set_ylabel('Inter-model RMSD')
+  ax1.legend()
   
   hist1, edges1 = np.histogram(y_vals1, bins=bins)
   hist2, edges2 = np.histogram(y_vals2, bins=bins)
   
-  ax2.plot(edges1[:-1], hist1, alpha=alpha)
-  ax2.plot(edges2[:-1], hist2, alpha=alpha)
+  ax2.plot(edges1[:-1], hist1, alpha=alpha, label='Median RMSD top models')
+  ax2.plot(edges2[:-1], hist2, alpha=alpha, label='Median RMSD')
+  ax2.set_xlabel('Inter-model RMSD bin')
+  ax2.set_ylabel('Count')
+  ax2.legend()
   
   plt.show()
   
