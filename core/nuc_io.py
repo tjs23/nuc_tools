@@ -92,18 +92,18 @@ def get_safe_file_path(path_name, file_name=None):
 
 def get_out_job_file_path(ref_file_path, format_str, insert_vals):
    
-  dir_path = dirname(ref_data_path)
-  globs = ['*'] + len(insert_vals)
+  dir_path = os.path.dirname(ref_file_path)
+  globs = ['*'] * len(insert_vals)
   
   job_num = 1
-  while glob.glob(os.path.join(dir_path, format_str.format(job, *globs))):
+  while glob.glob(os.path.join(dir_path, format_str.format(job_num, *globs))):
     job_num += 1
   
   file_name = format_str.format(job_num, *insert_vals)
   
   out_path = os.path.join(dir_path, file_name)  
   
-  return
+  return out_path
   
 
 def check_file_ext(file_path, ext):
