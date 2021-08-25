@@ -707,16 +707,14 @@ if __name__ == '__main__':
   
   # Cleanup ambig so noise doesn't affect disambiguation too much
   import sys
-  sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+  sys.path.append('/home/tjs23/gh/nuc_tools/')
   
   from tools.contact_map import contact_map
   
   from glob import glob
   
-  #ncc_file_paths = glob('/data/hi-c/hybrid/ncc/SR*-*[1234567890].ncc') + glob('/data/hi-c/hybrid/laue_hybrid/SLX*.ncc') + glob('/data/hi-c/hybrid/Hi-C_53_SLX-18853/SLX*.ncc')
-  #ncc_file_paths = ['/data/hi-c/hybrid/Hi-C_53_SLX-18853/SLX-18853_INLINE_HJWKFDRXX_s_1_r_1_2_P83F7.ncc']
-  
-  ncc_file_paths = sys.argv[1:]
+  ncc_file_paths = glob('/data/hi-c/hybrid/ncc/SR*-*[1234567890].ncc') + glob('/data/hi-c/hybrid/laue_hybrid/SLX*.ncc') + glob('/data/hi-c/hybrid/Hi-C_53_SLX-18853/SLX*.ncc')
+  ncc_file_paths = ['/data/hi-c/hybrid/Hi-C_53_SLX-18853/SLX-18853_INLINE_HJWKFDRXX_s_1_r_1_2_P83F7.ncc']
     
   for ncc_file_path in ncc_file_paths:
     file_root = os.path.splitext(ncc_file_path)[0]
@@ -727,14 +725,14 @@ if __name__ == '__main__':
  
     clean_ncc_path   = file_root + '_clean.ncc'
     filter_ncc_path = file_root + '_filter.ncc'
-    #extra_ncc_path = file_root + '_filter_temp.ncc'
+    extra_ncc_path = file_root + '_filter_temp.ncc'
     
     #if os.path.exists(filter_ncc_path):
     #  continue
     
     clean_pdf   = file_root + '_clean.pdf'
     filter_pdf = file_root + '_filter.pdf'
-    #extra_pdf = file_root + '_filter_temp.pdf'
+    extra_pdf = file_root + '_filter_temp.pdf'
  
     #show_chromos = ('chr1.a', 'chr1.b', 'chr2.a', 'chr2.b')
     show_chromos = None
@@ -748,8 +746,8 @@ if __name__ == '__main__':
        # Cautious threshold
        resolve_contacts(clean_ncc_path, filter_ncc_path, score_threshold=10.0, remove_isolated=True)
 
-       #contact_map([extra_ncc_path], extra_pdf, bin_size=None, show_chromos=show_chromos,
-       #             no_separate_cis=True, is_single_cell=True)
+       contact_map([extra_ncc_path], extra_pdf, bin_size=None, show_chromos=show_chromos,
+                    no_separate_cis=True, is_single_cell=True)
 
        contact_map([filter_ncc_path], filter_pdf, bin_size=None, show_chromos=show_chromos,
                     no_separate_cis=True, is_single_cell=True)
@@ -758,66 +756,6 @@ if __name__ == '__main__':
        #resolve_contacts(filter_ncc_path, extra_ncc_path, score_threshold=2.0, remove_isolated=True)
 
  
-
-
- 
-"""
-all ncc files (more than 40) for Nagano dip3 is on /mnt/delphi/scratch/shared/dip_ncc/dip_3
-
-and also the report and pdf contact maps.
-
-Sorry those perhaps include few ones that do not give good structures. If you want to know which one gives a structure, all 400k structures
-are inside /mnt/delphi/scratch/shared/Nagano_serumLif/dip_3
-
-
-The naming is very weird: the ones after filtering/disambiguation is called ...._filtered_isoRm_hc_remove_more.ncc sorry for a very long name
-that only makes sense to me... because this indicates the version of code I'm using...
-
-Another note: all original ncc files are in new format , i.e. the 1.1,1.2 etc column, while _filtered_isoRm_hc_remove_more.ncc files are in
-old format: I copied the 14th column to the 13th column (13th and 14th are the same), there is no 1.1 like columns. That's due to historical
-reasons. I coded the code in the way that it works with the old format initially. By the time Wayne was testing the new version of
-nuc_dynamics, sometimes it still have problem with new format.  So I thought it was all safer to keep the old format as output (it takes new
-format as input fine).
-
-I've attached the code here for disambiguation. The way to run it is python3 hc_resolve_v3_old_hyb.py ncc_file_input 15
-
-(set 15 for Nagano's and our new hyb, and 25 for our old hyb)(normally it's all 15, except our weird old line which has very very few unambig
-contacts).
-
-it will output some other intermediate files... delete all of them, no use.... it will also print out tons of numbers on screen, again,
-ignore all of them. Those are only for some checking, would be useful in extreme cases to identify possible problems. I will make it nicer
-for users once for publication...
-
-At /mnt/delphi/wb104/nuc_dynamics2_runs/diploid_3. And /mnt/delphi \u2014> /home if you are looking on delphi itself rather than demeter
-(etc.).
-
-> On 17 Nov 2020, at 14:52, X. Ma <xm227@cam.ac.uk> wrote: > > For structurally disambiguated final ncc files, they are all inside Wayne's
-folder delphi/wb104/nuc_dynamics2_runs/dip3 or dip_3--find the 400k final ncc.
-
-delphi:/home/scratch/shared/dip_ncc/dip_3/
-
-Processed data at:
-
-munro-i7:/data/hi-c/hybrid/fastq
-
-
-                                                                      	      	    	      	    -------- Coordinate RMSDs -------
-                                                                  File	p_size	n_chr	n_coord	   mt50	    p50	     m0	    m50	   m100
-    SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB924h_P92J16_filter_8000.n3d	  8000	   39	    665	  0.348	  0.155	  0.085	  0.422	  0.704
-    SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB924h_P92J17_filter_8000.n3d	  8000	   39	    665	  1.070	  1.374	  0.130	  2.426	  4.647
-    SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB924h_P92I17_filter_8000.n3d	  8000	   38	    643	  1.560	  1.402	  0.198	  2.783	  4.390
-SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB9Nanog2iL_P91F6_filter_8000.n3d	  8000	   39	    661	  3.260	  2.410	  1.298	  4.489	  9.231
-SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB9Nanog2iL_P90H5_filter_8000.n3d	  8000	   38	    651	  8.922	  6.076	  5.320	 10.020	 13.532
-
-    SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB924h_P92J16_filter_8000.n3d	  8000	   39	    665	  0.348	  0.155	  0.085	  0.422	  0.704
-    SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB924h_P92J17_filter_8000.n3d	  8000	   40	    687	  0.630	  0.812	  0.270	  1.218	  3.950
-    SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB924h_P92I17_filter_8000.n3d	  8000	   40	    687	  0.767	  0.877	  0.539	  0.953	  3.731
-SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB9Nanog2iL_P91F6_filter_8000.n3d	  8000	   40	    687	  1.193	  1.950	  0.718	  3.636	  4.709
-SLX-20046_INLINE_H3CYTDRXY_s_1_r_1_2_CB9Nanog2iL_P90H5_filter_8000.n3d	  8000	   40	    687	  1.314	  2.002	  0.938	  3.120	  5.714
-
-
-
-"""      
       
       
       
