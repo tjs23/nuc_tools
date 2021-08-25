@@ -707,14 +707,16 @@ if __name__ == '__main__':
   
   # Cleanup ambig so noise doesn't affect disambiguation too much
   import sys
-  sys.path.append('/home/tjs23/gh/nuc_tools/')
+  sys.path.append(os.path.dirname(os.path.dirname(__file__)))
   
   from tools.contact_map import contact_map
   
   from glob import glob
   
-  ncc_file_paths = glob('/data/hi-c/hybrid/ncc/SR*-*[1234567890].ncc') + glob('/data/hi-c/hybrid/laue_hybrid/SLX*.ncc') + glob('/data/hi-c/hybrid/Hi-C_53_SLX-18853/SLX*.ncc')
-  ncc_file_paths = ['/data/hi-c/hybrid/Hi-C_53_SLX-18853/SLX-18853_INLINE_HJWKFDRXX_s_1_r_1_2_P83F7.ncc']
+  #ncc_file_paths = glob('/data/hi-c/hybrid/ncc/SR*-*[1234567890].ncc') + glob('/data/hi-c/hybrid/laue_hybrid/SLX*.ncc') + glob('/data/hi-c/hybrid/Hi-C_53_SLX-18853/SLX*.ncc')
+  #ncc_file_paths = ['/data/hi-c/hybrid/Hi-C_53_SLX-18853/SLX-18853_INLINE_HJWKFDRXX_s_1_r_1_2_P83F7.ncc']
+  
+  ncc_file_paths = sys.argv[1:]
     
   for ncc_file_path in ncc_file_paths:
     file_root = os.path.splitext(ncc_file_path)[0]
@@ -725,14 +727,14 @@ if __name__ == '__main__':
  
     clean_ncc_path   = file_root + '_clean.ncc'
     filter_ncc_path = file_root + '_filter.ncc'
-    extra_ncc_path = file_root + '_filter_temp.ncc'
+    #extra_ncc_path = file_root + '_filter_temp.ncc'
     
     #if os.path.exists(filter_ncc_path):
     #  continue
     
     clean_pdf   = file_root + '_clean.pdf'
     filter_pdf = file_root + '_filter.pdf'
-    extra_pdf = file_root + '_filter_temp.pdf'
+    #extra_pdf = file_root + '_filter_temp.pdf'
  
     #show_chromos = ('chr1.a', 'chr1.b', 'chr2.a', 'chr2.b')
     show_chromos = None
@@ -746,8 +748,8 @@ if __name__ == '__main__':
        # Cautious threshold
        resolve_contacts(clean_ncc_path, filter_ncc_path, score_threshold=10.0, remove_isolated=True)
 
-       contact_map([extra_ncc_path], extra_pdf, bin_size=None, show_chromos=show_chromos,
-                    no_separate_cis=True, is_single_cell=True)
+       #contact_map([extra_ncc_path], extra_pdf, bin_size=None, show_chromos=show_chromos,
+       #             no_separate_cis=True, is_single_cell=True)
 
        contact_map([filter_ncc_path], filter_pdf, bin_size=None, show_chromos=show_chromos,
                     no_separate_cis=True, is_single_cell=True)
