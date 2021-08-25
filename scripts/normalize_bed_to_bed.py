@@ -43,8 +43,6 @@ for bed_path in bed_paths:
     if chromo in ref_data_dict:
       
       dtype = data_dict[chromo].dtype
-      
-      print dtype
              
       vals = data_dict[chromo]['value']
       pos1 = data_dict[chromo]['pos1']
