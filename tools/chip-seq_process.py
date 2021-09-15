@@ -1,5 +1,6 @@
 import sys, os
 from collections import defaultdict
+from glob import glob
 
 PROG_NAME = 'chip_seq'
 VERSION = '1.0.0'
@@ -599,16 +600,16 @@ def main(argv=None):
 
   for arg in args:
     if arg.startswith('f') and arg[1:].isdigit() and args[arg]:
-      file_path = args[arg]
+      file_paths = args[arg]
       
-      if '@' in file_path:
-        k = file_path.rfind('@')
-        sample_name = file_path[:k]
-        file_path = file_path[k+1:]
+      if '@' in file_paths:
+        k = file_paths.rfind('@')
+        sample_name = file_paths[:k]
+        file_paths = glob(file_paths[k+1:])
       else:
         sample_name = None
       
-      fastq_inputs.append((file_path, sample_name))
+      fastq_inputs.append((file_paths, sample_name))
      
   if not fastq_inputs:
     util.critical('No ChIP FASTQ files specified')
@@ -630,6 +631,25 @@ def main(argv=None):
   align_exe = args['b']
   num_cpu = args['n']
   adapt_seqs = args['ad'] or []
+   
+  if control_bam:
+    if '@' control_bam:
+      k = control_bam.rfind('@')
+      control_name = control_bam[:k]
+      control_bam = control_bam[k+1:]
+    else:
+      control_name = None
+      
+  elif control_fastqs:
+    if '@' in control_fastqs:
+      k = control_fastqs.rfind('@')
+      control_name = control_fastqs[:k]
+      control_fastqs = glob(control_fastqs[k+1:])
+    else:
+      control_name = None
+    
+  else:
+    util.critical('No ChIP control/input files specified (in BAM or FASTQ format)')
    
   chip_seq_process(fastq_path_groups, sample_names,
                    genome_index, out_dir, control_fastqs,
