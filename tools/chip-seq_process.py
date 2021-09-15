@@ -652,7 +652,7 @@ def main(argv=None):
       k = file_path.rfind('@')
       control_name = file_path[:k]
       
-      for file_path in args[arg]:
+      for file_path in control_fastqs:
         file_paths += glob(file_path[k+1:])
       
       control_fastqs = file_paths
