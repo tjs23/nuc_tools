@@ -460,7 +460,7 @@ def chip_seq_process(fastq_path_groups, sample_names, genome_index, out_dir=None
       util.info('Calling broad peaks')
       util.call(cmd_args)
  
-      cmd_args =  common_args + ['-n', narrow_name, '-B', '-q', '0.01', '--outdir', peak_out_dir]
+      cmd_args =  common_args + ['-n', narrow_name, '-B', '-q', '0.05', '--outdir', peak_out_dir]
       util.info('Calling narrow peaks')
       util.call(cmd_args)
 
@@ -514,36 +514,28 @@ def main(argv=None):
   arg_parse.add_argument('-f1', nargs='+', metavar='FASTQ_FILE',
                          help='First (mandatory) ChIP FASTQ sequence read files to process.' \
                               ' May be single end or paired end. Accepts wildcards' \
-                              ' that match one or two files. Paired end data is assumed if two file paths are specified.')
-                              
-  arg_parse.add_argument('-s1', metavar='NAME',
-                         help='Optional sample name (e.g. indicating the ChIPed protein) to label output files' \
-                              ' for the first (-f1) ChIP data. For example "-s1 SAMPLE_A" will generate SAMPLE_A_broad.bed, SAMPLE_A_narrow.bed etc.')
+                              ' that match one or two files. Paired end data is assumed if two file paths are specified.' \
+                              ' Optional sample name (e.g. indicating the ChIPed protein) to label output files may be' \
+                              ' specified using the name@file_path format, for example "SAMPLE_A@seq_data_reads.fq" will generate SAMPLE_A_broad.bed, SAMPLE_A_narrow.bed etc.')
 
   arg_parse.add_argument('-f2', nargs='+', metavar='FASTQ_FILE',
                          help='Second (optional) ChIP FASTQ sequence read files to process.' \
                               ' May be single end or paired end. Accepts wildcards' \
-                              ' that match one or two files. Paired end data is assumed if two file paths are specified.' \
+                              ' that match one or two files. Paired end data is assumed if two file paths are specified.'\
+                              ' Optional sample name to label output files may be specified using the name@file_path format.' \
                               ' NOTE: an arbitrary number of input FASTQ groups may be specified with further numbered options -f3, -f4 etc..')
- 
-  arg_parse.add_argument('-s2', metavar='NAME',
-                         help='Optional sample name (e.g. indicating ChIPed protein) to label output files' \
-                              ' for the second (-f2) ChIP data. NOTE: further FASTQ groups specified with -f3, -f4, ...' \
-                              ' can be labelled with similarly numbered -s3, -s4 options etc.')
-  
+   
   arg_parse.add_argument('-c', '--control-fastq', nargs='+', metavar='FASTQ_FILE', dest='c',
                          help='Control FASTQ sequence read files to process (i.e sample input without antibody).' \
+                              ' Optional name to label output files may be specified using the name@file_path format.' \
                               ' May be single end or paired end. Accepts wildcards' \
                               ' that match one or two files. Paired end data is assumed if two file paths are specified.' \
                               ' Pre-mapped reads may be specified instead using the -cb option.')
 
-  arg_parse.add_argument('-cs', metavar='NAME',
-                         help='Optional sample name (e.g. indicating the ChIPed protein) to label output files' \
-                              ' for the control (-c) ChIP data. For example "-cs CNTRL" will generate CNTRL.bam etc.')
-
   arg_parse.add_argument('-cb', '--control-bam', default=None, metavar='BAM_FILE', dest='cb',
                          help='Optional file path for the control sample BAM format alignments' \
                               ' (i.e sample input without antibody) to compare with ChIP reads. ' \
+                              ' Optional name to label output files may be specified using the name@file_path format.' \
                               ' If control FASTQ files are specified (-c) this file will be created (and potentially overwritten).' \
                               ' Otherwise this file should exist and contain pre-mapped reads in BAM format.')
 
@@ -601,36 +593,27 @@ def main(argv=None):
   for arg in unknown:
     if arg.startswith('-f') and arg[2:].isdigit():
       arg_parse.add_argument(arg, nargs='+', metavar='FASTQ_FILES')
-    elif arg.startswith('-s') and arg[2:].isdigit():
-      arg_parse.add_argument(arg, metavar='NAME')
   
   args = vars(arg_parse.parse_args(argv))
-  
-  for arg in args:
-    if arg.startswith('s') and arg[1:].isdigit():
-      f_arg = 'f' + arg[1:]
-      
-      if f_arg not in args:
-        util.critical('%s naming option specified but not corresponding FASTQ files %s' % (arg, f_arg))
-  
   fastq_inputs = []
 
   for arg in args:
     if arg.startswith('f') and arg[1:].isdigit() and args[arg]:
-      i = int(arg[1:])
-      s_arg = 's' + arg[1:]
+      file_path = args[arg]
       
-      if s_arg in args:
-        sample_name = args[s_arg]
+      if '@' in file_path:
+        k = file_path.rfind('@')
+        sample_name = file_path[:k]
+        file_path = file_path[k+1:]
       else:
         sample_name = None
       
-      fastq_inputs.append((i, args[arg], sample_name))
+      fastq_inputs.append((file_path, sample_name))
      
   if not fastq_inputs:
-     util.critical('No ChIP FASTQ files specified')
+    util.critical('No ChIP FASTQ files specified')
   
-  idx, fastq_path_groups, sample_names = zip(*fastq_inputs)
+  fastq_path_groups, sample_names = zip(*fastq_inputs)
      
   genome_index = args['g']
   out_dir = args['o']

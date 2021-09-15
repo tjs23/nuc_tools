@@ -55,8 +55,9 @@ def load_data_track(file_path):
         strand = 1
             
       data_dict[chromo].add((start, end, strand, value, value, label))
-
+  
   return util.finalise_data_track(data_dict)
+  
   
 def save_data_track(file_path, data_dict, scale=1.0, as_float=False):
   """

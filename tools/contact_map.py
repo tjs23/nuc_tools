@@ -4,13 +4,15 @@ import os, sys, re, math
 
 from math import ceil, floor
 from collections import defaultdict
+
+import matplotlib
+matplotlib.use('Agg')
+matplotlib.rcParams['axes.linewidth'] = 0.5
+
 from matplotlib import pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap, LogNorm, Colormap
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.ticker import AutoMinorLocator
-
-import matplotlib
-matplotlib.rcParams['axes.linewidth'] = 0.5
 
 PROG_NAME = 'contact_map'
 VERSION = '1.1.0'
@@ -26,6 +28,10 @@ COLORMAP_URL = 'https://matplotlib.org/tutorials/colors/colormaps.html'
 REGION_PATT = re.compile('(\S+):(\d+\.?\d*)-(\d+\.?\d*)')
 MIN_REGION_BINS = 10
 DT_COLORMAP = '#000000,#0080FF,#B0B000,#FF4000,#FF00E0'
+BED_FORMAT    = 'BED'
+WIG_FORMAT = 'Wiggle'
+SAM_FORMAT    = 'BAM/SAM'
+SAM_BIN_SIZE  = 1000
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -464,24 +470,86 @@ def get_single_array_matrix(contact_matrix, limits_a, limits_b, is_cis, orig_bin
   return matrix
   
 
-def get_single_list_matrix(contact_list, limits_a, limits_b, is_cis, bin_size, ambig_groups):
-  
-  n, m = _limits_to_shape(limits_a, limits_b, bin_size)
-  
-  matrix = np.zeros((n, m), float)
-  ambig_matrix = np.zeros((n, m), float)
-
+def get_single_list_matrix(contact_list, limits_a, limits_b, is_cis, bin_size, ambig_groups, smooth=False):
+    
   start_a, end_a = limits_a
   start_b, end_b = limits_b
   
-  for p_a, p_b, nobs, ag in contact_list:
-    a = int((p_a-start_a)/bin_size)
-    b = int((p_b-start_b)/bin_size) 
+  hw = bin_size/2.0
+  start_a -= hw
+  start_b -= hw
+  end_a += hw
+  end_b += hw
+  
+  n, m = _limits_to_shape((start_a, end_a), (start_b, end_b), bin_size)
+  matrix = np.zeros((n, m), float)
+  ambig_matrix = np.zeros((n, m), float)
+  
+  if smooth:
+    for p_a, p_b, nobs, ag in contact_list:
+      p = (p_a-start_a)/bin_size
+      q = (p_b-start_b)/bin_size
+      
+      a = int(p)
+      b = int(q)
+      
+      f1 = p-a
+      g1 = q-b
+      
+      if f1 > 0.5:
+        c = a+1     # Alternative bin
+        f1 = 1.5-f1 # Fraction in the main bin
+        
+      elif f1 < 0.5:
+        c = a-1       # Alternative bin
+        f1 = f1 + 0.5 # Fraction in the main bin
+      else:
+        c = a
+      
+      if g1 > 0.5:
+        d = b+1
+        g1 = 1.5-g1
+        
+      elif g1 < 0.5:
+        d = b-1
+        g1 = g1 + 0.5
+        
+      else:
+        d = b    
+      
+      f2 = 1.0 - f1
+      g2 = 1.0 - g1
+ 
+      if ambig_groups[ag] > 1:
+        ambig_matrix[a,b] += f1 * g1 * nobs
+        if m > d >= 0:
+          ambig_matrix[a,d] += f1 * g2 * nobs
+        
+        if n > c >= 0:
+          ambig_matrix[c,b] += f2 * g1 * nobs
+          if m > d >= 0:
+            ambig_matrix[c,d] += f2 * g2 * nobs
+
+      else:
+        matrix[a,b] += f1 * g1 * nobs
+        if  m > d >= 0:
+          matrix[a,d] += f1 * g2 * nobs
+        
+        if n > c >= 0:
+          matrix[c,b] += f2 * g1 * nobs
+          if  m > d >= 0:
+            matrix[c,d] += f2 * g2 * nobs
     
-    if ambig_groups[ag] > 1:
-      ambig_matrix[a,b] += nobs
-    else:
-      matrix[a,b] += nobs
+  else:
+    for p_a, p_b, nobs, ag in contact_list:
+      a = int((p_a-start_a)/bin_size)
+      b = int((p_b-start_b)/bin_size)
+ 
+      if ambig_groups[ag] > 1:
+        ambig_matrix[a,b] += nobs
+      else:
+        matrix[a,b] += nobs
+
   
   if is_cis:
     matrix += matrix.T
@@ -518,24 +586,84 @@ def get_region_array_matrix(contact_matrix, limits, region, orig_bin_size, bin_s
   return matrix
   
 
-def get_region_list_matrix(contact_list, region, bin_size, ambig_groups):
-
-  n, m = _limits_to_shape(region, region, bin_size)
+def get_region_list_matrix(contact_list, region, bin_size, ambig_groups, smooth=False):
+  
   start, end = region  
+  start -= bin_size/2.0
+  end += bin_size/2.0
+  n, m = _limits_to_shape(region, (start, end), bin_size)
+  
   matrix = np.zeros((n, m), float)
   ambig_matrix = np.zeros((n, m), float)
   
-  for p_a, p_b, nobs, ag in contact_list:
-    if (start <= p_a <= end) and (start <= p_b <= end):
-      a = int((p_a-start)/bin_size)
-      b = int((p_b-start)/bin_size)
+  if smooth:
+    for p_a, p_b, nobs, ag in contact_list:
+      if (start <= p_a <= end) and (start <= p_b <= end):
+        p = (p_a-start)/bin_size
+        q = (p_b-start)/bin_size
  
-      if ambig_groups[ag] > 1:
-        ambig_matrix[a,b] += nobs
+        a = int(p)
+        b = int(q)
  
-      else:
-        matrix[a,b] += nobs
-  
+        f1 = p-a
+        g1 = q-b
+ 
+        if f1 > 0.5:
+          c = a+1     # Alternative bin
+          f1 = 1.5-f1 # Fraction in the main bin
+ 
+        elif f1 < 0.5:
+          c = a-1       # Alternative bin
+          f1 = f1 + 0.5 # Fraction in the main bin
+        else:
+          c = a
+ 
+        if g1 > 0.5:
+          d = b+1
+          g1 = 1.5-g1
+ 
+        elif g1 < 0.5:
+          d = b-1
+          g1 = g1 + 0.5
+ 
+        else:
+          d = b
+ 
+        f2 = 1.0 - f1
+        g2 = 1.0 - g1
+ 
+        if ambig_groups[ag] > 1:
+          ambig_matrix[a,b] += f1 * g1 * nobs
+          if m > d >= 0:
+            ambig_matrix[a,d] += f1 * g2 * nobs
+ 
+          if n > c >= 0:
+            ambig_matrix[c,b] += f2 * g1 * nobs
+            if m > d >= 0:
+              ambig_matrix[c,d] += f2 * g2 * nobs
+
+        else:
+          matrix[a,b] += f1 * g1 * nobs
+          if  m > d >= 0:
+            matrix[a,d] += f1 * g2 * nobs
+ 
+          if n > c >= 0:
+            matrix[c,b] += f2 * g1 * nobs
+            if  m > d >= 0:
+              matrix[c,d] += f2 * g2 * nobs
+            
+  else:
+    for p_a, p_b, nobs, ag in contact_list:
+      if (start <= p_a <= end) and (start <= p_b <= end):
+        a = int((p_a-start)/bin_size)
+        b = int((p_b-start)/bin_size)
+ 
+        if ambig_groups[ag] > 1:
+          ambig_matrix[a,b] += nobs
+ 
+        else:
+          matrix[a,b] += nobs
+        
   matrix += matrix.T
   ambig_matrix += ambig_matrix.T
  
@@ -543,7 +671,7 @@ def get_region_list_matrix(contact_list, region, bin_size, ambig_groups):
   
   
 def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
-  
+    
   n, chromo_offsets, label_pos = _get_chromo_offsets(bin_size, chromos, chromo_limits)
   
   # Fill contact map matrix, last dim is for (un)ambigous
@@ -637,7 +765,7 @@ def _get_tick_delta(n_bins, bin_size_units, max_ticks=10):
   
   step = 10 ** sf
   
-  while (tick_delta_units % 5 != 0):
+  while (tick_delta_units % 5 > 0.1): # Not  % 5 != 0 as floating point errors much this up
     tick_delta_units += step
   
   tick_delta = tick_delta_units/bin_size_units
@@ -1038,18 +1166,20 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
               ends = np.array([ends, starts+min_width]).max(axis=0)
               widths = ends - starts
               values = pos_track['value']
- 
+              heights = heights*values
+              
               if len(neg_track):
                 height =  0.5/nx
                 y_pos = np.full(widths.shape, (t+0.75)/nx)
- 
+                y_pos += heights/2.0
+                
               else:
                 height =  1.0/nx
                 y_pos = np.full(widths.shape, (t+0.5)/nx)
               
               vcolors = values[:,None] * 0.75 + 0.25
               vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
-              ax_dt.barh(y_pos, widths, height*values, starts,
+              ax_dt.barh(y_pos, widths, heights, starts,
                          color=vcolors, linewidth=0.0)
                            
           
@@ -1060,10 +1190,12 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
 
               widths = ends - starts
               values = neg_track['value']
+              heights = heights*values
  
               if len(pos_track):
                 height =  0.5/nx
                 y_pos = np.full(widths.shape, (t+0.25)/nx)
+                y_pos -= heights/2.0
  
               else:
                 height =  1.0/nx
@@ -1071,7 +1203,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
  
               vcolors = values[:,None] * 0.75 + 0.25
               vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
-              ax_dt.barh(y_pos, widths, height*values, starts,
+              ax_dt.barh(y_pos, widths, heights, starts,
                          color=vcolors, linewidth=0.0)
 
           else:
@@ -1145,11 +1277,13 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       cbar2 = plt.colorbar(cax2, cax=cbaxes)
       cbar2.ax.tick_params(labelsize=7)
       cbar2.set_label('Ambig. count', fontsize=7)
+      _clean_log_ticks(cbar2.ax)
     
     cbaxes = fig.add_axes([0.92, 0.55, 0.02, 0.3])
     cbar = plt.colorbar(cax, cax=cbaxes)
     cbar.ax.tick_params(labelsize=7)
     cbar.set_label(scale_label, fontsize=7)
+    _clean_log_ticks(cbar.ax)
 
     dpi= int(float(w)/(fig.get_size_inches()[1]*ax.get_position().size[1]))
           
@@ -1252,18 +1386,20 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             ends = np.array([ends, starts+min_width]).max(axis=0)
             widths = ends - starts
             values = pos_track['value']
+            y_pos = np.full(widths.shape, (t+0.5)/nx)            
             
             if len(neg_track):           
               height =  0.5/nx
-              y_pos = np.full(widths.shape, (t+0.75)/nx)
-            
+              heights = height*values
+              y_pos += heights/2.0
+              
             else:
               height =  1.0/nx
-              y_pos = np.full(widths.shape, (t+0.5)/nx)            
+              heights = height*values
             
             vcolors = values[:,None] * 0.75 + 0.25
             vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
-            ax_bott.barh(y_pos, widths, height*values, starts,
+            ax_bott.barh(y_pos, widths, heights, starts,
                          color=vcolors, linewidth=0.0)
           
           if len(neg_track):
@@ -1272,18 +1408,20 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             ends = np.array([ends, starts+min_width]).max(axis=0)
             widths = ends - starts
             values = neg_track['value']
+            y_pos = np.full(widths.shape, (t+0.5)/nx)            
             
             if len(pos_track):           
               height =  0.5/nx
-              y_pos = np.full(widths.shape, (t+0.25)/nx)
-            
+              heights = height*values
+              y_pos -= heights/2.0
+             
             else:
               height =  1.0/nx
-              y_pos = np.full(widths.shape, (t+0.5)/nx)            
+              heights = height*values
             
             vcolors = values[:,None] * 0.75 + 0.25
             vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
-            ax_bott.barh(y_pos, widths, height*values, starts,
+            ax_bott.barh(y_pos, widths, heights, starts,
                          color=vcolors, linewidth=0.0)
 
         else:          
@@ -1352,18 +1490,20 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             ends = np.array([ends, starts+min_width]).max(axis=0)
             heights = ends - starts
             values = pos_track['value']
+            x_pos = np.full(heights.shape, (t+0.5)/ny)
             
             if len(neg_track):           
               width =  0.5/ny
-              x_pos = np.full(heights.shape, (t+0.75)/ny)
-            
+              widths = width*values
+              x_pos += widths/2.0
+              
             else:
               width =  1.0/ny
-              x_pos = np.full(heights.shape, (t+0.5)/ny)
+              widths = width*values
                         
             vcolors = values[:,None] * 0.75 + 0.25
             vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
-            ax_left.bar(x_pos, heights, width*values, starts,
+            ax_left.bar(x_pos, heights, widths, starts,
                         color=vcolors, linewidth=0.0)
           
           if len(neg_track):
@@ -1372,18 +1512,20 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             ends = np.array([ends, starts+min_width]).max(axis=0)
             heights = ends - starts   
             values = neg_track['value']
+            x_pos = np.full(heights.shape, (t+0.5)/ny)
                     
             if len(pos_track):           
               width =  0.5/ny
-              x_pos = np.full(heights.shape, (t+0.25)/ny)
+              widths = width*values
+              x_pos -= widths/2.0
             
             else:
               width =  1.0/ny
-              x_pos = np.full(heights.shape, (t+0.5)/ny)
+              widths = width*values
             
             vcolors = values[:,None] * 0.75 + 0.25
             vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
-            ax_left.bar(x_pos, heights, width*values, starts,
+            ax_left.bar(x_pos, heights, widths, starts,
                         color=vcolors, linewidth=0.0)
         
         else:
@@ -1463,11 +1605,13 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       cbar2 = plt.colorbar(cax2, cax=cbaxes)
       cbar2.ax.tick_params(labelsize=8)
       cbar2.set_label('Ambig. count', fontsize=8)
+      _clean_log_ticks(cbar2.ax)
  
     cbaxes = fig.add_axes([0.915, 0.6, 0.02, 0.3])
     cbar = plt.colorbar(cax, cax=cbaxes)
     cbar.ax.tick_params(labelsize=8)
     cbar.set_label(scale_label, fontsize=8)
+    _clean_log_ticks(cbar.ax)
   
     dpi= int(float(a)/(fig.get_size_inches()[1]*ax.get_position().size[1]))
             
@@ -1499,6 +1643,27 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
   plt.close()
 
 
+def _clean_log_ticks(ax):
+  
+  tick_labels = ax.get_yticklabels()
+      
+  for i, label in enumerate(tick_labels):
+    text = label.get_text()
+    
+    if '\\times10^{0}' in text:
+      text = text.replace('\\times10^{0}', '')
+    elif '10^{0}' in text:
+      text = text.replace('10^{0}', '1')
+    elif '10^{1}' in text:
+      text = text.replace('10^{1}', '10')
+    else:
+      continue
+       
+    label.set_text(text)
+  
+  ax.set_yticklabels(tick_labels)
+
+
 def _get_vmax(matrix):  
  
   diag = np.diag(matrix)
@@ -1515,9 +1680,10 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
                 no_separate_cis=False, separate_trans=False, show_chromos=None,
                 region_dict=None, use_corr=False, use_norm=False, is_single_cell=False,
                 screen_gfx=False, black_bg=False, min_contig_size=None, chromo_grid=False,
-                diag_width=None, bed_paths=None, bed_labels=None, wig_paths=None, wig_labels=None, 
-                sam_paths=None, sam_labels=None, gff_path=None, gff_feats=None,
-                font=None, font_size=12, line_width=0.2, cmap=None):
+                diag_width=None, data_tracks=None, gff_path=None, gff_feats=None,
+                smooth=False, font=None, font_size=12, line_width=0.2, cmap=None):
+  
+  # Data tracks are specified as (file_path, file_format, text_label)
   
   from nuc_tools import io, util
   from formats import ncc, npz, gff, bed, wig, sam
@@ -1547,21 +1713,14 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
     else:
       out_path = io.check_file_ext(in_path, '.pdf')
   
-  if bed_paths:
-    bed_labels = io.check_file_labels(bed_labels, bed_paths)
-  else:
-    bed_paths = []
+  if data_tracks:
+    file_paths, file_formats, text_labels = zip(*data_tracks)
+    default_labels = io.check_file_labels(list(text_labels), file_paths)
   
-  if wig_paths:
-    wig_labels = io.check_file_labels(wig_labels, wig_paths)
-  else:
-    wig_paths = []
- 
-  if sam_paths:
-    sam_labels = io.check_file_labels(sam_labels, sam_paths)
-  else:
-    sam_paths = []
-    
+    for i, (file_path, file_format, text_label) in enumerate(data_tracks):
+      if not text_label:
+        data_tracks[i] = (file_path, file_format, default_labels[i])
+          
   if screen_gfx:
     util.info('Displaying contact map for {}'.format(in_msg))
   else:
@@ -1573,6 +1732,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
     chromosomes, chromo_limits, contacts = ncc.load_file(in_path)
     
   else:
+    smooth = False
     util.info('Loading NPZ format contact data')
     file_bin_size, chromo_limits, contacts = npz.load_npz_contacts(in_path)
       
@@ -1585,6 +1745,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
       chromosomes2, chromo_limits2, contacts2 = ncc.load_file(in_path2)
  
     else:
+      smooth = False
       file_bin_size2, chromo_limits2, contacts2 = npz.load_npz_contacts(in_path2)
       
       if file_bin_size and (file_bin_size2 != file_bin_size):
@@ -1737,7 +1898,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
     pdf = None
   else:
     pdf = PdfPages(out_path)
-  
+      
   if file_bin_size:
     ret = get_contact_arrays_matrix(contacts, bin_size, chromos, chromo_limits)
     count_list, full_matrix, label_pos, offsets = ret
@@ -1786,31 +1947,22 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
       data_track_dicts.update(gff_data_dicts)
     else:
       util.warn('GFF chromosome names do not correspond to any contact data chromosomes')
-        
-  for i, bed_path in enumerate(bed_paths):
-    data_dict = bed.load_data_track(bed_path)
-       
-    if set(data_dict) & set(chromos):
-      data_track_dicts[bed_labels[i]] = data_dict
-    else:
-      util.warn('BED file chromosome names do not correspond to any contact data chromosomes')
-    
-  for i, wig_path in enumerate(wig_paths):
-    data_dict = wig.load_data_track(wig_path)
-       
-    if set(data_dict) & set(chromos):
-      data_track_dicts[wig_labels[i]] = data_dict
-    else:
-      util.warn('Wiggle file chromosome names do not correspond to any contact data chromosomes')
- 
-  for i, sam_path in enumerate(sam_paths):
-    data_dict = sam.load_data_track(sam_path, 1000)
-       
-    if set(data_dict) & set(chromos):
-      data_track_dicts[sam_labels[i]] = data_dict
-    else:
-      util.warn('SAM/BAM file chromosome names do not correspond to any contact data chromosomes')
   
+  for data_track_path, file_format, text_label in data_tracks:
+    if file_format == WIG_FORMAT:
+      data_dict = wig.load_data_track(data_track_path)
+    
+    elif file_format == BED_FORMAT:
+      data_dict = bed.load_data_track(data_track_path)
+      
+    else: # BAM/SAM
+      data_dict = sam.load_data_track(data_track_path, SAM_BIN_SIZE)
+           
+    if set(data_dict) & set(chromos):
+      data_track_dicts[text_label] = data_dict
+    else:
+      util.warn('{} file chromosome names do not correspond to any contact data chromosomes'.format(file_format))
+
   if use_corr:
     has_neg = True
     full_matrix = get_corr_mat(full_matrix)
@@ -1904,7 +2056,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
  
         else:
           matrix, ambig_matrix = get_region_list_matrix(contacts[pair], region,
-                                                        bin_size2, ambig_groups)
+                                                        bin_size2, ambig_groups, smooth)
         
         cn_cont = int(matrix.sum()) // 2
  
@@ -1917,7 +2069,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
                                                 file_bin_size, bin_size2)
             else:
               matrix2, ambig_matrix2 = get_region_list_matrix(contacts2[pair], region,
-                                                              bin_size2, ambig_groups)
+                                                              bin_size2, ambig_groups, smooth)
  
             cn_cont2 = int(matrix2.sum()) // 2
             matrix2 = get_corr_mat(matrix2)
@@ -1933,7 +2085,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
                                               file_bin_size, bin_size2)
           else:
             matrix2, ambig_matrix2 = get_region_list_matrix(contacts2[pair], region,
-                                                            bin_size2, ambig_groups)
+                                                            bin_size2, ambig_groups, smooth)
  
           cn_cont2 = int(matrix2.sum()) // 2
           m = len(matrix)
@@ -1961,9 +2113,10 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
           cv_min = 1.0
  
         title = 'Chromosome %s : %.3f-%.3f Mb' % (chr_a, s/1e6, e/1e6)
+
         dw = None
- 
-        scale_label = '%s (%.1f kb bins)' % (metric, bin_size2/1e3)
+        bs2 = bin_size2/1e3
+        scale_label = '%s (%.1f kb bins)' % (metric, bs2)
         if diag_width:
           dw = min(diag_width, e-s)
  
@@ -2106,7 +2259,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
           ambig_matrix = None
         else:
           matrix, ambig_matrix = get_single_list_matrix(contacts[key], limits_a, limits_b,
-                                                        is_cis, pair_bin_size, ambig_groups)
+                                                        is_cis, pair_bin_size, ambig_groups, smooth)
  
         if key != pair:
           matrix = matrix.T
@@ -2126,7 +2279,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
                                                   file_bin_size, pair_bin_size, orig_lim)
               else:
                 matrix2, ambig_matrix2 = get_single_list_matrix(contacts2[key], limits_a2, limits_b2,
-                                                                is_cis, pair_bin_size, ambig_groups)
+                                                                is_cis, pair_bin_size, ambig_groups, smooth)
  
               cn_cont2 = int(matrix2.sum()) // 2
               matrix2 = get_corr_mat(matrix2)
@@ -2139,14 +2292,14 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
                                                  True, file_bin_size, pair_bin_size)
             else:
               matrix_a, amb_a = get_single_list_matrix(contacts[(chr_a, chr_a)], limits_a, limits_a,
-                                                       True, pair_bin_size, ambig_groups)
+                                                       True, pair_bin_size, ambig_groups, smooth)
 
             if file_bin_size:
               matrix_b = get_single_array_matrix(contacts[(chr_b, chr_b)], limits_b, limits_b,
                                                  True, file_bin_size, pair_bin_size)
             else:
               matrix_b, amb_b = get_single_list_matrix(contacts[(chr_b, chr_b)], limits_b, limits_b,
-                                                       True, pair_bin_size, ambig_groups)
+                                                       True, pair_bin_size, ambig_groups, smooth)
 
             matrix = get_trans_corr_mat(matrix_a, matrix_b, matrix)
  
@@ -2159,7 +2312,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
                                               file_bin_size, pair_bin_size, limits_a2 + limits_b2)
           else:
             matrix2, ambig_matrix2 = get_single_list_matrix(contacts2[key], limits_a, limits_b, is_cis,
-                                                            pair_bin_size, ambig_groups)
+                                                            pair_bin_size, ambig_groups, smooth)
  
           cn_cont2 = int(matrix2.sum()) // 2
           m = len(matrix)
@@ -2196,14 +2349,16 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
  
         title = 'Chromosome %s' % chr_a if is_cis else 'Chromosomes %s - %s ' % pair
         dw = None
- 
+        
+        pbs = pair_bin_size/1e3
+        
         if is_cis:
-          scale_label = '%s (%.1f kb bins)' % (metric, pair_bin_size/1e3)
+          scale_label = '%s (%.1f kb bins)' % (metric, pbs)
           if diag_width:
             dw = diag_width
  
         else:
-          scale_label = '%s (%.3f Mb bins)' % (metric, pair_bin_size/1e6)
+          scale_label = '%s (%.3f Mb bins)' % (metric, pbs/1e3)
  
         if contacts2 and is_cis:
           stats_text = 'Contacts:{:,d}\{:,d}'.format(cn_cont2, cn_cont)
@@ -2265,22 +2420,16 @@ def main(argv=None):
                               'Otherwise all chromosomes/contigs above the minimum size (see -m options) are used')
 
   arg_parse.add_argument('-bed', '--bed-data-track', metavar='BED_FILE', nargs='*', default=None, dest="bed",
-                         help='Optional BED format (inc. broadPeak/narrowPeak) files for displaying ancilliary data along single-chromosome axes. Wildcards accepted.')
-
-  arg_parse.add_argument('-lbed', '--bed-data-label', metavar='DATA_LABEL', nargs='*', default=None, dest="lbed",
-                         help='Optional textual labels/names for the BED format data tracks.')
+                         help='Optional BED format (inc. broadPeak/narrowPeak) files for displaying ancilliary data along single-chromosome axes. Wildcards accepted. ' \
+                              'Short data names may be supplied to avoid graphical clutter using the short_label@long_file_path format, e.g. H3K4me3@/data/GSM12345_H3K4me3_macs2_peaks.bed labels the data as "H3K4me3"')
   
   arg_parse.add_argument('-sam', '--sam-data-track', metavar='SAME_FILE', nargs='*', default=None, dest="sam",
-                         help='Optional SAM or BAM format (inc. broadPeak/narrowPeak) files for displaying ancilliary data along single-chromosome axes. Wildcards accepted.')
-
-  arg_parse.add_argument('-lsam', '--sam-data-label', metavar='DATA_LABEL', nargs='*', default=None, dest="lsam",
-                         help='Optional textual labels/names for the SAM/BAM format data tracks.')
+                         help='Optional SAM or BAM format (inc. broadPeak/narrowPeak) files for displaying ancilliary data along single-chromosome axes. Wildcards accepted. ' \
+                              'Short data names may be supplied to avoid graphical clutter using the short_label@long_file_path format.')
   
   arg_parse.add_argument('-wig', '--wig-data-track', metavar='WIG_FILE', nargs='*', default=None, dest="wig",
-                         help='Optional Wiggle format (variable of fixed step) files for displaying ancilliary data along single-chromosome axes. Wildcards accepted.')
-
-  arg_parse.add_argument('-lwig', '--wig-data-label', metavar='DATA_LABEL', nargs='*', default=None, dest="lwig",
-                         help='Optional textual labels/names for the Wiggle format data tracks.')
+                         help='Optional Wiggle format (variable of fixed step) files for displaying ancilliary data along single-chromosome axes. Wildcards accepted. ' \
+                              'Short data names may be supplied to avoid graphical clutter using the short_label@long_file_path format.')
 
   arg_parse.add_argument('-gff', '--gff-data-track', metavar='GENOME_FEATURE_FILE', default=None, dest="gff",
                          help='Optional genome feature file (GFF/GTF format) for displaying gene locations etc. along single-chromosome axes. ' \
@@ -2323,6 +2472,9 @@ def main(argv=None):
   arg_parse.add_argument('-m', default=0.0, metavar='MIN_CONTIG_SIZE', type=float,
                          help='The minimum chromosome/contig sequence length in Megabases for inclusion. ' \
                               'Default is {}%% of the largest chromosome/contig length.'.format(DEFAULT_SMALLEST_CONTIG*100))
+
+  arg_parse.add_argument('-sm', '--smooth', default=False, action='store_true', dest='sm',
+                         help='For NCC format contacts only, use fractional binning to get smoother chromosome maps. Does not apply to whole genome map.')
 
   arg_parse.add_argument('-bbg' '--black-bg',default=False, action='store_true', dest="bbg",
                          help='Specifies that the contact map should have a black background (default is white).')
@@ -2374,11 +2526,9 @@ def main(argv=None):
   bed_paths = args['bed'] or []
   wig_paths = args['wig'] or []
   sam_paths = args['sam'] or []
-  bed_labels = args['lbed'] or []
-  wig_labels = args['lwig'] or []
-  sam_labels = args['lsam'] or []
   gff_path = args['gff'] 
   gff_feats = args['gfff']
+  smooth = args['sm']
   
   if not in_paths:
     arg_parse.print_help()
@@ -2399,6 +2549,20 @@ def main(argv=None):
     util.warn('GFF feature type has been specified but no input GFF file')
     gff_feats = None
   
+  data_tracks = []
+  check_paths = []
+  for data_paths, file_format in ((bed_paths, BED_FORMAT), (wig_paths, WIG_FORMAT), (sam_paths, SAM_FORMAT)):
+    for data_path in data_paths:
+      if '@' in data_path:
+        p = data_path.rfind('@')
+        text_label = data_path[:p]
+        data_path = data_path[p+1:]
+      else:
+        text_label = None
+     
+      data_tracks.append((data_path, file_format, text_label))
+      check_paths.append(data_path)
+
   check_paths = []
   if gff_path:
     check_paths.append(gff_path)
@@ -2419,10 +2583,7 @@ def main(argv=None):
       fc = ['{}:{:,}'.format(f, c) for c, f in fc]
       util.info('Available GFF features:counts {}'.format(' '.join(fc)))
   
-  check_paths += in_paths     
-  check_paths += bed_paths     
-  check_paths += wig_paths     
-  check_paths += sam_paths     
+  check_paths += in_paths 
   for in_path in check_paths:
     io.check_invalid_file(in_path)
   
@@ -2459,9 +2620,8 @@ def main(argv=None):
   contact_map(in_paths, out_path, bin_size, bin_size2, bin_size3,
               no_sep_cis, sep_trans, chromos, region_dict,
               use_corr, use_norm, is_single, screen_gfx, black_bg,
-              min_contig_size, chromo_grid, diag_width, 
-              bed_paths, bed_labels, wig_paths, wig_labels,
-              sam_paths, sam_labels, gff_path, gff_feats, cmap=cmap)
+              min_contig_size, chromo_grid, diag_width, data_tracks,
+              gff_path, gff_feats, smooth, cmap=cmap)
 
 
 if __name__ == "__main__":

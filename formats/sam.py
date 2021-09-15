@@ -24,8 +24,12 @@ def load_data_track(file_path, bin_size=1000, min_qual=10, num_cpu=4):
  
     rname, sam_flag, chromo, pos, mapq, cigar, mate_contig, mate_pos, t_len, seq, qual = line.split('\t')[:11]
     idx = int(int(pos)//bin_size)
- 
-    if int(sam_flag) & 0x10:
+    sam_flag = int(sam_flag)
+    
+    if (sam_flag & 0x40) and (sam_flag & 0x10): # R1 (5') and neg strand
+      data_hists_neg[chromo][idx] += 1
+    
+    elif (sam_flag & 0x80) and not (sam_flag & 0x10): # R2 (3') and pos strand
       data_hists_neg[chromo][idx] += 1
  
     else:

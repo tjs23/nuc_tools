@@ -306,7 +306,7 @@ def structure_compare(struc_paths1, struc_labels1, struc_paths2, struc_labels2,
     out_path = io.check_file_ext(out_pdf_path, '.pdf')
   
   else:
-    out_path = io.get_out_job_file_path(struc_paths[0], DEFAULT_PDF_OUT, [n_structs])  
+    out_path = io.get_out_job_file_path(struc_paths[0], DEFAULT_PDF_OUT, [n_strucs])  
    
   struc_labels1 = check_file_labels(struc_paths1, struc_labels1)
   struc_labels2 = check_file_labels(struc_paths2, struc_labels2)
