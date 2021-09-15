@@ -618,7 +618,6 @@ def main(argv=None):
   genome_index = args['g']
   out_dir = args['o']
   control_fastqs = args['c']
-  control_name = args['cs']
   control_bam = args['cb']
   chromo_names = args['cn']
   qual_scheme = args['q']
