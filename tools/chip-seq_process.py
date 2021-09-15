@@ -633,7 +633,7 @@ def main(argv=None):
   adapt_seqs = args['ad'] or []
    
   if control_bam:
-    if '@' control_bam:
+    if '@' in control_bam:
       k = control_bam.rfind('@')
       control_name = control_bam[:k]
       control_bam = control_bam[k+1:]
