@@ -600,12 +600,16 @@ def main(argv=None):
 
   for arg in args:
     if arg.startswith('f') and arg[1:].isdigit() and args[arg]:
-      file_paths = args[arg]
+      file_paths = []
+      file_path = args[arg][0]
       
-      if '@' in file_paths:
-        k = file_paths.rfind('@')
-        sample_name = file_paths[:k]
-        file_paths = glob(file_paths[k+1:])
+      if '@' in file_path:
+        k = file_path.rfind('@')
+        sample_name = file_path[:k]
+        
+        for file_path in args[arg]:
+         file_paths += glob(file_path[k+1:])
+         
       else:
         sample_name = None
       
@@ -641,10 +645,17 @@ def main(argv=None):
       control_name = None
       
   elif control_fastqs:
-    if '@' in control_fastqs:
-      k = control_fastqs.rfind('@')
-      control_name = control_fastqs[:k]
-      control_fastqs = glob(control_fastqs[k+1:])
+    file_paths = []
+    file_path = control_fastqs[0]
+    
+    if '@' in file_path:
+      k = file_path.rfind('@')
+      control_name = file_path[:k]
+      
+      for file_path in args[arg]:
+        file_paths += glob(file_path[k+1:])
+      
+      control_fastqs = file_paths
     else:
       control_name = None
     
