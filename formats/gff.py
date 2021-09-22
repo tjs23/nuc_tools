@@ -4,6 +4,9 @@ from collections import defaultdict
 from nuc_tools import io
 from nuc_tools import util
 
+
+FEATURE_VALUES = {'gene':0.2,'mRNA':0.3,'exon':0.7,'CDS':1.0}
+
 def get_feature_count(file_path):
 
   features = defaultdict(int)
@@ -17,7 +20,7 @@ def get_feature_count(file_path):
   return features
   
 
-def load_data_track(file_path, features=None):
+def load_data_track(file_path, features=None, merge=False):
   # Should work with GFF and GTF
   # returns several data dicts, one for each type of feature ( all features if feature=None)
   
@@ -73,24 +76,28 @@ def load_data_track(file_path, features=None):
       if features and (feat not in features):
         continue
       
-      if feat not in data_dicts:
-        data_dicts[feat] = defaultdict(set)
+      label = feat + ';'
       
       if n > 8 and sep1:
         attribs = [x for x in data[8].split(sep1) if x]
         ddict = dict([a.split(sep2) for a in attribs])
-        label = ddict.get('Name', feat)
-          
-      else:
-        label = feat
- 
+        
+        if 'Name' in ddict:
+          label += ddict['Name']
+      
+      if merge:
+        feat = 'gene_features'
+             
       if score == '.':
         score = 1.0
         val = 1.0
       else:
         score = float(score)
         val = score/1000.0
- 
+      
+      if feat not in data_dicts:
+        data_dicts[feat] = defaultdict(set)
+  
       strand = 0 if strand == '-' else 1
       data_dicts[feat][chromo].add((int(start), int(end), strand, score, val, label[:32]))
   
@@ -106,6 +113,10 @@ def load_data_track(file_path, features=None):
       
   for feat, data_dict in data_dicts.items():
     data_dicts[feat] = util.finalise_data_track(data_dict)
-     
-  return data_dicts
+  
+  if merge:
+    return data_dicts['gene_features']
+    
+  else:
+    return data_dicts
   

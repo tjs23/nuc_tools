@@ -5,6 +5,19 @@ from nuc_tools import util
 
 from collections import defaultdict
 
+def bam_iterator(file_path, min_qual=10, num_cpu=4):
+
+  cmd_args = ['samtools', 'view','-F','4','-q', str(min_qual), '-@', str(num_cpu), file_path]
+  
+  proc = subprocess.Popen(cmd_args, shell=False, stdout=subprocess.PIPE)
+ 
+  #for line in io.TextIOWrapper(proc.stdout, encoding='ascii'):
+  for line in proc.stdout:
+    row = line.split('\t')[:11]
+
+    yield row
+
+
 def load_data_track(file_path, bin_size=1000, min_qual=10, num_cpu=4):
   
   chromos_sizes = dict(get_bam_chromo_sizes(file_path))
@@ -12,17 +25,13 @@ def load_data_track(file_path, bin_size=1000, min_qual=10, num_cpu=4):
   data_hists_pos = {c: np.zeros(int(chromos_sizes[c]//bin_size)+1, 'uint16') for c in chromos_sizes}
   data_hists_neg = {c: np.zeros(int(chromos_sizes[c]//bin_size)+1, 'uint16') for c in chromos_sizes}
  
-  cmd_args = ['samtools', 'view','-F','4','-q', str(min_qual), '-@', str(num_cpu), file_path]
-  
-  proc = subprocess.Popen(cmd_args, shell=False, stdout=subprocess.PIPE)
- 
   util.info('Reading {}'.format(file_path))
  
-  #for line in io.TextIOWrapper(proc.stdout, encoding='ascii'):
   n = 0
-  for line in proc.stdout:
+  for row in bam_iterator(file_path, min_qual, num_cpu):
  
-    rname, sam_flag, chromo, pos, mapq, cigar, mate_contig, mate_pos, t_len, seq, qual = line.split('\t')[:11]
+    rname, sam_flag, chromo, pos, mapq, cigar, mate_contig, mate_pos, t_len, seq, qual = row
+    
     idx = int(int(pos)//bin_size)
     sam_flag = int(sam_flag)
     

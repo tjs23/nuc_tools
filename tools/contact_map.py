@@ -15,7 +15,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.ticker import AutoMinorLocator
 
 PROG_NAME = 'contact_map'
-VERSION = '1.1.0'
+VERSION = '1.1.1'
 DESCRIPTION = 'Chromatin contact (NCC or NPZ format) Hi-C contact map PDF display module'
 DEFAULT_CIS_BIN_KB = 250
 DEFAULT_TRANS_BIN_KB = 500
@@ -28,8 +28,9 @@ COLORMAP_URL = 'https://matplotlib.org/tutorials/colors/colormaps.html'
 REGION_PATT = re.compile('(\S+):(\d+\.?\d*)-(\d+\.?\d*)')
 MIN_REGION_BINS = 10
 DT_COLORMAP = '#000000,#0080FF,#B0B000,#FF4000,#FF00E0'
+GFF_FORMAT    = 'GFF'
 BED_FORMAT    = 'BED'
-WIG_FORMAT = 'Wiggle'
+WIG_FORMAT     = 'Wiggle'
 SAM_FORMAT    = 'BAM/SAM'
 SAM_BIN_SIZE  = 1000
 
@@ -764,9 +765,13 @@ def _get_tick_delta(n_bins, bin_size_units, max_ticks=10):
   tick_delta_units = round(tick_delta_units, -sf) # round to nearest 100, 10, 1, 0.1 etc
   
   step = 10 ** sf
+  target = 5 * sf
   
-  while (tick_delta_units % 5 > 0.1): # Not  % 5 != 0 as floating point errors much this up
+  while (tick_delta_units % target > sf):
     tick_delta_units += step
+  
+  sf = int(floor(np.log10(tick_delta_units)))
+  tick_delta_units = round(tick_delta_units, -sf)
   
   tick_delta = tick_delta_units/bin_size_units
   nminor = tick_delta # default to tick at each bin
@@ -1031,7 +1036,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
   if diag_width and (a != b):
     util.critical('Diagonal width option only valid for square matrices. Input size was %d x %d' % (a,b))
   
-  if max(a,b) < 100:
+  if max(a,b) < 1000:
     unit_name = 'kb'
     unit = 1e3
     label_pat = '%d'
@@ -1039,7 +1044,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
   else:
     unit_name = 'Mb'
     unit = 1e6 
-    label_pat = '%.1f'
+    label_pat = '%.f'
           
   if log:
     norm = LogNorm(vmin=v_min)
@@ -1253,7 +1258,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       
       if tick_delta < (p2-p1):
         xlabel_pos = np.arange(p1, p2+1, tick_delta) # Pixel bins
-        xlabels = ['%.1f' % ((x*0.5*bin_size+x_start)/unit) for x in xlabel_pos]
+        xlabels = ['%.2f' % ((x*0.5*bin_size+x_start)/unit) for x in xlabel_pos]
         xlabel_pos -= p1
 
         ax_bott.set_xticklabels(xlabels, fontsize=9)
@@ -1311,7 +1316,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
     
     fig = plt.figure()
     
-    dt_size = 0.5
+    dt_size = 0.8
     padd = 0.1
     size = 8.0
     main_frac = 0.8
@@ -1323,6 +1328,8 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
         ax = fig.add_axes([padd + fx, padd + fy, main_frac * (1.0-fx), main_frac * (1.0-fy)]) # left, bottom, width, height
         ax_left = fig.add_axes([padd, padd + fy, fx, main_frac * (1.0-fy)])
         ax_bott = fig.add_axes([padd + fx, padd, main_frac * (1.0-fx), fy])
+        ax_left.set_facecolor('w')
+        ax_bott.set_facecolor('w')
         
       else:
         fig.set_size_inches(size + dt_size, size)
@@ -1330,14 +1337,15 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
         ax = fig.add_axes([padd + fx, padd, main_frac * (1.0-fx), main_frac]) # left, bottom, width, height
         ax_left = ax
         ax_bott = fig.add_axes([padd + fx, padd, main_frac * (1.0-fx), fy])
+        ax_bott.set_facecolor('w')
          
     elif y_data_tracks:
       fig.set_size_inches(size, size + dt_size)
       fy = dt_size / (size + dt_size)
       ax = fig.add_axes([padd, padd + fy, main_frac, main_frac * (1.0-fy)]) # left, bottom, width, height
       ax_left = fig.add_axes([padd, padd + fy, fx, main_frac * (1.0-fy)])
+      ax_left.set_facecolor('w')
       ax_bott = ax
-        
       
     else:
       fig.set_size_inches(size, size)
@@ -1352,6 +1360,9 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
           'vmin':v_min, 'vmax':v_max}
     
     extent = (0,b,a,0)
+    
+    gff_cdict = {'CDS':(0.0, 0.0, 0.0, 1.0)}
+    gff_vdict = {'gene': 0.15, 'exon': 0.5, 'CDS': 0.85}
     
     if do_ambig:
       cax2 = ax.matshow(ambig_matrix, cmap=cmap2, extent=extent, **kw)
@@ -1369,15 +1380,18 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       y_lim = [0.0, 1.0]
       nx = float(len(x_data_tracks))
       colors = [np.array(track_cmap(x)) for x in np.linspace(0.0, 1.0, nx)]
-      min_width = 0.0 # 2.0 * size/float(b)
+      min_width = 1.0 * size/float(b)
             
       for i, (track_label, track_data) in enumerate(x_data_tracks):
         t = nx-i-1.0
+        y_anchor = (t+0.5)/nx
         track_data = track_data[(track_data['pos1'] < end) & (track_data['pos1'] > start) | (track_data['pos2'] < end) & (track_data['pos2'] > start)]
         pos_strand = track_data['strand']
         pos_track = track_data[pos_strand]
         neg_track = track_data[~pos_strand]
         tcmap = LinearSegmentedColormap.from_list(name=track_label, colors=[bg_color, colors[i]], N=32)
+        
+        ax_bott.hlines(y_anchor, start, end, colors='#808080', alpha=0.2, linewidth=0.1)
         
         if _is_detailed_data(track_data, step):
           if len(pos_track):
@@ -1385,8 +1399,24 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             ends = (pos_track['pos2']-x_start)/float(bin_size)
             ends = np.array([ends, starts+min_width]).max(axis=0)
             widths = ends - starts
-            values = pos_track['value']
-            y_pos = np.full(widths.shape, (t+0.5)/nx)            
+            labels = pos_track['label']
+            
+            if ';' in labels[0]: # GFF/GTF
+              features = [itm.split(';')[0] for itm in labels]
+              vcolors = np.array([gff_cdict.get(f, colors[i]) for f in features])
+              values = np.array([gff_vdict.get(f, 0.5) for f in features])
+              idx = values.argsort()[::-1] # smallest last (on top)
+              widths = widths[idx]
+              values = values[idx]
+              vcolors = vcolors[idx]
+              starts = starts[idx]
+            
+            else:
+              values = pos_track['value']
+              vcolors = values[:,None] * 0.75 + 0.25
+              vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
+              
+            y_pos = np.full(widths.shape, y_anchor)            
             
             if len(neg_track):           
               height =  0.5/nx
@@ -1397,8 +1427,6 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
               height =  1.0/nx
               heights = height*values
             
-            vcolors = values[:,None] * 0.75 + 0.25
-            vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
             ax_bott.barh(y_pos, widths, heights, starts,
                          color=vcolors, linewidth=0.0)
           
@@ -1407,8 +1435,24 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             ends = (neg_track['pos2']-x_start)/float(bin_size)
             ends = np.array([ends, starts+min_width]).max(axis=0)
             widths = ends - starts
-            values = neg_track['value']
-            y_pos = np.full(widths.shape, (t+0.5)/nx)            
+            labels = neg_track['label']
+
+            if ';' in labels[0]: # GFF/GTF
+              features = [itm.split(';')[0] for itm in labels]
+              vcolors = np.array([gff_cdict.get(f, colors[i]) for f in features])
+              values = np.array([gff_vdict.get(f, 0.5) for f in features])
+              idx = values.argsort()[::-1] # smallest last (on top)
+              widths = widths[idx]
+              values = values[idx]
+              vcolors = vcolors[idx]
+              starts = starts[idx]
+              
+            else:
+              values = neg_track['value']
+              vcolors = values[:,None] * 0.75 + 0.25
+              vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
+            
+            y_pos = np.full(widths.shape, y_anchor)            
             
             if len(pos_track):           
               height =  0.5/nx
@@ -1419,8 +1463,6 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
               height =  1.0/nx
               heights = height*values
             
-            vcolors = values[:,None] * 0.75 + 0.25
-            vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
             ax_bott.barh(y_pos, widths, heights, starts,
                          color=vcolors, linewidth=0.0)
 
@@ -1446,7 +1488,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             ax_bott.matshow(neg_hist, aspect='auto', cmap=tcmap, extent=extent)
 
       ax_bott.set_ylim(*y_lim)
-      ax_bott.set_facecolor(cmap(0.0))
+      #ax_bott.set_facecolor(cmap(0.0))
       
       x0, y0, w, h = ax_bott.get_position().bounds
       
@@ -1476,21 +1518,39 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       
       for i, (track_label, track_data) in enumerate(y_data_tracks):
         t = ny-i-1.0
+        x_anchor = (t+0.5)/ny
         
         track_data = track_data[(track_data['pos1'] < end) & (track_data['pos1'] > start) | (track_data['pos2'] < end) & (track_data['pos2'] > start)]
         pos_strand = track_data['strand']
         pos_track = track_data[pos_strand]
         neg_track = track_data[~pos_strand]
         tcmap = LinearSegmentedColormap.from_list(name=track_label, colors=[bg_color, colors[i]], N=32)
-        
+       
+        ax_left.vlines(x_anchor, start, end, colors='#808080', alpha=0.2, linewidth=0.1)
+       
         if _is_detailed_data(track_data, step):
           if len(pos_track):
             starts = (pos_track['pos1']-y_start)/float(bin_size)
             ends = (pos_track['pos2']-y_start)/float(bin_size)
             ends = np.array([ends, starts+min_width]).max(axis=0)
             heights = ends - starts
-            values = pos_track['value']
-            x_pos = np.full(heights.shape, (t+0.5)/ny)
+            labels = pos_track['label']
+            x_pos = np.full(heights.shape, x_anchor)
+            
+            if ';' in labels[0]: # GFF/GTF
+              features = [itm.split(';')[0] for itm in labels]
+              vcolors = np.array([gff_cdict.get(f, colors[i]) for f in features])
+              values = np.array([gff_vdict.get(f, 0.5) for f in features])
+              idx = values.argsort()[::-1] # smallest last (on top)
+              heights = heights[idx]
+              values = values[idx]
+              vcolors = vcolors[idx]
+              starts = starts[idx]
+            
+            else:
+              values = pos_track['value']
+              vcolors = values[:,None] * 0.75 + 0.25
+              vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
             
             if len(neg_track):           
               width =  0.5/ny
@@ -1501,8 +1561,6 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
               width =  1.0/ny
               widths = width*values
                         
-            vcolors = values[:,None] * 0.75 + 0.25
-            vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
             ax_left.bar(x_pos, heights, widths, starts,
                         color=vcolors, linewidth=0.0)
           
@@ -1511,8 +1569,23 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             ends = (neg_track['pos2']-y_start)/float(bin_size)
             ends = np.array([ends, starts+min_width]).max(axis=0)
             heights = ends - starts   
-            values = neg_track['value']
-            x_pos = np.full(heights.shape, (t+0.5)/ny)
+            labels = neg_track['label']
+            x_pos = np.full(heights.shape, x_anchor)
+            
+            if ';' in labels[0]: # GFF/GTF
+              features = [itm.split(';')[0] for itm in labels]
+              vcolors = np.array([gff_cdict.get(f, colors[i]) for f in features])
+              values = np.array([gff_vdict.get(f, 0.5) for f in features])
+              idx = values.argsort()[::-1] # smallest last (on top)
+              heights = heights[idx]
+              values = values[idx]
+              vcolors = vcolors[idx]
+              starts = starts[idx]
+            
+            else:
+              values = neg_track['value']
+              vcolors = values[:,None] * 0.75 + 0.25
+              vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
                     
             if len(pos_track):           
               width =  0.5/ny
@@ -1523,8 +1596,6 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
               width =  1.0/ny
               widths = width*values
             
-            vcolors = values[:,None] * 0.75 + 0.25
-            vcolors = np.clip((vcolors * colors[i]) + ((1.0-vcolors) * bg_color), 0.0, 1.0)
             ax_left.bar(x_pos, heights, widths, starts,
                         color=vcolors, linewidth=0.0)
         
@@ -1552,7 +1623,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
       ax_left.set_xlim(*x_lim)
       ax.set_yticks([])
       ax_left.set_xticks([])
-      ax_left.set_facecolor(cmap(0.0))
+      #ax_left.set_facecolor(cmap(0.0))
     
     
     if chromo_labels and len(xlabels) > 25:
@@ -1680,7 +1751,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
                 no_separate_cis=False, separate_trans=False, show_chromos=None,
                 region_dict=None, use_corr=False, use_norm=False, is_single_cell=False,
                 screen_gfx=False, black_bg=False, min_contig_size=None, chromo_grid=False,
-                diag_width=None, data_tracks=None, gff_path=None, gff_feats=None,
+                diag_width=None, data_tracks=None, gff_feats=None,
                 smooth=False, font=None, font_size=12, line_width=0.2, cmap=None):
   
   # Data tracks are specified as (file_path, file_format, text_label)
@@ -1929,27 +2000,12 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
       n_cont2, n_cis2, n_trans2, n_homolog2, n_ambig2, n_pairs2, n_isol2 = count_list2
   
   data_track_dicts = {}
-  
-  if gff_path:
-    gff_data_dicts = gff.load_data_track(gff_path, gff_feats)
-    
-    if gff_feats:
-      for ft in gff_feats:
-        if ft not in gff_data_dicts:
-          util.warn('GFF feature type "%s" not found in GFF file' % ft)
-    
-    gff_chromos = set()
-    chr2 = set()
-    for ft, data_dict in gff_data_dicts.items():
-      gff_chromos.update(data_dict.keys())
-    
-    if set(gff_chromos) & set(chromos):
-      data_track_dicts.update(gff_data_dicts)
-    else:
-      util.warn('GFF chromosome names do not correspond to any contact data chromosomes')
-  
+
   for data_track_path, file_format, text_label in data_tracks:
-    if file_format == WIG_FORMAT:
+    if file_format == GFF_FORMAT:
+      data_dict = gff.load_data_track(data_track_path, gff_feats, merge=True)
+
+    elif file_format == WIG_FORMAT:
       data_dict = wig.load_data_track(data_track_path)
     
     elif file_format == BED_FORMAT:
@@ -2431,12 +2487,13 @@ def main(argv=None):
                          help='Optional Wiggle format (variable of fixed step) files for displaying ancilliary data along single-chromosome axes. Wildcards accepted. ' \
                               'Short data names may be supplied to avoid graphical clutter using the short_label@long_file_path format.')
 
-  arg_parse.add_argument('-gff', '--gff-data-track', metavar='GENOME_FEATURE_FILE', default=None, dest="gff",
-                         help='Optional genome feature file (GFF/GTF format) for displaying gene locations etc. along single-chromosome axes. ' \
-                              'Displays all "gene" features in the file unless the -gfff option is used.')
+  arg_parse.add_argument('-gff', '--gff-data-track', metavar='GENOME_FEATURE_FILE', nargs='*', default=None, dest="gff",
+                         help='Optional genome feature files (GFF/GTF format) for displaying gene locations etc. along single-chromosome axes. Wildcards accepted. ' \
+                              'Displays gene/exon/CDS features in the file unless the -gfff option is used. Short source names may be supplied to avoid graphical ' \
+                              'clutter using the short_label@long_file_path format.')
 
   arg_parse.add_argument('-gfff', '-gff-feature', default=None, nargs='*', metavar='GFF_FEATURE_NAME', dest="gfff",
-                         help='One or more feture types to display from input GFF/GTF format data track. Default: "gene"')
+                         help='One or more feture types to display from input GFF/GTF format data track. Default: "gene exon CDS"')
   
   arg_parse.add_argument('-sc', '--single-cell', default=False, action='store_true', dest="sc",
                          help='Specifies that the input data is from single-cell Hi-C')
@@ -2526,7 +2583,7 @@ def main(argv=None):
   bed_paths = args['bed'] or []
   wig_paths = args['wig'] or []
   sam_paths = args['sam'] or []
-  gff_path = args['gff'] 
+  gff_paths = args['gff'] 
   gff_feats = args['gfff']
   smooth = args['sm']
   
@@ -2551,7 +2608,8 @@ def main(argv=None):
   
   data_tracks = []
   check_paths = []
-  for data_paths, file_format in ((bed_paths, BED_FORMAT), (wig_paths, WIG_FORMAT), (sam_paths, SAM_FORMAT)):
+  for data_paths, file_format in ((bed_paths, BED_FORMAT), (wig_paths, WIG_FORMAT),
+                                  (sam_paths, SAM_FORMAT), (gff_paths, GFF_FORMAT)):
     for data_path in data_paths:
       if '@' in data_path:
         p = data_path.rfind('@')
@@ -2559,29 +2617,26 @@ def main(argv=None):
         data_path = data_path[p+1:]
       else:
         text_label = None
+        
+      if file_format == GFF_FORMAT:
+        if not gff_feats:
+          from formats import gff
+          feature_counts = gff.get_feature_count(data_path)
+          fc = [(feature_counts[f], f) for f in feature_counts]
+          fc.sort(reverse=True)
+ 
+          if 'gene' in feature_counts:
+            gff_feats = ('gene','exon','CDS')
+          else:
+            gff_feats = fc[0][1]
+ 
+          util.info('GFF file feature selection defaulting to "{}"'.format(gff_feats[0]))
+ 
+          fc = ['{}:{:,}'.format(f, c) for c, f in fc]
+          util.info('Available GFF features in {}:\n   counts {}'.format(data_path, ' '.join(fc)))
      
       data_tracks.append((data_path, file_format, text_label))
       check_paths.append(data_path)
-
-  check_paths = []
-  if gff_path:
-    check_paths.append(gff_path)
-    
-    if not gff_feats:
-      from formats import gff
-      feature_counts = gff.get_feature_count(gff_path)
-      fc = [(feature_counts[f], f) for f in feature_counts]
-      fc.sort(reverse=True)
-      
-      if 'gene' in feature_counts:
-        gff_feats = ('gene',)
-      else:
-        gff_feats = fc[0][1]
-     
-      util.info('GFF file feature selection defaulting to "{}"'.format(gff_feats[0]))
-      
-      fc = ['{}:{:,}'.format(f, c) for c, f in fc]
-      util.info('Available GFF features:counts {}'.format(' '.join(fc)))
   
   check_paths += in_paths 
   for in_path in check_paths:
@@ -2621,7 +2676,7 @@ def main(argv=None):
               no_sep_cis, sep_trans, chromos, region_dict,
               use_corr, use_norm, is_single, screen_gfx, black_bg,
               min_contig_size, chromo_grid, diag_width, data_tracks,
-              gff_path, gff_feats, smooth, cmap=cmap)
+              gff_feats, smooth, cmap=cmap)
 
 
 if __name__ == "__main__":
