@@ -1036,7 +1036,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
   if diag_width and (a != b):
     util.critical('Diagonal width option only valid for square matrices. Input size was %d x %d' % (a,b))
   
-  if max(a,b) < 1000:
+  if bin_size * max(a,b) < 1e6:
     unit_name = 'kb'
     unit = 1e3
     label_pat = '%d'
@@ -2583,7 +2583,7 @@ def main(argv=None):
   bed_paths = args['bed'] or []
   wig_paths = args['wig'] or []
   sam_paths = args['sam'] or []
-  gff_paths = args['gff'] 
+  gff_paths = args['gff'] or []
   gff_feats = args['gfff']
   smooth = args['sm']
   
