@@ -760,7 +760,7 @@ def _get_tick_delta(n_bins, bin_size_units, max_ticks=10):
   
   tick_delta_units = tick_delta * bin_size_units
   
-  sf = int(floor(np.log10(tick_delta_units)))
+  sf = max(1, int(floor(np.log10(tick_delta_units))))
   
   tick_delta_units = round(tick_delta_units, -sf) # round to nearest 100, 10, 1, 0.1 etc
   
@@ -1378,8 +1378,9 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
         step /= 2
       
       y_lim = [0.0, 1.0]
-      nx = float(len(x_data_tracks))
+      nx = len(x_data_tracks)
       colors = [np.array(track_cmap(x)) for x in np.linspace(0.0, 1.0, nx)]
+      nx = float(nx)
       min_width = 1.0 * size/float(b)
             
       for i, (track_label, track_data) in enumerate(x_data_tracks):
@@ -1401,7 +1402,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             widths = ends - starts
             labels = pos_track['label']
             
-            if ';' in labels[0]: # GFF/GTF
+            if ';' in str(labels[0]): # GFF/GTF
               features = [itm.split(';')[0] for itm in labels]
               vcolors = np.array([gff_cdict.get(f, colors[i]) for f in features])
               values = np.array([gff_vdict.get(f, 0.5) for f in features])
@@ -1512,9 +1513,10 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
         step /= 2
       
       x_lim = [0.0, 1.0]
-      ny = float(len(y_data_tracks))
+      ny = len(y_data_tracks)
       
       colors = [np.array(track_cmap(y)) for y in np.linspace(0.0, 1.0, ny)]
+      ny = float(ny)
       
       for i, (track_label, track_data) in enumerate(y_data_tracks):
         t = ny-i-1.0
@@ -1537,7 +1539,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             labels = pos_track['label']
             x_pos = np.full(heights.shape, x_anchor)
             
-            if ';' in labels[0]: # GFF/GTF
+            if ';' in str(labels[0]): # GFF/GTF
               features = [itm.split(';')[0] for itm in labels]
               vcolors = np.array([gff_cdict.get(f, colors[i]) for f in features])
               values = np.array([gff_vdict.get(f, 0.5) for f in features])
