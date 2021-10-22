@@ -777,7 +777,7 @@ def _get_tick_delta(n_bins, bin_size_units, max_ticks=10):
   nminor = tick_delta # default to tick at each bin
   
   if nminor > max_ticks:
-     nminor = 5
+    nminor = 5
   
   return tick_delta, nminor
 
