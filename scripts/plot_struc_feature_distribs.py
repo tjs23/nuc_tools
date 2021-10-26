@@ -5,7 +5,7 @@ from matplotlib import pyplot as plt
 from collections import defaultdict
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from nuc_tools import util, io
+from nuc_tools import util, io, parallel
 from formats import bed, n3d
 
 
@@ -25,8 +25,8 @@ tool to take a number of structures
 
 
 """
+from scipy.spatial import distance
 
-from scipy.spatial import distance, KDTree
 
 a_comp_data_dict = bed.load_data_track('/data/bed/A_comp.bed')
 b_comp_data_dict = bed.load_data_track('/data/bed/B_comp.bed')
@@ -40,10 +40,16 @@ poi_labels = [f'Group {i+1}' for i in range(len(poi_paths))]
 poi_dicts = [bed.load_data_track(x) for x in poi_paths]
 
 struc_groups = [
-                '/data/hi-c/hybrid/transition_state/Haploid/EDL_ES_2iLIF/*_10x_100kb.n3d',
-                '/data/hi-c/hybrid/transition_state/Haploid/EDL_24h_Rex1Low/*_10x_100kb.n3d',
-                '/data/hi-c/hybrid/transition_state/Haploid/EDL_24h_Rex1High/*_10x_100kb.n3d',
-                '/data/hi-c/hybrid/transition_state/Haploid/EDL_48h/*_10x_100kb.n3d',
+                '/data/hi-c/transition_state/Haploid/EDL_ES_2iLIF/*_100k*.n3d',
+                '/data/hi-c/transition_state/Haploid/EDL_24h_Rex1Low/*_100k*.n3d',
+                '/data/hi-c/transition_state/Haploid/EDL_24h_Rex1High/*_100k*.n3d',
+                '/data/hi-c/transition_state/Haploid/EDL_48h/*_100k*.n3d',
+                ]
+struc_groups = [
+                '/data/hi-c/transition_state/Haploid/EDL_ES_2iLIF/*_25k*.n3d',
+                '/data/hi-c/transition_state/Haploid/EDL_24h_Rex1Low/*_25k*.n3d',
+                '/data/hi-c/transition_state/Haploid/EDL_24h_Rex1High/*_25k*.n3d',
+                '/data/hi-c/transition_state/Haploid/EDL_48h/*_25k*.n3d',
                 ]
 
 struc_labels = ['0h','24h_Rex1Low','24h_Rex1High','48h']
@@ -53,36 +59,59 @@ struc_colors = ['#808080','#FF2000','#C0B000','#0080FF']
 group_colors = ['#FF2000','#C0B000','#0080FF']
 
 ic_plot_data = {}
-ab_plot_data = {}
+a_plot_data = {}
+b_plot_data = {}
 st_plot_data = {}
 
 for p_label in poi_labels:
   ic_plot_data[p_label] = {}
-  ab_plot_data[p_label] = {}
+  a_plot_data[p_label] = {}
+  b_plot_data[p_label] = {}
   st_plot_data[p_label] = {}
   
   for s_label in struc_labels:
     ic_plot_data[p_label][s_label] = {}
-    ab_plot_data[p_label][s_label] = {}
+    a_plot_data[p_label][s_label] = {}
+    b_plot_data[p_label][s_label] = {}
 
 # Structure distances may need normalisation for better comparison
 # Add to distance histograms on-the-fly to minimise memory
 
-#from sklearn.metrics import pairwise_distances
-#import tensorflow as tf
 
-def closest_dist(coords1, coords2):
+def _closest_dist(coords1, coords2, n_cpu=4):
   
-  #diffs =  tf.reduce_mean(tf.constant(coords1[:,:,None,:]), axis=0) - tf.reduce_mean(tf.constant(coords2[:,None,:,:]), axis=0)  
-  #dists2 = tf.math.sqrt(tf.reduce_min(tf.reduce_sum(diffs * diffs, axis=-1), axis=-1))
+  coords_list1 = np.array_split(coords1, n_cpu)
+  
+  results = parallel.run(_closest_dist, coords_list1, common_args=(coords2,),
+                         num_cpu=len(coords_list1), verbose=False)
+  
+  closest_dists = np.concatenate(results, axis=0)
+  
+  return closest_dists
+  
+  
+def closest_dist(coords1, coords2):
    
   dists2 = distance.cdist(coords1.mean(axis=0), coords2.mean(axis=0), 'sqeuclidean')
-  return np.sqrt(dists2.min(axis=1))
-  #return dists2.numpy()
+  
+  z = dists2 == 0.0
+  dists2[z] = 1.0
+  dists2[dists2 < 1.0] = 1.0
+  dists2 = 1.0/dists2
+  dists2[z] = np.nan
+  #return np.sqrt(dists2.min(axis=1))
+  
+  densities =  np.nanmean(dists2, axis=1)
+  
+  #print(coords1.shape, coords2.shape, densities.shape, densities.min(), densities.mean(), densities.max())
+  
+  return densities
  
  
-n_bins = 30
-hist_range = (0.0, 7.5)
+n_bins = 32
+hist_range = (0.0, 0.008)
+#n_bins = 24
+#hist_range = (0.0, 0.012)
 
 def dist_hist(dists, n_bins=n_bins, hist_range=hist_range):
   
@@ -99,7 +128,7 @@ for s, s_group in enumerate(struc_groups):
     util.info(f'{struc_file}')
     
     seq_pos_dict, coords_dict = n3d.load_n3d_coords(struc_file)
-    chromos = util.sort_chromosomes(seq_pos_dict)
+    chromos = util.sort_chromosomes([c for c in seq_pos_dict if c in a_comp_data_dict])
     n_models = len(coords_dict[chromos[0]])
     
     """
@@ -124,7 +153,8 @@ for s, s_group in enumerate(struc_groups):
     a_hists = {}
     b_hists = {}
     
-    for chromo, seq_pos in seq_pos_dict.items():
+    for chromo in chromos:
+      seq_pos = seq_pos_dict[chromo]
       seq_min = seq_pos[0]
       seq_bin = seq_pos[1] - seq_min
       seq_max = seq_pos[-1]
@@ -185,60 +215,92 @@ for s, s_group in enumerate(struc_groups):
         bead_idx = np.clip(np.searchsorted(seq_pos, pos), 0, len(seq_pos)-1)
         bead_coords = chromo_coords[:,bead_idx]
         dists = closest_dist(bead_coords, other_coords)
-          
-        #dists /= n_models
         
-        if struc_file not in ic_plot_data[p_label][s_label]:
-          ic_plot_data[p_label][s_label][struc_file] = dist_hist(dists)
-        
-        else:
+        if struc_file in ic_plot_data[p_label][s_label]:
           ic_plot_data[p_label][s_label][struc_file] += dist_hist(dists)
+        else:
+          ic_plot_data[p_label][s_label][struc_file] = dist_hist(dists)
         
         # A/B boundary dists
         # get A/B allocation of pos
         
-        in_a = a_hists[chromo][bead_idx] > 0.0
-        in_b = b_hists[chromo][bead_idx] > 0.0
-        in_b[in_a & in_b] = False # Cannot be in both; at boundary anyhow
+        #in_a = a_hists[chromo][bead_idx] > 0.0
+        #in_b = b_hists[chromo][bead_idx] > 0.0
+        #in_b[in_a & in_b] = False # Cannot be in both; at boundary anyhow
         
         # Find closest dist in the opposite compartment
-        dists = closest_dist(bead_coords[:,in_a],  b_coords)
-       
-        #dists /= n_models
-        if struc_file not in ab_plot_data[p_label][s_label]:
-          ab_plot_data[p_label][s_label][struc_file] = dist_hist(dists)        
+        dists = closest_dist(bead_coords,  a_coords)       
+        if struc_file in a_plot_data[p_label][s_label]:
+          a_plot_data[p_label][s_label][struc_file] += dist_hist(dists)
         else:
-          ab_plot_data[p_label][s_label][struc_file] += dist_hist(dists)
+          a_plot_data[p_label][s_label][struc_file] = dist_hist(dists)
         
-        dists = closest_dist(bead_coords[:,in_b], a_coords)
-        
-        #dists /= n_models
-        ab_plot_data[p_label][s_label][struc_file] += dist_hist(dists)
+        #dists = closest_dist(bead_coords, b_coords)
+        #if struc_file in b_plot_data:
+        #  b_plot_data[p_label][s_label][struc_file] += dist_hist(dists)
+        #else:
+        #  b_plot_data[p_label][s_label][struc_file] = dist_hist(dists)
         
         
 from matplotlib import pyplot as plt
 
-for title, plot_data in [('Trans chromosome', ic_plot_data),
-                         ('A/B boundary', ab_plot_data)]:
+plot_data = [('Inter-chromosomal', ic_plot_data),
+             ('A compartment', a_plot_data),]
+             #('B compartment', b_plot_data)]
 
-  fig, axarr = plt.subplots(len(plot_data), 1, squeeze=False)
+fig, axarr = plt.subplots(len(struc_groups), len(plot_data), squeeze=False)
+fig.set_size_inches(12.0, 12.0)
+
+for col, (title, data_dict) in enumerate(plot_data):
+
   a, b = hist_range[0], hist_range[1]
   edges = np.arange(a, b, (b-a)/n_bins)
   
-  for row, p_label in enumerate(plot_data): # Each gene group
-    ax = axarr[row,0]
+  for row, s_label in enumerate(struc_labels): # Each structure group
+    ax = axarr[row,col]
+    
+    ax.set_title(s_label)
+    ax.set_ylabel('Bin density')
+    ax.set_xlabel(f'{title} $1/r^2$ density')
+
+    for j, p_label in enumerate(poi_labels):
+      #exp_mean = np.zeros(n_bins)
+      obs_mean = np.zeros(n_bins)
+      
+      for struc_file in data_dict[p_label][s_label]:
+        #exp_hist = st_plot_data[struc_file]
+        #exp_mean += exp_hist
+        
+        obs_hist = data_dict[p_label][s_label][struc_file]
+        obs_mean += obs_hist
+        
+
+      obs_mean /= obs_mean.sum() or 1.0
+      #ax.plot(edges, exp_mean, alpha=0.25, color=struc_colors[j], linestyle='--')
+      ax.plot(edges, obs_mean, alpha=0.5, color=group_colors[j], label=p_label)
+        
+        
+    ax.legend()
+    
+plt.show()
+
+fig, axarr = plt.subplots(len(poi_labels), len(plot_data), squeeze=False)
+fig.set_size_inches(12.0, 12.0)
+
+for col, (title, data_dict) in enumerate(plot_data):
+
+  a, b = hist_range[0], hist_range[1]
+  edges = np.arange(a, b, (b-a)/n_bins)
+  
+  for row, p_label in enumerate(data_dict): # Each gene group
+    ax = axarr[row,col]
+    
     ax.set_title(p_label)
     ax.set_ylabel('Bin density')
-    ax.set_xlabel(f'{title} distance')
+    ax.set_xlabel(f'{title} $1/r^2$ density')
     #ax.set_ylim((-3.1, 2.1))
    
-    sub_dict = plot_data[p_label]
-    #exp_mean = np.zeros(n_bins)
-    #for j, s_label in enumerate(sub_dict):
-    #  for struc_file in sub_dict[s_label]:
-    #    exp_mean += sub_dict[s_label][struc_file]
-    # 
-    #exp_mean /= exp_mean.sum()
+    sub_dict = data_dict[p_label]
        
     for j, s_label in enumerate(sub_dict):
       exp_mean = np.zeros(n_bins)
@@ -246,60 +308,24 @@ for title, plot_data in [('Trans chromosome', ic_plot_data),
       
       for struc_file in sub_dict[s_label]:
         exp_hist = st_plot_data[struc_file]
-        exp_hist /= exp_hist.max()
+        #exp_hist /= exp_hist.max() or 1.0
         exp_mean += exp_hist
         
-      
         obs_hist = sub_dict[s_label][struc_file]
-        obs_hist /= obs_hist.max()
+        #obs_hist /= obs_hist.max() or 1.0
         obs_mean += obs_hist
         
         #nz = (exp_hist * obs_hist) != 0.0
         #mean_lr[nz] += np.log(obs_hist[nz]/exp_hist[nz])
         
-      exp_mean /= len(sub_dict)
-      obs_mean /= len(sub_dict)
+      #exp_mean /= len(sub_dict)
+      #obs_mean /= len(sub_dict)
       #exp_mean /= exp_mean.sum()
-      #obs_mean /= obs_mean.sum()
+      obs_mean /= obs_mean.sum() or 1.0
       #ax.plot(edges, exp_mean, alpha=0.25, color=struc_colors[j], linestyle='--')
       ax.plot(edges, obs_mean, alpha=0.5, color=struc_colors[j], label=s_label)
         
         
     ax.legend()
     
-  plt.show()
-
-"""
-for title, plot_data in [('Trans chromosome', ic_plot_data),
-                         ('A/B boundary', ab_plot_data)]:
-
-  fig, axarr = plt.subplots(len(plot_data), 1)
-  a, b = hist_range[0], hist_range[1]
-  edges = np.arange(a, b, (b-a)/n_bins)
-  
-  for row, s_label in enumerate(plot_data):
-    ax = axarr[row]
-    ax.set_title(s_label)
-    ax.set_ylabel('Bin density')
-    ax.set_xlabel(f'{title} distance')
- 
-    sub_dict = plot_data[s_label]
-  
-    for struc_file in sub_dict[p_label]:
-     
-      hist = st_plot_data[struc_file]
-      hist /= hist.sum()
-      ax.plot(edges, hist, alpha=0.8, linewidth=0.5, color='k')
- 
-      for j, p_label in enumerate(sub_dict):
-    
-        hist = sub_dict[p_label][struc_file]
-        hist /= hist.sum()
-        
-        ax.plot(edges, hist, alpha=0.25, color=group_colors[j], label=p_label)
-        
-    ax.legend()
-    
-  plt.show()
-"""
-
+plt.show()
