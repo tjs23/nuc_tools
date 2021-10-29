@@ -11,14 +11,14 @@ def bam_iterator(file_path, min_qual=10, num_cpu=4):
   
   proc = subprocess.Popen(cmd_args, shell=False, stdout=subprocess.PIPE)
  
-  #for line in io.TextIOWrapper(proc.stdout, encoding='ascii'):
-  for line in proc.stdout:
+  for line in io.TextIOWrapper(proc.stdout, encoding='ascii'):
+    #for line in proc.stdout:
     row = line.split('\t')[:11]
 
     yield row
 
 
-def load_data_track(file_path, bin_size=1000, min_qual=10, num_cpu=4):
+def load_data_track(file_path, bin_size=1000, min_qual=10, num_cpu=4, mol_size_range=None):
   
   chromos_sizes = dict(get_bam_chromo_sizes(file_path))
 
@@ -26,14 +26,38 @@ def load_data_track(file_path, bin_size=1000, min_qual=10, num_cpu=4):
   data_hists_neg = {c: np.zeros(int(chromos_sizes[c]//bin_size)+1, 'uint16') for c in chromos_sizes}
  
   util.info('Reading {}'.format(file_path))
- 
+  
+  if mol_size_range:
+    min_mol_size, max_mol_size = mol_size_range
+  else:
+    min_mol_size = max_mol_size = 0
+  
   n = 0
   for row in bam_iterator(file_path, min_qual, num_cpu):
  
     rname, sam_flag, chromo, pos, mapq, cigar, mate_contig, mate_pos, t_len, seq, qual = row
+    sam_flag = int(sam_flag)
+    
+    if sam_flag & 0x4: # R1 unmapped
+      continue
+
+    if sam_flag & 0x8: # R2 unmapped
+      continue
+
+    if sam_flag & 0x100: # Secondary
+      continue
+      
+    if mol_size_range:
+      # Not always identical to t_len because of insertions in read relative to reference
+      delta = abs(int(pos)-int(mate_pos)) + len(seq)
+      
+      if delta < min_mol_size:
+        continue
+      
+      if delta >=  max_mol_size:
+        continue
     
     idx = int(int(pos)//bin_size)
-    sam_flag = int(sam_flag)
     
     if (sam_flag & 0x40) and (sam_flag & 0x10): # R1 (5') and neg strand
       data_hists_neg[chromo][idx] += 1

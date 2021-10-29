@@ -16,7 +16,7 @@ from collections import defaultdict
       #   For each anchor on same contig
       #     Store size, anchor sep (closest point; min of ends), spearated by strand
 """
- 
+
 def _load_data_points(data_files):
 
   track_data_dicts = {}
@@ -82,62 +82,44 @@ def _add_to_map(regions, data_map, data_points, mid_col, n, min_size, bin_size):
   n_points = len(data_points)
   p_start = 0
   
-  for r in range(n_regions):
-    p1 = regions[r,0]
-    p2 = regions[r,1]
-    row = int((p2-p1-min_size)//bin_size) # Sequence separation
+  for r in range(n_regions): # E.g. MNase
+    r1 = regions[r,0]
+    r2 = regions[r,1]
+    row = int((r2-r1-min_size)//bin_size) # Sequence separation
     
-    for p in range(p_start, n_points):
-      a0 = data_points[p]
-
-      if a0 < 0: # Neg strand
-        a0 = abs(a0)
-        a1 = a0-lim
-        a2 = a0+lim
-        if a1 < p1 < a2:
-          j = a2-p2
+    for a in range(p_start, n_points): # Anchors
+      a0 = data_points[a]
+      a1 = abs(a0)-lim
+      a2 = abs(a0)+lim
+      if a1 < r1 < a2:
+        j = r1-a1
  
-          if p2 < a2:
-            k = a2-p1
-          else:
-            k = n
- 
-        elif a1 < p2 < a2:
-          j = 0
-          k = a2-p1
- 
-        elif a1 > p2: # Points are sorted
-          break
- 
+        if r2 < a2:
+          k = r2-a1
         else:
-          continue
+          k = n
+ 
+      elif a1 < r2 < a2:
+        j = 0
+        k = r2-a1
+ 
+      elif a1 > r2: # Anchor points are sorted, next will be forther away
+        break
  
       else:
-        a1 = a0-lim
-        a2 = a0+lim
-        if a1 < p1 < a2:
-          j = p1-a1
- 
-          if p2 < a2:
-            k = p2-a1
-          else:
-            k = n
- 
-        elif a1 < p2 < a2:
-          j = 0
-          k = p2-a1
- 
-        elif a1 > p2: # Points are sorted
-          break
- 
-        else:
-          continue
+        continue
           
-      if a2 < p1:
-        p_start = p
+      if a2 < r1:
+        p_start = a
+      
+      if a0 < 0: # Neg strand:
+        for i in range(n-k, n-j):
+          data_map[row,i] += 1
+      
+      else:
+        for i in range(j,k):
+          data_map[row,i] += 1
  
-      for i in range(j,k):
-        data_map[row,i] += 1
       
   return data_map
   
@@ -256,21 +238,21 @@ def plot_bam_anchor_sep_size(bam_path, anchor_dicts, min_size=130, max_size=1000
     cbar.ax.tick_params(labelsize=8)
     cbar.set_label('Read density/max', fontsize=8)
     
-    save_path = '/data/dino_hi-c/MNase06_anchor_sep_size_' + label + '.pdf'
+    save_path = '/data/dino_hi-c/MNase02_anchor_sep_size_' + label + '.pdf'
     
     plt.savefig(save_path, dpi=300)
 
 
 if __name__ == '__main__':
    
-  data_files = (#('DVNP', '/data/dino_hi-c/ChIP-seq_peaks/DVNP-HiC2_peaks.narrowPeak', 'BED', None, True),
-                #('H2A', '/data/dino_hi-c/ChIP-seq_peaks/H2A-HiC2_peaks.narrowPeak', 'BED', None, True),
+  data_files = (('DVNP', '/data/dino_hi-c/ChIP-seq_peaks/DVNP-HiC2_peaks.narrowPeak', 'BED', None, True),
+                ('H2A', '/data/dino_hi-c/ChIP-seq_peaks/H2A-HiC2_peaks.narrowPeak', 'BED', None, True),
                 ('Trinity_ssRNA_gene', '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity.gff3', 'GFF', 'gene', False),
-                #('Trinity_ssRNA_exon', '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity.gff3', 'GFF', 'exon', False),
+                ('Trinity_ssRNA_exon', '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity.gff3', 'GFF', 'exon', False),
                 )
   
-  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-06_sf.bam'
-  #bam_path = 'SLX-17948_waller_hem_Mnase-06_sf.bam'
+  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-15_sf.bam'
+  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-02_sf.bam'
     
   anchor_dicts = _load_data_points(data_files)
   

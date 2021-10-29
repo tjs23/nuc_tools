@@ -30,14 +30,14 @@ def report(msg, line_return):
       LOG_FILE_OBJ = open(LOG_FILE_PATH, 'w')
       
     LOG_FILE_OBJ.write(msg)
-  
+    
   if not QUIET:
     if line_return:
       fmt = '\r%%-%ds' % max(NEWLINE_CHARS, len(msg))
-      sys.stdout.write(fmt % msg) # Must have enouch columns to cover previous msg
+      sys.stdout.write(fmt % msg) # Must have enough columns to cover previous msg
       sys.stdout.flush()
       NEWLINE_CHARS = len(msg)
-    else: 
+    else:
       if NEWLINE_CHARS:
         print('')
       print(msg)
@@ -318,12 +318,17 @@ def finalise_data_track(data_dict):
   n = 0.0
   for chromo in list(data_dict.keys()):
     if len(data_dict[chromo]):
-      data_dict[chromo] = np.array(sorted(data_dict[chromo]), dtype=DATA_TRACK_TYPE)
-      values = data_dict[chromo]['value']
+      d_array = np.array(sorted(data_dict[chromo]), dtype=DATA_TRACK_TYPE)
+      pos = np.stack([d_array['pos1'], d_array['pos2']], axis=1)
+      idx = np.unique(pos, return_index=True, axis=0)[1]
+      d_array = d_array[idx]
+        
+      values = d_array['value']
       vmax = max(vmax,  values.max())
       vmin = min(vmin,  values.min())
       vsum += values.sum()
-      n += len(data_dict[chromo])
+      n += len(d_array)
+      data_dict[chromo] = d_array
     else:
       del data_dict[chromo]
     
@@ -463,6 +468,7 @@ def bin_region_values(regions, values, bin_size, start, end):
   keep = (start_bin > 0) & (end_bin < n_bins) # Data often exceeds common structure regions
 
   mask = (end_bin == start_bin) & keep
+  
   value_hist[start_bin[mask]] += values[mask]
   
   spanning = (~mask & keep).nonzero()[0]

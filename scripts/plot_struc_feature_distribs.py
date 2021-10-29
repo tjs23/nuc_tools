@@ -40,16 +40,16 @@ poi_labels = [f'Group {i+1}' for i in range(len(poi_paths))]
 poi_dicts = [bed.load_data_track(x) for x in poi_paths]
 
 struc_groups = [
-                '/data/hi-c/transition_state/Haploid/EDL_ES_2iLIF/*_100k*.n3d',
-                '/data/hi-c/transition_state/Haploid/EDL_24h_Rex1Low/*_100k*.n3d',
-                '/data/hi-c/transition_state/Haploid/EDL_24h_Rex1High/*_100k*.n3d',
-                '/data/hi-c/transition_state/Haploid/EDL_48h/*_100k*.n3d',
-                ]
-struc_groups = [
                 '/data/hi-c/transition_state/Haploid/EDL_ES_2iLIF/*_25k*.n3d',
                 '/data/hi-c/transition_state/Haploid/EDL_24h_Rex1Low/*_25k*.n3d',
                 '/data/hi-c/transition_state/Haploid/EDL_24h_Rex1High/*_25k*.n3d',
                 '/data/hi-c/transition_state/Haploid/EDL_48h/*_25k*.n3d',
+                ]
+struc_groups = [
+                '/data/hi-c/transition_state/Haploid/EDL_ES_2iLIF/*_100k*.n3d',
+                '/data/hi-c/transition_state/Haploid/EDL_24h_Rex1Low/*_100k*.n3d',
+                '/data/hi-c/transition_state/Haploid/EDL_24h_Rex1High/*_100k*.n3d',
+                '/data/hi-c/transition_state/Haploid/EDL_48h/*_100k*.n3d',
                 ]
 
 struc_labels = ['0h','24h_Rex1Low','24h_Rex1High','48h']
@@ -108,10 +108,10 @@ def closest_dist(coords1, coords2):
   return densities
  
  
-n_bins = 32
-hist_range = (0.0, 0.008)
-#n_bins = 24
-#hist_range = (0.0, 0.012)
+#n_bins = 32
+#hist_range = (0.0, 0.008)
+n_bins = 24
+hist_range = (0.0, 0.012)
 
 def dist_hist(dists, n_bins=n_bins, hist_range=hist_range):
   
@@ -245,11 +245,12 @@ for s, s_group in enumerate(struc_groups):
 from matplotlib import pyplot as plt
 
 plot_data = [('Inter-chromosomal', ic_plot_data),
-             ('A compartment', a_plot_data),]
+             ('A-compartment', a_plot_data),]
              #('B compartment', b_plot_data)]
 
 fig, axarr = plt.subplots(len(struc_groups), len(plot_data), squeeze=False)
 fig.set_size_inches(12.0, 12.0)
+n_rows = len(struc_labels)
 
 for col, (title, data_dict) in enumerate(plot_data):
 
@@ -259,9 +260,11 @@ for col, (title, data_dict) in enumerate(plot_data):
   for row, s_label in enumerate(struc_labels): # Each structure group
     ax = axarr[row,col]
     
-    ax.set_title(s_label)
+    ax.set_title(s_label, color='#008080', loc='left')
     ax.set_ylabel('Bin density')
-    ax.set_xlabel(f'{title} $1/r^2$ density')
+    
+    if row == n_rows-1:
+      ax.set_xlabel(f'{title} $1/r^2$ density')
 
     for j, p_label in enumerate(poi_labels):
       #exp_mean = np.zeros(n_bins)
@@ -280,7 +283,8 @@ for col, (title, data_dict) in enumerate(plot_data):
       ax.plot(edges, obs_mean, alpha=0.5, color=group_colors[j], label=p_label)
         
         
-    ax.legend()
+    if row == 0:    
+      ax.legend()
     
 plt.show()
 
@@ -295,7 +299,7 @@ for col, (title, data_dict) in enumerate(plot_data):
   for row, p_label in enumerate(data_dict): # Each gene group
     ax = axarr[row,col]
     
-    ax.set_title(p_label)
+    ax.set_title(p_label, color='#008080', loc='left')
     ax.set_ylabel('Bin density')
     ax.set_xlabel(f'{title} $1/r^2$ density')
     #ax.set_ylim((-3.1, 2.1))
@@ -325,7 +329,5 @@ for col, (title, data_dict) in enumerate(plot_data):
       #ax.plot(edges, exp_mean, alpha=0.25, color=struc_colors[j], linestyle='--')
       ax.plot(edges, obs_mean, alpha=0.5, color=struc_colors[j], label=s_label)
         
-        
-    ax.legend()
     
 plt.show()
