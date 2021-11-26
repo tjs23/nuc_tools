@@ -7,6 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from nuc_tools import io, util
 from formats import sam, bed, gff
 from collections import defaultdict
+from matplotlib.backends.backend_pdf import PdfPages
 
 """ - Plot size distribs at anchors:  - as 2D frag length and anchor sep
       # For MNase 0.6 and 1.5 (comb)
@@ -124,7 +125,11 @@ def _add_to_map(regions, data_map, data_points, mid_col, n, min_size, bin_size):
   return data_map
   
 
-def plot_bam_anchor_sep_size(bam_path, anchor_dicts, min_size=130, max_size=1000, max_sep=2000, bin_size=5):
+def plot_bam_anchor_sep_size(save_file_root, bam_path, anchor_dicts, min_size=130, max_size=1000, max_sep=2000, bin_size=5):
+ 
+  pdf_path = save_file_root + '_anchor_sep_vs_mol_size.pdf'
+  
+  pdf = PdfPages(pdf_path)
   
   nx = 2*max_sep + 1
   ny = int((max_size-min_size)//bin_size)+bin_size
@@ -133,8 +138,9 @@ def plot_bam_anchor_sep_size(bam_path, anchor_dicts, min_size=130, max_size=1000
   anchor_maps = {label:np.zeros((ny, nx), int) for label in anchor_dicts}
   
   t0 = time.time()
-  cmap = util.string_to_colormap('#FFFFFF,#0080FF,#FF0000,#000000')
-  
+  #cmap = util.string_to_colormap('#FFFFFF,#0080FF,#000000,#FF0000')
+  cmap = util.string_to_colormap('#FFFFFF,#004080,#FF0000') 
+ 
   chromo_regions = defaultdict(list)
     
   chromo_sizes = dict(sam.get_bam_chromo_sizes(bam_path))
@@ -144,7 +150,7 @@ def plot_bam_anchor_sep_size(bam_path, anchor_dicts, min_size=130, max_size=1000
     if i % 100000 == 0:
       util.info('  .. {:,} {:7.2f}s'.format(i, time.time()-t0), line_return=True)
     
-    #if i > 1e6:
+    #if i > 5e6:
     #  break
     
     if chromo == '*':
@@ -190,6 +196,8 @@ def plot_bam_anchor_sep_size(bam_path, anchor_dicts, min_size=130, max_size=1000
   util.info('  .. {:,} {:7.2f}s'.format(i, time.time()-t0), line_return=True)
   util.info('Aggregating maps')
   
+  anchor_count_dict = defaultdict(int)
+  
   for chromo in chromo_regions:
     regions = np.array(sorted(chromo_regions[chromo]))
      
@@ -200,6 +208,7 @@ def plot_bam_anchor_sep_size(bam_path, anchor_dicts, min_size=130, max_size=1000
       data_points = data_dict[chromo]
       data_points = data_points[np.abs(data_points).argsort()]
       data_map = anchor_maps[label]
+      anchor_count_dict[label] += len(data_points)
       _add_to_map(regions, data_map, data_points, mid_col, nx, min_size, bin_size)  
  
   util.info(' Time taken {:7.2f}s'.format(time.time()-t0))
@@ -213,12 +222,19 @@ def plot_bam_anchor_sep_size(bam_path, anchor_dicts, min_size=130, max_size=1000
   ylabel_pos = np.arange(y0, ny, ystep)
   ylabels = ['%d' % (y*bin_size+min_size) for y in ylabel_pos]
   
+  # Normalise
   for label, anchor_map in anchor_maps.items():
-    fig, ax = plt.subplots()
+    anchor_maps[label] = anchor_map.astype(float)/anchor_count_dict[label] 
+  
+  anchor_max = max([anchor_map.max() for anchor_map in anchor_maps.values()])
+  
+  for label, anchor_map in anchor_maps.items():
+    
+    fig = plt.figure() 
     fig.set_size_inches(8.0, 8.0)
-    matshow_kw = {'norm':None, 'interpolation':'None', 'origin':'lower', 'vmin':0.0, 'vmax':anchor_map.max()}  
+    ax = fig.add_axes([0.1, 0.1, 0.78, 0.78]) # LBWH
+    matshow_kw = {'norm':None, 'interpolation':'None', 'origin':'lower', 'vmin':0.0, 'vmax':anchor_max}  
       
-    anchor_map = anchor_map.astype(float)
     cax = ax.matshow(anchor_map, cmap=cmap, aspect='auto', **matshow_kw)
     
     ax.tick_params(which='both', direction='out', left=True, right=False, labelright=False, labelleft=True,
@@ -229,31 +245,81 @@ def plot_bam_anchor_sep_size(bam_path, anchor_dicts, min_size=130, max_size=1000
     ax.yaxis.set_ticks(ylabel_pos)
     ax.set_yticklabels(ylabels, fontsize=9)
 
-    ax.set_title('Anchor: ' + label)
+    ax.set_title(f'Anchor: {label} (n={anchor_count_dict[label]:,})')
     ax.set_xlabel('Separation from anchor (kb)')
     ax.set_ylabel('Fragment size (bp)')
     
-    cbaxes = fig.add_axes([0.92, 0.25, 0.02, 0.5]) # LBWH
+    cbaxes = fig.add_axes([0.90, 0.25, 0.02, 0.5]) # LBWH
     cbar = plt.colorbar(cax, cax=cbaxes)
     cbar.ax.tick_params(labelsize=8)
-    cbar.set_label('Read density/max', fontsize=8)
+    cbar.set_label(f'Read density {bin_size} bp bins (counts/anchor)', fontsize=8)
     
-    save_path = '/data/dino_hi-c/MNase02_anchor_sep_size_' + label + '.pdf'
+    pdf.savefig(dpi=300)
     
-    plt.savefig(save_path, dpi=300)
+  print(f'Saved PDF {pdf_path}')
+  pdf.close()
+  plt.close()
 
 
 if __name__ == '__main__':
-   
-  data_files = (('DVNP', '/data/dino_hi-c/ChIP-seq_peaks/DVNP-HiC2_peaks.narrowPeak', 'BED', None, True),
-                ('H2A', '/data/dino_hi-c/ChIP-seq_peaks/H2A-HiC2_peaks.narrowPeak', 'BED', None, True),
-                ('Trinity_ssRNA_gene', '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity.gff3', 'GFF', 'gene', False),
+  #data_files = (('DVNP', '/data/dino_hi-c/ChIP-seq_peaks/DVNP-HiC2_summits.bed', 'BED', None, True),
+  #              ('H2A', '/data/dino_hi-c/ChIP-seq_peaks/H2A-HiC2_summits.bed', 'BED', None, True),
+  #              
+  #              )
+  
+  #anchor_dicts = _load_data_points(data_files)
+
+  data_files = (('Trinity_ssRNA_gene', '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity.gff3', 'GFF', 'gene', False),
                 ('Trinity_ssRNA_exon', '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity.gff3', 'GFF', 'exon', False),
+                ('Trin_Norm_exon_1st',  '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_first-exon.bed',       'BED', None, True),
+                ('Trin_Norm_exon_mid',  '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_mid-exon.bed',         'BED', None, True),
+                ('Trin_Norm_exon_last', '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_last-exon.bed',        'BED', None, True),
+                ('Trin_Norm_intron',    '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_introns.bed',          'BED', None, True),
+                ('Trin_Norm_intergenic','/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_intergenic.bed',       'BED', None, True),
+                ('Trin_Norm_gene',      '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_long-gene.bed',        'BED', None, False),
+                ('Trin_Tiny_gene',      '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_short-gene.bed',       'BED', None, False),
+                ('Trin_Tiny_intron',    '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_short-intron.bed',     'BED', None, True),
+                ('Trin_Tiny_exon_1st',  '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_short-first-exon.bed', 'BED', None, True),
+                ('Trin_Tiny_exon_mid',  '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_short-mid-exon.bed',   'BED', None, True),
+                ('Trin_Tiny_exon_last', '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_short-last-exon.bed',  'BED', None, True),
                 )
   
-  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-15_sf.bam'
-  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-02_sf.bam'
-    
   anchor_dicts = _load_data_points(data_files)
+ 
+  bam_path = '/data/dino_hi-c/Data_tracks_read_align_BAM/ChIP-seq2/SLX-17946_waller_hem_H2A-HiC2_sf.bam'
+  plot_bam_anchor_sep_size('/data/dino_hi-c/H2A', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
+
+  bam_path = '/data/dino_hi-c/Data_tracks_read_align_BAM/ChIP-seq2/SLX-17946_waller_hem_DVNP-HiC2_sf.bam'
+  plot_bam_anchor_sep_size('/data/dino_hi-c/DVNP', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
+ 
+  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-15_sf.bam'
+  plot_bam_anchor_sep_size('/data/dino_hi-c/MNase15', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
+ 
+  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-06_sf.bam'
+  plot_bam_anchor_sep_size('/data/dino_hi-c/MNase06', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
+ 
+  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-02_sf.bam'
+  plot_bam_anchor_sep_size('/data/dino_hi-c/MNase02', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
+
+  data_files = (('DVNP', '/data/dino_hi-c/ChIP-seq_peaks/DVNP-HiC2_summits.bed', 'BED', None, True),
+                ('H2A', '/data/dino_hi-c/ChIP-seq_peaks/H2A-HiC2_summits.bed', 'BED', None, True),
+                )
   
-  plot_bam_anchor_sep_size(bam_path, anchor_dicts, max_size=800, max_sep=5000)   
+  anchor_dicts = _load_data_points(data_files)
+ 
+  bam_path = '/data/dino_hi-c/Data_tracks_read_align_BAM/ChIP-seq2/SLX-17946_waller_hem_H2A-HiC2_sf.bam'
+  plot_bam_anchor_sep_size('/data/dino_hi-c/H2A_ChIP_peaks', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
+
+  bam_path = '/data/dino_hi-c/Data_tracks_read_align_BAM/ChIP-seq2/SLX-17946_waller_hem_DVNP-HiC2_sf.bam'
+  plot_bam_anchor_sep_size('/data/dino_hi-c/DVNP_ChIP_peaks', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
+ 
+  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-15_sf.bam'
+  plot_bam_anchor_sep_size('/data/dino_hi-c/MNase15_ChIP_peaks', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
+ 
+  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-06_sf.bam'
+  plot_bam_anchor_sep_size('/data/dino_hi-c/MNase06_ChIP_peaks', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
+ 
+  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-02_sf.bam'
+  plot_bam_anchor_sep_size('/data/dino_hi-c/MNase02_ChIP_peaks', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
+  """
+  """

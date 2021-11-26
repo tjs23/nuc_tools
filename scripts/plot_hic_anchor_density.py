@@ -6,6 +6,8 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from collections import defaultdict
 from nuc_tools import util, io
 from formats import bed, gff, ncc
+from matplotlib.backends.backend_pdf import PdfPages
+
 
 def get_introns(gff_file):
   
@@ -94,17 +96,21 @@ def get_introns(gff_file):
   
   for chromo, data_list in intron_dict.items():
     pos = np.array(data_list, int)
+    intron_dict[chromo] = pos
+    
     pos = pos.mean(axis=1).astype(int)
     intron_point_dict[chromo] = pos
   
   exon1_start_dict = {}
   exon1_end_dict = {}
+  first_exon_dict = {} 
 
   for chromo, data_list in exon1_dict.items():
     pos = np.array(data_list, int)
     exon1_start_dict[chromo] = pos[:,0]
     exon1_end_dict[chromo] = pos[:,1]
-  
+    first_exon_dict[chromo] = pos
+   
   exon2_start_dict = {}
   exon2_end_dict = {}
 
@@ -113,7 +119,7 @@ def get_introns(gff_file):
     exon2_start_dict[chromo] = pos[:,0]
     exon2_end_dict[chromo] = pos[:,1]
   
-  return intron_point_dict, exon1_start_dict, exon1_end_dict, exon2_start_dict, exon2_end_dict
+  return intron_dict, first_exon_dict, intron_point_dict, exon1_start_dict, exon1_end_dict, exon2_start_dict, exon2_end_dict
 
 
 def _load_data_points(data_files):
@@ -260,8 +266,10 @@ def _add_to_map2d(hic_pos, data_map, anchor_points, n_bins, bin_size):
       
   return data_map
   
-def plot_hic_anchor_density(ncc_path, anchor_dicts, anchor_styles, max_sep=5000, bin_size=20, close_thresh=400e3):
+def plot1D_hic_anchor_density(save_file_root, ncc_path, anchor_dicts, anchor_styles, max_sep=5000, bin_size=20, close_thresh=400e3):
   
+  pdf_path = f'{save_file_root}_HiC_anchored_1Dprofile.pdf'
+   
   contact_data1 = defaultdict(list)
   contact_data2 = defaultdict(list)
   
@@ -333,7 +341,7 @@ def plot_hic_anchor_density(ncc_path, anchor_dicts, anchor_styles, max_sep=5000,
   util.info(f' .. {c:,} of {n_chromo:,}', line_return=True)
   
   fig, (ax1, ax2) = plt.subplots(2, 1)
-  fig.set_size_inches(8.0, 8.0)
+  fig.set_size_inches(8.0, 14.0)
        
   ax1.set_title(f'Anchor Hi-C distribution: near contacts ($< {close_thresh*1e-3:.1f}$ kb)')
   ax1.set_xlabel('Separation from anchor (bp)')
@@ -366,11 +374,14 @@ def plot_hic_anchor_density(ncc_path, anchor_dicts, anchor_styles, max_sep=5000,
   ax1.legend(fontsize=8)
   ax2.legend(fontsize=8)
   
-  plt.show()
+  plt.savefig(pdf_path, dpi=300)
+    
+  print(f'Saved PDF {pdf_path}')
+  
+  plt.close()
   
   
-def plot2D_hic_anchor_density(ncc_path, anchor_dicts, anchor_styles, max_sep=5000, bin_size=250):
-  # Get local cis
+def plot2D_hic_anchor_density(save_file_root, ncc_path, anchor_dicts, anchor_styles, max_sep=5000, bin_size=250):
   
   contact_data = defaultdict(list)
   t0 = time.time()
@@ -398,12 +409,13 @@ def plot2D_hic_anchor_density(ncc_path, anchor_dicts, anchor_styles, max_sep=500
        
        n += 1
        if n % 100000 == 0:
-         util.info(' .. found {:,} close contacts'.format(n), line_return =True)
-         
-         if n > 1e7:
-           break
+         util.info(' .. found {:,} intra-contig contacts'.format(n), line_return =True)
    
   n_bins =  max_sep // bin_size
+    
+  pdf_path = f'{save_file_root}_HiC_anchored_2Dmap_{n_bins}x{bin_size}bp.pdf'
+  
+  pdf = PdfPages(pdf_path)
   anchor_maps = {}
   
   for label, data_dict in anchor_dicts.items():
@@ -436,10 +448,13 @@ def plot2D_hic_anchor_density(ncc_path, anchor_dicts, anchor_styles, max_sep=500
 
   util.info(' Time taken {:7.2f}s'.format(time.time()-t0))
 
-  cmap = util.string_to_colormap('#FFFFFF,#80C0FF,#0080FF,#000000,#FF0000')
-            
+  #cmap = util.string_to_colormap('#FFFFFF,#80C0FF,#0080FF,#000000,#FF0000')
+  cmap = util.string_to_colormap('#FFFFFF,#004080,#FF0000')
+  
   xlabel_pos = ylabel_pos = np.arange(0, 2*n_bins+1, 20)
   xlabels = ylabels = ['%.1f' % ((x-n_bins)*bin_size*1e-3) for x in xlabel_pos]
+  
+  map_max = 1e3 * np.mean([anchor_maps[x].max()/anchor_count[x] for x in anchor_maps])
     
   for label, anchor_map in anchor_maps.items():
     fig = plt.figure()
@@ -448,8 +463,9 @@ def plot2D_hic_anchor_density(ncc_path, anchor_dicts, anchor_styles, max_sep=500
     ax = fig.add_axes([0.09, 0.09, 0.8, 0.8]) # LBWH
     
     #anchor_map = np.log10(1.0 + anchor_map.astype(float))
-    anchor_map = anchor_map.astype(float)
-    matshow_kw = {'norm':None, 'interpolation':'None', 'origin':'lower', 'vmin':0.0, 'vmax':anchor_map.max()}  
+    count = anchor_count[label]
+    anchor_map = 1e3 * anchor_map.astype(float) / count
+    matshow_kw = {'norm':None, 'interpolation':'None', 'origin':'lower', 'vmin':0.0, 'vmax':map_max}  
     cax = ax.matshow(anchor_map, cmap=cmap, aspect='auto', **matshow_kw)
     
     ax.tick_params(which='both', direction='out', left=True, right=False, labelright=False, labelleft=True,
@@ -459,25 +475,30 @@ def plot2D_hic_anchor_density(ncc_path, anchor_dicts, anchor_styles, max_sep=500
     ax.set_xticklabels(xlabels, fontsize=9)
     ax.yaxis.set_ticks(ylabel_pos)
     ax.set_yticklabels(ylabels, fontsize=9)
-
-    ax.set_title(f'Aggregate Hi-C at anchor: {label}')
+    
+    ax.set_title(f'Aggregate Hi-C at anchor: {label} (n={count:,})')
     ax.set_xlabel('Separation from anchor (kb)')
     ax.set_ylabel('Separation from anchor (kb)')
     ax.set_xlim((0, 2*n_bins))
     ax.set_ylim((0, 2*n_bins))
     
-    ax.axvline(n_bins, linestyle='--', linewidth=0.5, alpha=0.75, color='#FF0000')
-    ax.axhline(n_bins, linestyle='--', linewidth=0.5, alpha=0.75, color='#FF0000')
+    a, b = [0.97 * n_bins, 1.03 * n_bins]
+    
+    ax.plot([a, a], [b, b], linewidth=0.75, color='#000000')
+    ax.plot([a, b], [b, a], linewidth=0.75, color='#000000')
+    ax.plot([a, a], [b, b], linestyle='--', linewidth=0.75, color='#FFFF00')
+    ax.plot([a, b], [b, a], linestyle='--', linewidth=0.75, color='#FFFF00')
 
     cbaxes = fig.add_axes([0.90, 0.25, 0.02, 0.5]) # LBWH
     cbar = plt.colorbar(cax, cax=cbaxes)
     cbar.ax.tick_params(labelsize=8)
-    cbar.set_label(f'Hi-C contacts [{bin_size} bp bins]', fontsize=8)
+    cbar.set_label(f'Hi-C contacts per 1000 anchors [{bin_size} bp bins]', fontsize=8)
     
-    save_path = f'/data/dino_hi-c/Dino_HiC_{label}_anchor_2Dmap_{n_bins}x{bin_size}bp.pdf'
+    pdf.savefig(dpi=300)
     
-    #plt.show()
-    plt.savefig(save_path, dpi=300)
+  print(f'Saved PDF {pdf_path}')
+  pdf.close()
+  plt.close()
 
 
 @njit(int64[:](int64[:], int64[:], int64[:], int64[:], int64, int64))
@@ -526,11 +547,15 @@ def _add_regions_to_map(starts, ends, data_map, anchor_points, n_bins, bin_size)
   return data_map
 
 
-def plot_bed_anchor_density(bed_paths, bed_labels, bed_colors, anchor_dicts, max_sep=4000, bin_size=50):
-  
+def plot_bed_anchor_density(save_file_root, bed_paths, bed_labels, bed_colors, anchor_dicts, max_sep=4000, bin_size=50):
+ 
+  pdf_path = f'{save_file_root}_anchored_1Dprofile.pdf'
+
   data_maps = {}
   n_bins =  max_sep // bin_size
   anchor_keys = sorted(anchor_dicts)
+  y_max = -np.inf
+  y_min = np.inf
   
   for key in anchor_keys:
     anchor_dict = anchor_dicts[key]
@@ -554,20 +579,35 @@ def plot_bed_anchor_density(bed_paths, bed_labels, bed_colors, anchor_dicts, max
         _add_regions_to_map(starts, ends, data_map, anchor_points, n_bins, bin_size)
         
       data_maps[key][label] = data_map
+      y_max = max(data_map.max(), y_max)
+      y_min = min(data_map.min(), y_min)
   
-  n_rows = len(anchor_dicts)
+  
+  n_ax = len(anchor_dicts)
   x_vals = np.linspace(-max_sep, max_sep, (2*max_sep)//bin_size)
   
-  fig, axarr = plt.subplots(n_rows, 1, squeeze=False)
+  n_rows = int(np.sqrt(n_ax))
+  n_cols = 1 + int(n_ax // n_rows)
+  y_max *= 1.05
   
-  for row, key in enumerate(anchor_keys):
+  fig, axarr = plt.subplots(n_rows, n_cols, squeeze=False)
+  fig.set_size_inches(16.0, 8.0)
+
+
+  for i, key in enumerate(anchor_keys):
+    row = i // n_cols
+    col = i % n_cols
      
-    ax = axarr[row, 0]
+    ax = axarr[row, col]
     ax.set_title(f'Anchor: {key}')
     ax.set_xlim(-max_sep, max_sep-bin_size)
-    ax.set_xlabel('Separation from anchor (bp)')
-    ax.set_ylabel(f'Feature count [{bin_size} bp bins]')
+    ax.set_ylim(y_min, y_max)
     
+    if row == n_rows-1:
+      ax.set_xlabel('Separation from anchor (bp)')
+    
+    if col == 0:
+      ax.set_ylabel(f'Feature count [{bin_size} bp bins]')
     
     for label, color in zip(bed_labels, bed_colors):
       data_map = data_maps[key][label]
@@ -576,7 +616,14 @@ def plot_bed_anchor_density(bed_paths, bed_labels, bed_colors, anchor_dicts, max
     
     ax.legend(fontsize=8)  
   
-  plt.show()
+  i += 1
+  while i < n_rows * n_cols:
+    axarr[i // n_cols, i % n_cols].set_axis_off()
+    i += 1  
+  
+  plt.savefig(pdf_path, dpi=300)
+  print(f'Saved PDF {pdf_path}')
+
 
 @njit(int64[:](int64[:], int64[:], int64[:], int64[:], int64[:], int64, int64))
 def _add_points_to_prop_regions(starts, ends, strands, data_map, data_points, n_bins, overhang):
@@ -736,41 +783,218 @@ def plot_gff_regional_density(gff_path, ncc_path, bed_paths, bed_labels, bed_col
   plt.show()
 
     
+def plot_gff_region_size_distribs(gff_path, min_size=5, max_size=500, step_size=1, gff_features=['exon','CDS']):
   
+  gff_dict = gff.load_data_track(gff_path, gff_features)
+  
+  n_bins = (max_size-min_size) // step_size
+  
+  hists = {}
+   
+  for feat in gff_dict:
+    util.info(f'Examining {feat} features in {gff_path}')
+    region_dicts = gff_dict[feat]
+    sizes = []  
+    
+    for c, chromo in enumerate(region_dicts.keys()):
+      if c and c % 100 == 0:
+        util.info(f' .. {chromo}', line_return=True)
+    
+      data_array = region_dicts[chromo]
+      starts = data_array['pos1'].astype(int)
+      ends =   data_array['pos2'].astype(int)
+      
+        
+      sizes.append( np.abs(ends-starts) )
+
+    sizes = np.concatenate(sizes, axis=0)
+     
+    hist, edges = np.histogram(sizes, range=(min_size, max_size), bins=n_bins, density=True)
+    hists[feat] = hist
+  
+  intron_dict, exon1_dict = get_introns(gff_path)[:2]
+  
+  for feat, region_dicts in (('intron', intron_dict),
+                             ('first_exon', exon1_dict)):
+    util.info(f'Examining {feat} features in {gff_path}')
+ 
+    sizes = []
+ 
+    for c, chromo in enumerate(region_dicts.keys()):
+      if c and c % 100 == 0:
+        util.info(f' .. {chromo}', line_return=True)
+ 
+      data_array = region_dicts[chromo]
+      
+      starts = data_array[:,0]
+      ends =   data_array[:,1]
+
+      sizes.append( np.abs(ends-starts) )
+      
+    sizes = np.concatenate(sizes, axis=0)
+ 
+    hist, edges = np.histogram(sizes, range=(min_size, max_size), bins=n_bins, density=True)
+    hists[feat] = hist
+ 
+  n_rows = len(hists)
+  fig, ax = plt.subplots()
+  x_vals = np.arange(min_size, max_size, step_size)
+  
+  ax.set_title('Region size distribution')
+  ax.set_xlim(0, max_size)
+  ax.set_xlabel('Region size (bp)')
+  ax.set_ylabel('Probability density')
+  
+  for row, feat in enumerate(hists):    
+    ax.plot(x_vals, hists[feat], alpha=0.5, label=feat)
+    
+  ax.legend(fontsize=8)  
+  
+  plt.show()
+  
+  
+  
+def plot_region_size_distribs(save_file_root, bed_paths, bed_labels, bed_colors, min_size=0.0, max_size=5.5, n_bins=100):
+  
+  pdf_path = f'{save_file_root}_region_sizes.pdf'
+  
+  n_bins = 100
+  hists = {}
+  color_dict = {}
+  
+  for i, bed_path in enumerate(bed_paths):
+    label = bed_labels[i]
+    region_dicts = bed.load_data_track(bed_path)
+    sizes = []  
+    
+    for c, chromo in enumerate(region_dicts.keys()):
+      if c and c % 100 == 0:
+        util.info(f' .. {chromo}', line_return=True)
+    
+      data_array = region_dicts[chromo]
+      starts = data_array['pos1'].astype(int)
+      ends =   data_array['pos2'].astype(int)
+        
+      deltas = np.abs(ends-starts)
+      deltas = deltas[deltas > 0]
+      sizes.append( np.log10(deltas) )
+
+    sizes = np.concatenate(sizes, axis=0)
+     
+    hist, edges = np.histogram(sizes, range=(min_size, max_size), bins=n_bins) # , range=(min_size, max_size), bins=n_bins)
+    hist = hist.astype(float)
+    hist /= hist.max()
+    hists[label] = hist, edges
+    color_dict[label] = bed_colors[i]
+  
+  n_rows = len(hists)
+  fig, ax = plt.subplots()
+  fig.set_size_inches(8.0, 5.0)
+  
+  ax.set_title('Region size distribution')
+  ax.set_xlim(min_size, max_size)
+  ax.set_xlabel('Region size (bp)')
+  ax.set_ylabel('Probability density')
+  
+  x_ticks = np.arange(min_size, max_size, 1.0)
+  
+  for row, label in enumerate(hists):
+    hist, edges =   hists[label]
+    ax.plot(edges[1:], hist, alpha=0.5, label=label, color=color_dict[label])
+    
+  ax.set_xticks(x_ticks)
+  ax.set_xticklabels(['{:,g}'.format(10**x) for x in x_ticks])
+  ax.legend(fontsize=8)  
+  
+  plt.savefig(pdf_path, dpi=300)
+  print(f'Saved PDF {pdf_path}')
+  
+  
+
     
 if __name__ == '__main__':
+
+  # Mouse
+
+  ncc_path = '/data/hi-c/pop/SLX-7671_haploid.ncc.gz'
+  gff_path2 = '/data/genome_builds/GCF_000001635.26_GRCm38.p6_genomic.gff.gz'
+  data_files = (
+                ('CTCF',               ['#FF8000',], '/data/bed/CTCF_hap_EDL.bed', 'BED', None),
+                ('mm10_gene', ['#FF8000','#B00000',], gff_path2, 'GFF', 'gene'),
+                ('mm10_exon', ['#0080FF','#000080'],  gff_path2, 'GFF', 'exon'),
+                )
+ 
+  anchor_dicts, anchor_styles = _load_data_points(data_files)
+
+  #plot2D_hic_anchor_density('/data/dino_hi-c/Mouse', ncc_path, anchor_dicts, anchor_styles, max_sep=10000, bin_size=50)
+  
   
   gff_path = '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity.gff3'
   ncc_path = '/data/dino_hi-c/Hi-C_contact_data/SLX-17943_HEM_FLYE_4_Hi-C.ncc.gz'
    
-  data_files = (#('DVNP',               ['#505050',], '/data/dino_hi-c/ChIP-seq_peaks/DVNP-HiC2_peaks.narrowPeak', 'BED', None),
-                #('H2A',                ['#008000',], '/data/dino_hi-c/ChIP-seq_peaks/H2A-HiC2_peaks.narrowPeak', 'BED', None),
-                ('Trin_gene', ['#FF8000','#B00000',], gff_path, 'GFF', 'gene'),
-                ('Trin_exon', ['#0080FF','#000080'], gff_path, 'GFF', 'exon')
+  data_files = (('Trin_NormGene_exon_1st',     ['#0080FF',],  '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_first-exon.bed', 'BED', None), #  '#004080'
+                ('Trin_NormGene_exon_mid',     ['#00CC00',],  '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_mid-exon.bed',   'BED', None),   #  '#008000'
+                ('Trin_NormGene_exon_last',    ['#8000FF',],  '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_last-exon.bed',  'BED', None),  #  '#400080'
+                ('Trin_NormGene_intron',       ['#808080'],   '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_introns.bed',    'BED', None),
+                ('Trin_NormGene_intergenic',   ['#FFBB00',],  '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_intergenic.bed', 'BED', None),
+                ('Trin_NormGene_gene', ['#FF0000','#B00000'], '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_long-gene.bed',  'BED', None),
                 )
  
-  #anchor_dicts, anchor_styles = _load_data_points(data_files)
+  anchor_dicts, anchor_styles = _load_data_points(data_files)
+
+  save_root = '/data/dino_hi-c/Dino_NormalGenes'
   
-  #intron_point_dict, exon1_start_dict, exon1_end_dict, exon2_start_dict, exon2_end_dict = get_introns('/data/dino_hi-c/hem_flye_4_ssRNA_Trinity.gff3')
+  #plot2D_hic_anchor_density(save_root, ncc_path, anchor_dicts, anchor_styles, max_sep=5000, bin_size=25)
+  #plot2D_hic_anchor_density(save_root, ncc_path, anchor_dicts, anchor_styles, max_sep=2500, bin_size=20)
   
-  #anchor_styles['first_exon_start'] = ('#4000FF', '-')
-  #anchor_dicts['first_exon_start'] = exon1_start_dict
-  #anchor_styles['other_exon_start'] = ('#FF8000', '-')
-  #anchor_dicts['other_exon_start'] = exon2_start_dict
+  #plot1D_hic_anchor_density(save_root, ncc_path, anchor_dicts, anchor_styles, max_sep=5000, bin_size=50, close_thresh=400e3)
   
-  #anchor_styles['intron_mid'] = ('#4000FF', '-')
-  #anchor_dicts['intron_mid'] = intron_point_dict
-   
- 
-  #plot_hic_anchor_density(ncc_path, anchor_dicts, anchor_styles, max_sep=4000, bin_size=50)
-  #plot2D_hic_anchor_density(ncc_path, anchor_dicts, anchor_styles, max_sep=5000, bin_size=25)
-  #plot2D_hic_anchor_density(ncc_path, anchor_dicts, anchor_styles, max_sep=1000, bin_size=10)
+  bed_paths = [x[2] for x in data_files]
+  bed_labels = [x[0] for x in data_files] 
+  bed_colors = [x[1][0] for x in data_files]
   
-  #plot_bed_anchor_density(bed_paths, bed_labels, bed_colors, anchor_dicts, max_sep=12000, bin_size=25)
+  #plot_region_size_distribs(save_root, bed_paths, bed_labels, bed_colors)
+
+  save_root = '/data/dino_hi-c/Dino_NormalGenes_ChIP'
 
   bed_paths = ['/data/dino_hi-c/ChIP-seq_peaks/DVNP-HiC2_peaks.narrowPeak',
                '/data/dino_hi-c/ChIP-seq_peaks/H2A-HiC2_peaks.narrowPeak']
   bed_labels = ['DVNP','H2A']
-  bed_colors = ['#505050','#008000']
-  plot_gff_regional_density(gff_path, ncc_path, bed_paths, bed_labels, bed_colors)
+  bed_colors = ['#FF2000','#0080FF']
+  plot_bed_anchor_density(save_root, bed_paths, bed_labels, bed_colors, anchor_dicts, max_sep=5000, bin_size=5)
+    
+  data_files = (('Trin_TinyGene_gene',      ['#FF0000','#B00000'], '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_short-gene.bed', 'BED', None),
+                ('Trin_TinyGene_intron',    ['#808080',],          '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_short-intron.bed', 'BED', None),
+                ('Trin_TinyGene_exon_1st',  ['#0080FF',], '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_short-first-exon.bed', 'BED', None),
+                ('Trin_TinyGene_exon_mid',  ['#00CC00',], '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_short-mid-exon.bed', 'BED', None),
+                ('Trin_TinyGene_exon_last', ['#8000FF',], '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_short-last-exon.bed', 'BED', None),
+                )
  
+  anchor_dicts, anchor_styles = _load_data_points(data_files)
+  
+  save_root = '/data/dino_hi-c/Dino_TinyGenes'
+  
+  #plot2D_hic_anchor_density(save_root, ncc_path, anchor_dicts, anchor_styles, max_sep=5000, bin_size=25)
+  #plot2D_hic_anchor_density(save_root, ncc_path, anchor_dicts, anchor_styles, max_sep=3000, bin_size=20)
+
+  #plot1D_hic_anchor_density(save_root, ncc_path, anchor_dicts, anchor_styles, max_sep=5000, bin_size=50, close_thresh=400e3)
+  
+  bed_paths = [x[2] for x in data_files]
+  bed_labels = [x[0] for x in data_files] 
+  bed_colors = [x[1][0] for x in data_files]
+  
+  #plot_region_size_distribs(save_root, bed_paths, bed_labels, bed_colors)
+  
+   
+  save_root = '/data/dino_hi-c/Dino_TinyGenes_ChIP'
+
+  bed_paths = ['/data/dino_hi-c/ChIP-seq_peaks/DVNP-HiC2_peaks.narrowPeak',
+               '/data/dino_hi-c/ChIP-seq_peaks/H2A-HiC2_peaks.narrowPeak']
+  bed_labels = ['DVNP','H2A']
+  bed_colors = ['#FF2000','#0080FF']
+  plot_bed_anchor_density(save_root, bed_paths, bed_labels, bed_colors, anchor_dicts, max_sep=5000, bin_size=5)
+  
+  #plot_gff_regional_density(gff_path, ncc_path, bed_paths, bed_labels, bed_colors)
+  """
+  """
+  
