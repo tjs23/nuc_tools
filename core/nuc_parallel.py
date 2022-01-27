@@ -16,7 +16,7 @@ def run(target_func, job_data, common_args=(), common_kw={},
   # pickled non-global functions
   
   from multiprocessing import Queue, Process
-  from nuc_util import info
+  from .nuc_util import info
   
   def _wrapper(job, out_queue, target_func, data_item, args, kw):
     result = target_func(data_item, *args, **kw)

@@ -43,7 +43,7 @@ def read_fasta(path_or_io, as_dict=True, full_heads=False,
   seq = []
   join = ''.join
   
-  if isinstance(path_or_io, (str, unicode)):
+  if isinstance(path_or_io, str):
     io_stream = open(path_or_io, 'rU', 2**6)
     close_file = True
   else:

@@ -200,6 +200,8 @@ def _downsample_matrix(in_array, new_shape, pad=False):
     count = in_array.sum()
     mat = zoom(in_array, (n/float(p), m/float(q)), output=float, order=3,
                mode='constant', cval=0.0, prefilter=True)
+    
+    mat = np.clip(mat, 0.0, None)
     mat *= count/float(mat.sum())
     
   return mat
@@ -450,7 +452,7 @@ def get_single_array_matrix(contact_matrix, limits_a, limits_b, is_cis, orig_bin
   
   if orig_chromo_limits:
     contact_matrix = _adjust_matrix_limits(contact_matrix, limits_a+limits_b, orig_chromo_limits, orig_bin_size)
-
+ 
   if is_cis:
     n = m = max(n, m) # Square
   
@@ -463,8 +465,8 @@ def get_single_array_matrix(contact_matrix, limits_a, limits_b, is_cis, orig_bin
       matrix[:b,:a] += contact_matrix.T
 
   else:
-    matrix = _downsample_matrix(contact_matrix, (n, m)).astype(float)
-    
+    matrix = _downsample_matrix(contact_matrix.astype(float), (n, m), pad=True)
+              
     if is_cis:
       matrix += matrix.T
   
@@ -2022,6 +2024,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
       util.warn('{} file chromosome names do not correspond to any contact data chromosomes'.format(file_format))
 
   if use_corr:
+    util.info('Calculating correlation matrix')
     has_neg = True
     full_matrix = get_corr_mat(full_matrix)
 
@@ -2120,7 +2123,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
  
         if use_corr:
           matrix = get_corr_mat(matrix)
- 
+          
           if contacts2:
             if file_bin_size:
               matrix2 = get_region_array_matrix(contacts2[pair], limits, region,

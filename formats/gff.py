@@ -20,6 +20,69 @@ def get_feature_count(file_path):
   return features
   
 
+def load_gene_dict(file_path): # V3
+
+  sep1 = ';' # v3
+  sep2 = '='
+  
+  chromo_gene_dict = {}
+  gene_parent_dict = {}
+  
+  with io.open_file(file_path) as file_obj:
+    
+    for line in file_obj:
+      if line[0] == '#':
+        continue
+ 
+      data = line[:-1].split('\t')
+      n = len(data)
+ 
+      if n < 8:
+        continue
+ 
+      chromo, source, feat, start, end, score, strand, frame = data[:8]  
+      if feat not in ('gene','mRNA','CDS','exon'):
+        continue
+      
+      start = int(start)
+      end = int(end)  
+      
+      att_dict = dict([x.split(sep2) for x in data[8].split(sep1) if x])
+      rid = att_dict['ID']
+            
+      if chromo not in chromo_gene_dict:
+        chromo_gene_dict[chromo] = {}
+      
+      gene_dict = chromo_gene_dict[chromo]
+      
+      if feat == 'gene':
+        gene_dict[rid] = [att_dict['Name'], start, end, strand, {}] # 
+        gene_parent_dict[rid] = rid
+      
+      else:
+        parent = att_dict['Parent']
+      
+        if parent in gene_parent_dict:
+          gid = gene_parent_dict[parent]
+          
+          if feat == 'mRNA':
+            gene_parent_dict[rid] = gid
+          
+          subdict = gene_dict[gid][-1]
+          
+          if feat in subdict:
+            subdict[feat].append((start, end, strand))
+          else:
+            subdict[feat] = [(start, end, strand)]
+          
+        else:
+          #util.warn(f'GFF {feat} feature {rid} missing parent')
+          #print(line)
+          continue
+
+  return chromo_gene_dict     
+   
+        
 def load_data_track(file_path, features=None, merge=False):
   # Should work with GFF and GTF
   # returns several data dicts, one for each type of feature ( all features if feature=None)
