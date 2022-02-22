@@ -33,7 +33,10 @@ def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=np.uint32, n
       chr_b, f_start_b, f_end_b, start_b, end_b, strand_b, \
       ambig_code, pair_id, swap_pair = line.split()
       
-      ambig_rows, is_active = ambig_code.split('.')
+      try:
+        ambig_rows, is_active = ambig_code.split('.')
+      except ValueError as err:
+        ambig_rows, is_active = '1', '1'
       
       if ambig_rows != '0':
         ambig_group += 1 # Count even if inactive; keep consistent group numbering

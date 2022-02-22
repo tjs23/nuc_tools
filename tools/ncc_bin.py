@@ -51,7 +51,7 @@ def bin_ncc(ncc_in, out_file=None, bin_size=DEFAULT_BIN_SIZE, format=DEFAULT_FOR
   if format == 'NPZ':
     # Pre-read check to filter very small contigs
     
-    with io.open_file(ncc_in) as in_file_obj:
+    with io.open_file(ncc_in, partial=True) as in_file_obj:
       for i, line in enumerate(in_file_obj):
         if (i == 1e5) and (len(max_bin) < 200):
           break

@@ -42,6 +42,7 @@ def report(msg, line_return):
         print('')
       print(msg)
       NEWLINE_CHARS = 0
+
    
 def warn(msg, prefix='WARNING', line_return=False):
 

@@ -240,6 +240,20 @@ def get_obs_vs_exp(obs, clip=10):
   return log_ratio
   
   
+def get_trans_expectation(obs):
+  
+  vals0 = obs.sum(axis=0).astype(float)
+  vals0 /= vals0.sum() or 1.0
+ 
+  vals1 = obs.sum(axis=1).astype(float)
+  vals1 /= vals1.sum() or 1.0
+
+  expt = np.outer(vals1, vals0)
+  expt *= obs.sum()/expt.sum()
+  
+  return expt
+  
+  
 def get_cis_expectation(obs):
 
   n = len(obs)
@@ -273,10 +287,25 @@ def get_cis_expectation(obs):
   return expt
 
   
-def get_corr_mat(obs, clip=5.0):
+def get_corr_mat(obs, chromo_offsets=None, clip=5.0):
 
   obs -= np.diag(np.diag(obs))
-  expt = get_cis_expectation(obs)
+  
+  if chromo_offsets:
+    expt = np.zeros(obs.shape)
+    for chr_a in chromo_offsets:
+      s1, i, a = chromo_offsets[chr_a] # First base, first bin, num bins
+      
+      for chr_b in chromo_offsets:
+        s2, j, b = chromo_offsets[chr_b]
+        
+        if chr_a == chr_b:
+          expt[i:i+a,i:i+a] = get_cis_expectation(obs[i:i+a,i:i+a])
+        else:
+          expt[i:i+a,j:j+b] = get_trans_expectation(obs[i:i+a,j:j+b])
+      
+  else: # All cis
+    expt = get_cis_expectation(obs)
 
   prod = expt * obs
   nz = prod != 0.0
@@ -353,6 +382,31 @@ def get_trans_corr_mat(obs_a, obs_b, obs_ab, clip=5.0):
   return corr_mat
 
 
+def limit_counts(mat, limit):
+  
+  
+  n, m = mat.shape
+  
+  if n == m:
+    mat -= np.diag(np.diag(mat)//2)
+    mat = np.triu(mat)
+  
+  count = mat.sum()
+  nz = (mat > 0).nonzero()
+  flat = mat[nz]
+  rand_points = np.random.uniform(0.0, count-1.0, limit).astype(int)
+  uniq, counts = np.unique(np.searchsorted(np.cumsum(flat), rand_points), return_counts=True)
+    
+  flat = np.zeros(flat.shape)
+  flat[uniq] += counts
+  mat[nz] = flat
+  
+  if n == m:
+    mat += mat.T
+    
+  return mat
+     
+    
 def _adjust_matrix_limits(contact_matrix, new_chromo_limits, orig_chromo_limits, orig_bin_size):
 
   s1a, e1a, s1b, e1b = new_chromo_limits # chr_a then chr_b
@@ -460,15 +514,9 @@ def get_single_array_matrix(contact_matrix, limits_a, limits_b, is_cis, orig_bin
     matrix = np.zeros((n, m), float)
     a, b = contact_matrix.shape
     matrix[:a,:b] += contact_matrix
-  
-    if is_cis:
-      matrix[:b,:a] += contact_matrix.T
 
   else:
     matrix = _downsample_matrix(contact_matrix.astype(float), (n, m), pad=True)
-              
-    if is_cis:
-      matrix += matrix.T
   
   return matrix
   
@@ -1795,6 +1843,8 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
     for i, (file_path, file_format, text_label) in enumerate(data_tracks):
       if not text_label:
         data_tracks[i] = (file_path, file_format, default_labels[i])
+  else:
+    data_tracks = []
           
   if screen_gfx:
     util.info('Displaying contact map for {}'.format(in_msg))
@@ -2026,10 +2076,10 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
   if use_corr:
     util.info('Calculating correlation matrix')
     has_neg = True
-    full_matrix = get_corr_mat(full_matrix)
+    full_matrix = get_corr_mat(full_matrix, chromo_offsets=offsets)
 
     if contacts2:
-      full_matrix2 = get_corr_mat(full_matrix2)
+      full_matrix2 = get_corr_mat(full_matrix2, chromo_offsets=offsets2)
 
   else:
     has_neg = full_matrix.min() < 0
@@ -2041,8 +2091,8 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
 
   if use_corr:
     metric = 'Correlation'
-    v_max = 0.5
-    v_min = -0.5
+    v_max = 0.3
+    v_min = -0.3
  
   elif has_neg: # Some external non-count value being plotted
     metric = 'Value '
@@ -2195,10 +2245,6 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
                             double_diag=double_diag, x_start=s, y_start=s)
   
   else:  
-    mito_frac, mito_cat = _get_mito_fraction(contacts, file_bin_size)
-    
-    if contacts2:
-      mito_frac2, mito_cat2 = _get_mito_fraction(contacts2, file_bin_size2)
     
     n = len(full_matrix)
     util.info('Full contact map size %d x %d' % (n, n))
@@ -2241,6 +2287,11 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
  
     
     if len(chromos) > 1:
+      mito_frac, mito_cat = _get_mito_fraction(contacts, file_bin_size)
+ 
+      if contacts2:
+        mito_frac2, mito_cat2 = _get_mito_fraction(contacts2, file_bin_size2)
+        
       if in_path2:
         title = os.path.basename(in_path2) + '\\' + os.path.basename(in_path)
       else:
@@ -2283,6 +2334,11 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
                           None, grid, stats_text, colors, bad_color, log=use_log, pdf=pdf,
                           v_max=v_max, v_min=v_min, ambig_matrix=ambig_matrix)
  
+    clim = None
+    #clim = 650000
+    #clim = 2698000
+    #clim = 1632000
+    
     if separate_cis or separate_trans:
       pairs = []
  
@@ -2321,7 +2377,9 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
         else:
           matrix, ambig_matrix = get_single_list_matrix(contacts[key], limits_a, limits_b,
                                                         is_cis, pair_bin_size, ambig_groups, smooth)
- 
+        if clim:
+          matrix = limit_counts(matrix, clim)
+        
         if key != pair:
           matrix = matrix.T
  
@@ -2341,7 +2399,10 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
               else:
                 matrix2, ambig_matrix2 = get_single_list_matrix(contacts2[key], limits_a2, limits_b2,
                                                                 is_cis, pair_bin_size, ambig_groups, smooth)
- 
+              
+              if clim:
+                matrix2 = limit_counts(matrix2, clim)
+              
               cn_cont2 = int(matrix2.sum()) // 2
               matrix2 = get_corr_mat(matrix2)
               idx = np.tril_indices(len(matrix), 1)
