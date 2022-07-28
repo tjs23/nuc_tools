@@ -26,7 +26,7 @@ def convert_ncc(ncc_in, out_fmt, report_freq=100000):
   mapq = 37
    
   with io.open_file(ncc_in) as in_file_obj:
-    util.info(' .. processed 0 NCC lines'
+    util.info(' .. processed 0 NCC lines')
    
     for i, line in enumerate(in_file_obj):
       chr_a, f_start_a, f_end_a, start_a, end_a, strand_a, \
