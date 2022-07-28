@@ -176,6 +176,8 @@ def load_data_track(file_path, features=None, merge=False):
       
   for feat, data_dict in data_dicts.items():
     data_dicts[feat] = util.finalise_data_track(data_dict)
+    #for chromo in data_dicts[feat]:
+    #   print(chromo, feat, data_dicts[feat][chromo].shape)
   
   if merge:
     return data_dicts['gene_features']

@@ -1450,9 +1450,9 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             ends = (pos_track['pos2']-x_start)/float(bin_size)
             ends = np.array([ends, starts+min_width]).max(axis=0)
             widths = ends - starts
-            labels = pos_track['label']
+            labels = pos_track['label'].astype(str)
             
-            if ';' in str(labels[0]): # GFF/GTF
+            if ';' in labels[0]: # GFF/GTF
               features = [itm.split(';')[0] for itm in labels]
               vcolors = np.array([gff_cdict.get(f, colors[i]) for f in features])
               values = np.array([gff_vdict.get(f, 0.5) for f in features])
@@ -1486,7 +1486,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             ends = (neg_track['pos2']-x_start)/float(bin_size)
             ends = np.array([ends, starts+min_width]).max(axis=0)
             widths = ends - starts
-            labels = neg_track['label']
+            labels = neg_track['label'].astype(str)
 
             if ';' in labels[0]: # GFF/GTF
               features = [itm.split(';')[0] for itm in labels]
@@ -1586,7 +1586,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             ends = (pos_track['pos2']-y_start)/float(bin_size)
             ends = np.array([ends, starts+min_width]).max(axis=0)
             heights = ends - starts
-            labels = pos_track['label']
+            labels = pos_track['label'].astype(str)
             x_pos = np.full(heights.shape, x_anchor)
             
             if ';' in str(labels[0]): # GFF/GTF
@@ -1621,7 +1621,7 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
             ends = (neg_track['pos2']-y_start)/float(bin_size)
             ends = np.array([ends, starts+min_width]).max(axis=0)
             heights = ends - starts   
-            labels = neg_track['label']
+            labels = neg_track['label'].astype(str)
             x_pos = np.full(heights.shape, x_anchor)
             
             if ';' in labels[0]: # GFF/GTF
@@ -2119,7 +2119,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
 
   if cmap:
     colors = cmap
-    bad_color = '#888888'
+    bad_color = '#FFFFFF'
   
   elif black_bg:
     if has_neg:

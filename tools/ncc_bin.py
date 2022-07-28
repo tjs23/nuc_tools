@@ -95,7 +95,9 @@ def bin_ncc(ncc_in, out_file=None, bin_size=DEFAULT_BIN_SIZE, format=DEFAULT_FOR
         t0 = time.time() 
           
     with io.open_file(ncc_in) as in_file_obj:
- 
+      defer_ambig = []
+      n_defer = 0
+      
       for line in in_file_obj:
         chr_a, start_a, end_a, f_start_a, f_end_a, strand_a, \
           chr_b, start_b, end_b, f_start_b, f_end_b, strand_b, \
@@ -138,7 +140,42 @@ def bin_ncc(ncc_in, out_file=None, bin_size=DEFAULT_BIN_SIZE, format=DEFAULT_FOR
         
         elif chr_a == chr_b and bin_b < bin_a:
           bin_a, bin_b, key_bin_a, key_bin_b = bin_b, bin_a, key_bin_b, key_bin_a
+          
+        ag, selected = ambig_group.split('.')
+
+        if ag[0] != '1': # Ambiguous; multiple mapping pairs
         
+          if ag[0] != '0': # First in group
+            n_defer = int(ag[0])
+            defer_ambig = [(selected, chr_a, chr_b, bin_a, bin_b, key_bin_a, key_bin_b),]
+          
+          else:
+            defer_ambig.append((selected, chr_a, chr_b, bin_a, bin_b, key_bin_a, key_bin_b))
+            
+          if len(defer_ambig) == n_defer: # Last in group; group full
+            pairs = [x[1:] for x in defer_ambig if x[0] != '0'] # Only active
+            n_defer = 0
+            
+            if len(pairs) > 1:
+              pairs.sort()
+              
+              while (len(pairs) > 1) and (pairs[0] == pairs[1]): # Ambig pairs are between same bins; allowed
+                pairs = pairs[1:]
+              
+            if len(pairs) == 1:  
+              chr_a, chr_b, bin_a, bin_b, key_bin_a, key_bin_b == pairs[0] # Resolved; same bins
+              
+            else: # Ambiguous (or completely inactive)
+              continue
+
+          else: # Do nothing until ambig group full
+            continue
+        
+        elif selected == '0': # Unambigous but inactive
+          n_defer = 0
+          continue
+        
+        n_defer = 0
         chromo_key = (chr_a, chr_b)
         bin_key = (key_bin_a, key_bin_b)
         
