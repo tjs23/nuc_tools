@@ -26,7 +26,7 @@ def convert_ncc(ncc_in, out_fmt, report_freq=100000):
   mapq = 37
    
   with io.open_file(ncc_in) as in_file_obj:
-    util.info(' .. processed 0 NCC lines')
+    util.info(f'Reading {ncc_in}')
    
     for i, line in enumerate(in_file_obj):
       chr_a, f_start_a, f_end_a, start_a, end_a, strand_a, \
@@ -36,13 +36,13 @@ def convert_ncc(ncc_in, out_fmt, report_freq=100000):
       read_name = f'READ_{int(read_id):010d}'
       
       if i % report_freq == 0:
-        util.info(f' .. processed {i} NCC lines', line_return=True)
+        util.info(f' .. processed {i:,} NCC lines', line_return=True)
       
       if out_fmt == 'BED':
         write(f'{chr_a}\t{start_a}\t{end_a}\t{read_name}/1\t{mapq}\t{strand_a}\n')
         write(f'{chr_b}\t{start_b}\t{end_b}\t{read_name}/2\t{mapq}\t{strand_b}\n')
   
-  util.info(f' .. processed {i} NCC lines', line_return=True)
+  util.info(f' .. processed {i:,} NCC lines', line_return=True)
   
   out_file_obj.close()
  
