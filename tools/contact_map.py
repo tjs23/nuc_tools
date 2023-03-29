@@ -21,7 +21,7 @@ DEFAULT_CIS_BIN_KB = 250
 DEFAULT_TRANS_BIN_KB = 500
 DEFAULT_MAIN_BIN_KB = 1000
 DEFAULT_SC_MAIN_BIN_KB = 5000
-DEFAULT_SC_CHR_BIN_KB = 500
+DEFAULT_SC_CHR_BIN_KB = 250
 DEFAULT_SMALLEST_CONTIG = 0.1
 DEFAULT_DIAG_REGION = 50.0
 COLORMAP_URL = 'https://matplotlib.org/tutorials/colors/colormaps.html'
@@ -810,12 +810,12 @@ def _get_tick_delta(n_bins, bin_size_units, max_ticks=10):
   
   tick_delta_units = tick_delta * bin_size_units
   
-  sf = max(1, int(floor(np.log10(tick_delta_units))))
+  sf = int(floor(np.log10(tick_delta_units)))
   
   tick_delta_units = round(tick_delta_units, -sf) # round to nearest 100, 10, 1, 0.1 etc
   
   step = 10 ** sf
-  target = 5 * sf
+  target = 5 * max(1, sf)
   
   while (tick_delta_units % target > sf):
     tick_delta_units += step
@@ -1932,6 +1932,16 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
       util.critical('Chromosome selection doesn\'t match any in the contact file. Available: {}'.format(chr_names))
     elif unknown:
       util.warn('Some selected chromosomes don\'t match the contact file: {}'.format(', '.join(unknown)))
+  
+  def _adapt_bin_size(bsize, sq_len, min_bin_count):
+    
+    n_bins = sq_len/bsize
+    while n_bins < min_bin_count:
+      bsize /= 2.0
+      bsize = round(bsize, -int(math.floor(math.log10(abs(bsize)))))
+      n_bins = sq_len/bsize    
+    
+    return bsize
     
   if bin_size:
     bin_size = int(bin_size * 1e3)
@@ -1942,8 +1952,11 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
       util.warn(msg)
       
   else:
+    seq_len = sum([e-s for s, e in chromo_limits.values() if e-s > min_contig_size])
+    
     bin_size = DEFAULT_SC_MAIN_BIN_KB if is_single_cell else DEFAULT_MAIN_BIN_KB
-    bin_size *= 1e3
+    bin_size *= 1e3    
+    bin_size = _adapt_bin_size(bin_size, seq_len, 1000)
   
   if bin_size2:
     bin_size2 = int(bin_size2 * 1e3)
@@ -1956,7 +1969,8 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
   else:
     bin_size2 = DEFAULT_SC_CHR_BIN_KB if is_single_cell else DEFAULT_CIS_BIN_KB
     bin_size2 *= 1e3
-
+    bin_size2 = _adapt_bin_size(bin_size2, min_contig_size, 10)
+    
   if bin_size3:
     bin_size3 = int(bin_size3 * 1e3)
     
@@ -1966,8 +1980,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
       util.warn(msg)
   
   else:
-    bin_size3 = DEFAULT_SC_CHR_BIN_KB if is_single_cell else DEFAULT_TRANS_BIN_KB
-    bin_size3 *= 1e3
+    bin_size3 = bin_size2 if is_single_cell else 2*bin_size2
 
   """
   tot_size = 0
@@ -2582,15 +2595,15 @@ def main(argv=None):
 
   arg_parse.add_argument('-s1', '--bin-size-main', default=None, metavar='KB_BIN_SIZE', type=float, dest="s1",
                          help='Binned sequence region size (the resolution) for the overall, whole-genome contact map, in kilobases. ' \
-                              'Default is {:.1f} kb or {:.1f} kb if single-cell "-sc" option used.'.format(DEFAULT_MAIN_BIN_KB, DEFAULT_SC_MAIN_BIN_KB))
+                              'Default is adaptive to give at least 1000 bins.')
 
   arg_parse.add_argument('-s2', '--bin-size-cis', default=None, metavar='KB_BIN_SIZE', type=float, dest="s2",
                          help='Binned sequence region size (the resolution) for separate intra-chromsomal maps, ' \
-                              'in kilobases. Default is {:.1f} kb or {:.1f} kb if single-cell "-sc" option used..'.format(DEFAULT_CIS_BIN_KB, DEFAULT_SC_CHR_BIN_KB))
+                              'in kilobases. Default is adaptive to give at least 10 bins for the smallest chromosome.')
   
   arg_parse.add_argument('-s3', '--bin-size-trans', default=None, metavar='KB_BIN_SIZE', type=float, dest="s3",
                          help='Binned sequence region size (the resolution) for separate inter-chromsomal maps, ' \
-                              'in kilobases. Default is {:.1f} kb. or {:.1f} kb if single-cell "-sc" option used.'.format(DEFAULT_TRANS_BIN_KB, DEFAULT_SC_CHR_BIN_KB))
+                              'in kilobases. Default is adaptive based on the smallest allowed chromosome')
 
   arg_parse.add_argument('-m', default=0.0, metavar='MIN_CONTIG_SIZE', type=float,
                          help='The minimum chromosome/contig sequence length in Megabases for inclusion. ' \
@@ -2683,7 +2696,7 @@ def main(argv=None):
         data_path = data_path[p+1:]
       else:
         text_label = None
-        
+      
       if file_format == GFF_FORMAT:
         if not gff_feats:
           from formats import gff
@@ -2723,14 +2736,15 @@ def main(argv=None):
         util.critical('Chromosome region specification could not be interpreted. ' \
                       'Requires chromosome:start-end where start and end are numbers.')
       
+      bsize = bin_size2 or DEFAULT_CIS_BIN_KB
       chromo, start, end = match.groups()
       start, end = sorted([float(start) * 1e6, float(end) * 1e6])
-      nbins = int(ceil((end-start)/(1e3*bin_size2)))
+      nbins = int(ceil((end-start)/(1e3*bsize)))
       
       if nbins < MIN_REGION_BINS:
         msg = 'Chromosome region %s:%.f-%.f should be at least %d times ' \
               'the bin size (see -s2 option); currently %d times.'
-        ratio = (MIN_REGION_BINS * bin_size2)/(end-start)
+        ratio = (MIN_REGION_BINS * bsize2)/(end-start)
         util.critical(msg % (chromo, start, end, MIN_REGION_BINS, nbins))
       
       region_dict[chromo].append((start, end))
