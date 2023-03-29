@@ -7,7 +7,7 @@ import formats
 import tools
 
 PROG_NAME = 'nuc_tools'
-VERSION = '0.0.1'
+VERSION = '0.1.1'
 DESCRIPTION = 'Informatics tools for genome structure and Hi-C analysis'
 EPILOG = 'For further help email tjs23@cam.ac.uk or wb104@cam.ac.uk'
 TOOLS = {'adapt': 'tools.nuc_adapt',
