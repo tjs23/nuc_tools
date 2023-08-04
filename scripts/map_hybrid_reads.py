@@ -111,6 +111,54 @@ def _skip_sam_header(readline):
 
   return line
   
+def _insert_mapped_mate_pairs(line1, line2):
+  # For MAPPED pairs
+  # See:  https://samtools.github.io/hts-specs/SAMv1.pdf
+  # Set Paired, read1/2 in FLAG
+  # Insert RNEXT : chromo name
+  # Insert PNEXT : start seq position
+  # Switch line2 to read2
+  
+  data1 = line1.split('\t')
+  data2 = line2.split('\t')
+  
+  flag1   = int(data1[1])
+  chromo1 = data1[2]
+  start1  = data1[3]
+
+  flag2   = int(data2[1])
+  chromo2 = data2[2]
+  start2  = data2[3]
+  
+  rc1 = flag1 & 0b10000 # Is reverse complement
+  rc2 = (flag2 & 0b10000) << 1 # Shift to read2 bit
+  
+  # unset bits : keep rev comp for line1
+  flag1 &= 0b00010000 
+  flag2 &= 0b00000000 
+  
+  # set bits
+  flag1 |= 0b01000011 # is_read1, mapped, paired
+  flag2 |= 0b10000011 # is_read2, mapped, paired
+  
+  # copy reverse complement bits
+  flag1 |= rc2 # set line1 read2 from line2 read1
+  flag2 |= rc2 # line2 now set as read2
+  flag2 |= rc1 # set line2 read1 from line1 read1
+  
+  data1[1] = str(flag1)
+  data1[6] = chromo2 # RNEXT
+  data1[7] = start2  # PNEXT
+  
+  data2[1] = str(flag2)
+  data2[6] = chromo1 # RNEXT
+  data2[7] = start1  # PNEXT
+  
+  line1 = '\t'.join(data1)
+  line2 = '\t'.join(data1)
+  
+  return line1, line2
+
   
 def clip_reads(fastq_file, file_root, qual_scheme, min_qual,
                max_reads_in=None, adapt_seqs=None, trim_5=0, trim_3=0,
@@ -264,44 +312,48 @@ def clip_reads(fastq_file, file_root, qual_scheme, min_qual,
 def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_names,
                             file_root, samtools_exe, ambig=True, max_cis_sep=2000):
   
-  
   paired_sam_file_name = tag_file_name(file_root, 'pair', '.sam')
   paired_bam_file_name = tag_file_name(file_root, 'pair', '.bam')
+  failure_sam_file_name = tag_file_name(file_root, 'unmapped_end', '.sam')
   paired_sam_file_name_temp = paired_sam_file_name + TEMP_EXT
 
   #if INTERRUPTED and os.path.exists(paired_sam_file_name) and not os.path.exists(paired_sam_file_name_temp):
   #  return paired_sam_file_name
 
-  sam_file_obj = open(paired_sam_file_name_temp, 'w')
+  sam_main_file_obj = open(paired_sam_file_name_temp, 'w')
+  sam_fail_file_obj = open(failure_sam_file_name, 'w')
   
   # Add SAM header  
   
-  sam_file_obj.write('@HD\tVN:1.1\tSO:unsorted\n')
+  sam_main_file_obj.write('@HD\tVN:1.1\tSO:unsorted\n')
+  sam_fail_file_obj.write('@HD\tVN:1.1\tSO:unsorted\n')
   
   seq_heads = []
   prog_heads = []
   for sam_file in (sam_file1, sam_file3): # Only one for each build
     with open_file_r(sam_file) as file_obj:
       for line in file_obj:
-        if line.startswith('@SQ'):
+        if line.startswith('@SQ'): # Chromosome sequence lengths
           seq_heads.append(line)
-        elif line.startswith('@PG'):
+        elif line.startswith('@PG'): # Processing tool
           prog_heads.append(line)
           break
   
   for line in seq_heads:
-    sam_file_obj.write(line)
- 
+    sam_main_file_obj.write(line)
+    sam_fail_file_obj.write(line)
+  
   for line in prog_heads:
-    sam_file_obj.write(line)
+    sam_main_file_obj.write(line)
   
   cmd = ' '.join(sys.argv)
-  sam_file_obj.write(f'@PG\tID:map_hybrid_reads\tPN:map_hybrid_reads\tVN:{VERSION}\tCL:"{cmd}"\n')  
+  sam_main_file_obj.write(f'@PG\tID:map_hybrid_reads\tPN:map_hybrid_reads\tVN:{VERSION}\tCL:"{cmd}"\n')  
   
   # - can copy most of head from one input
   # - but need all chromosome records, i.e. from hybrid/homologue
   
-  write_sam_out = sam_file_obj.write
+  write_sam_out = sam_main_file_obj.write
+  write_fail_out = sam_fail_file_obj.write
 
   file_objs = [open_file_r(sam_file) for sam_file in (sam_file1, sam_file2, sam_file3, sam_file4)]
   readlines = [f.readline for f in file_objs]
@@ -363,8 +415,11 @@ def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_n
           data = line.split('\t')
           chromo = data[2]
           chr_name = chromo_names.get(chromo, chromo)
+        
+          if chromo == '*':
+            write_fail_out(line)
           
-          if chromo != '*':
+          else:
             revcomp = int(data[1]) & 0x10
             start = int(data[3])
             seq = data[9]
@@ -491,16 +546,7 @@ def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_n
       is_pos_ambig = False
       
       for score, i, j, line1, line2 in pairs:
-        # See:  https://samtools.github.io/hts-specs/SAMv1.pdf
-        # Set Paired in FLAG
-        # Insert RNEXT : chromo name
-        # Insert PNEXT : start seq position
-        
-        """
-        line1 = _insert_mate_pair(line1, line2)
-        line2 = _insert_mate_pair(line2, line1)
-        
-        """
+        line1, line2 = _insert_mapped_mate_pairs(line1, line2)
         
         write_sam_out(line1)
         write_sam_out(line2)
@@ -533,7 +579,8 @@ def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_n
   print(f'Missing mapping : {n_hybrid_end_missing:,} ({100.0 *  n_hybrid_end_missing/n:.2f}%)')
   print(f'Only bad mapping : {n_hybrid_poor:,} ({100.0 * n_hybrid_poor /n:.2f}%)')
   
-  sam_file_obj.close()
+  sam_main_file_obj.close()
+  sam_fail_file_obj.close()
   
   if samtools_exe:
     cmd_args = [samtools_exe, 'view', '-bS', paired_sam_file_name_temp]
@@ -845,10 +892,10 @@ def map_hybrid_reads(fastq_paths, genome_index1, genome_index2, chromo_name_file
 
   if not samtools_exe:
     try: 
-      samtools_exe = which('samtools_exe')
+      samtools_exe = which('samtools')
 
     except AttributeError:
-      cmd_args = ['which', 'samtools_exe']
+      cmd_args = ['which', 'samtools']
       proc = Popen(cmd_args, stdin=PIPE, stdout=PIPE)
       samtools_exe, std_err_data = proc.communicate()
       samtools_exe = samtools_exe.strip()
