@@ -146,12 +146,14 @@ def _insert_mapped_mate_pairs(line1, line2):
   flag2 |= rc2 # line2 now set as read2
   flag2 |= rc1 # set line2 read1 from line1 read1
   
+  is_cis = chromo2 == chromo1
+  
   data1[1] = str(flag1)
-  data1[6] = chromo2 # RNEXT
+  data1[6] = '=' if is_cis else chromo2 # RNEXT
   data1[7] = start2  # PNEXT
   
   data2[1] = str(flag2)
-  data2[6] = chromo1 # RNEXT
+  data2[6] = '=' if is_cis else chromo1  # RNEXT
   data2[7] = start1  # PNEXT
   
   line1 = '\t'.join(data1)
@@ -593,6 +595,7 @@ def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_n
     return paired_bam_file_name
     
   else:
+    warn('SAMtools executable not available')
     move(paired_sam_file_name_temp, paired_sam_file_name)
   
     return paired_sam_file_name
