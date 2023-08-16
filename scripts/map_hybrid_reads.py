@@ -111,14 +111,16 @@ def _skip_sam_header(readline):
 
   return line
   
-def _insert_mapped_mate_pairs(line1, line2):
+def _insert_mapped_mate_pairs(line1, line2, chr_name1=None, chr_name2=None):
   # For MAPPED pairs
   # See:  https://samtools.github.io/hts-specs/SAMv1.pdf
   # Set Paired, read1/2 in FLAG
   # Insert RNEXT : chromo name
   # Insert PNEXT : start seq position
   # Switch line2 to read2
-  
+  # Calc tlen
+  # Rename chromos, as needed
+
   data1 = line1.split('\t')
   data2 = line2.split('\t')
   
@@ -148,13 +150,26 @@ def _insert_mapped_mate_pairs(line1, line2):
   
   is_cis = chromo2 == chromo1
   
+  if is_cis:
+    tlen = str(1+abs(int(start1)-int(start2)))
+  else:
+    tlen = '0'
+  
+  if chr_name1:
+    data1[2] = chr_name1
+ 
+  if chr_name2:
+    data2[2] = chr_name2
+    
   data1[1] = str(flag1)
   data1[6] = '=' if is_cis else chromo2 # RNEXT
   data1[7] = start2  # PNEXT
+  data1[8] = tlen  # TLEN
   
   data2[1] = str(flag2)
   data2[6] = '=' if is_cis else chromo1  # RNEXT
   data2[7] = start1  # PNEXT
+  data2[8] = tlen  # TLEN
   
   line1 = '\t'.join(data1)
   line2 = '\t'.join(data1)
@@ -312,7 +327,7 @@ def clip_reads(fastq_file, file_root, qual_scheme, min_qual,
 
 
 def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_names,
-                            file_root, samtools_exe, ambig=True, max_cis_sep=2000):
+                            file_root, samtools_exe, rename_chromos=True, ambig=True, max_cis_sep=2000):
   
   paired_sam_file_name = tag_file_name(file_root, 'pair', '.sam')
   paired_bam_file_name = tag_file_name(file_root, 'pair', '.bam')
@@ -332,10 +347,16 @@ def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_n
   
   seq_heads = []
   prog_heads = []
-  for sam_file in (sam_file1, sam_file3): # Only one for each build
+  for genome, sam_file in (('.a', sam_file1), ('.b', sam_file3)): # Only one for each build
     with open_file_r(sam_file) as file_obj:
       for line in file_obj:
         if line.startswith('@SQ'): # Chromosome sequence lengths
+          if chromo_names:
+            key, sn, ln = line.split('\t')
+            chromo = sn.split(':')[1]
+            chromo = chromo_names.get(chromo, chromo)
+            line = '\t'.join((key, f'SN:{chromo}{genome}', ln))
+            
           seq_heads.append(line)
         elif line.startswith('@PG'): # Processing tool
           prog_heads.append(line)
@@ -518,17 +539,20 @@ def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_n
         continue      
 
       pairs = []
-      for end_a, end_b in ((0,1), (2,3)): # , (0,3), (2,1)): # A:A, B:B, A:B, B:A genome pairings
-        for i, (chr1, start1, line1, score1) in enumerate(sam_ends[end_a]):
-          for j, (chr2, start2, line2, score2) in enumerate(sam_ends[end_b]):
+      for end_1, end_2 in ((0,1), (2,3)): # A:A, B:B but not A:B, B:A genome pairings [(0,3), (2,1))]
+        for i, (chr1, start1, line1, score1) in enumerate(sam_ends[end_1]):
+          for j, (chr2, start2, line2, score2) in enumerate(sam_ends[end_2]):
              
-            if chr1 != chr2:
+            if chr1 != chr2: # No trans chromo
               continue
                 
             elif abs(start2-start1) > max_cis_sep:
               continue
+                          
+            genome1 = '.a' if end_1 < 2 else '.b'
+            genome2 = '.a' if end_2 < 2 else '.b'
             
-            pairs.append((score1 + score2, i, j, line1, line2))            
+            pairs.append((score1 + score2, i, j, line1, line2, chr1, chr2, genome1, genome2))            
       
       if not pairs:
         n_unmapped += 1
@@ -547,9 +571,12 @@ def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_n
       #ambig_code = float(len(pairs))
       is_pos_ambig = False
       
-      for score, i, j, line1, line2 in pairs:
-        line1, line2 = _insert_mapped_mate_pairs(line1, line2)
-        
+      for score, i, j, line1, line2, chr1, chr2, genome1, genome2 in pairs:
+        if rename_chromos:
+          line1, line2 = _insert_mapped_mate_pairs(line1, line2, chr1+genome1, chr2+genome2)
+        else:
+          line1, line2 = _insert_mapped_mate_pairs(line1, line2)
+          
         write_sam_out(line1)
         write_sam_out(line2)
         
@@ -881,7 +908,7 @@ def map_reads(fastq_file, genome_index, align_exe, num_cpu, ambig, qual_scheme, 
 def map_hybrid_reads(fastq_paths, genome_index1, genome_index2, chromo_name_files,
                      num_cpu=1, out_file=None, align_exe=None, samtools_exe=None, qual_scheme=None, min_qual=30,
                      adapt_seqs=None, trim_5=0, trim_3=0, max_cis_sep=2000, keep_files=False,
-                     ambig=True, read_limit=None):
+                     ambig=True, read_limit=None, rename_chromos=True):
  
   if not align_exe:
     try: # Python version >= 3.3
@@ -967,7 +994,7 @@ def map_hybrid_reads(fastq_paths, genome_index1, genome_index2, chromo_name_file
 
   info(f'Pairing ambiguously mapped reads')
   paired_sam_file_name  = pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_names,
-                                                  file_root, samtools_exe, ambig=ambig, max_cis_sep=max_cis_sep)
+                                                  file_root, samtools_exe, rename_chromos, ambig=ambig, max_cis_sep=max_cis_sep)
 
   print(f'Wrote {paired_sam_file_name}')
   
