@@ -326,8 +326,10 @@ def clip_reads(fastq_file, file_root, qual_scheme, min_qual,
   return clipped_file
 
 
-def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_names,
+def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_names, singular_chromos,
                             file_root, samtools_exe, rename_chromos=True, ambig=True, max_cis_sep=2000):
+  
+  singular_chromos = set(singular_chromos or [])
   
   paired_sam_file_name = tag_file_name(file_root, 'pair', '.sam')
   paired_bam_file_name = tag_file_name(file_root, 'pair', '.bam')
@@ -390,6 +392,7 @@ def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_n
   n_hybrid_ambig = 0
   n_hybrid_poor = 0
   n_hybrid_end_missing = 0
+  n_singular = 0
   n_primary_strand = [0,0,0,0]
   n_strand = [0,0,0,0]
   
@@ -428,6 +431,7 @@ def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_n
     else:
       sam_ends = [[], [], [], []]
       scores = [[], [], [], []]
+      singular_ends = [0, 0, 0, 0]
       
       for i in range(4):
         j = 0
@@ -438,7 +442,10 @@ def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_n
           data = line.split('\t')
           chromo = data[2]
           chr_name = chromo_names.get(chromo, chromo)
-        
+          
+          if chr_name in singular_chromos:
+            singular_ends[i] += 1
+          
           if chromo == '*':
             write_fail_out(line)
           
@@ -525,18 +532,28 @@ def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_n
         sys.stdout.write(f'\r .. {n_pairs:,}') 
         sys.stdout.flush()
       
-      n0 = len(sam_ends[0])
-      n1 = len(sam_ends[1])
-      n2 = len(sam_ends[2])
-      n3 = len(sam_ends[3])
+      n0 = len(sam_ends[0]) # R1 Genome A
+      n1 = len(sam_ends[1]) # R2 Genome A
+      n2 = len(sam_ends[2]) # R1 Genome B
+      n3 = len(sam_ends[3]) # R2 Genome B
       
-      if (n0+n2) * (n1+n3) == 0: # One end or both ends have no mappings
+      if (n0+n2) * (n1+n3) == 0: # R1 * R2 ; One end or both ends have no mappings
         n_unmapped += 1
         continue
       
-      elif min(n0, n1, n2, n3) == 0: # Not all ends accounted for # Only applicable for strains of same species
-        n_hybrid_end_missing += 1
-        continue      
+      elif n0 == 0 or n1 == 0: # End missing in Genome A # Generally only applicable for strains of same species
+        if n2 and n3 and singular_ends[2] and singular_ends[3]: # No problem if the ends we do have are in singular chromos
+          n_singular += 1
+        else:
+          n_hybrid_end_missing += 1
+          continue      
+
+      elif n2 == 0 or n3 == 0: # End missing in Genome B
+        if n0 and n1 and singular_ends[0] and singular_ends[1]:
+          n_singular += 1
+        else:
+          n_hybrid_end_missing += 1
+          continue            
 
       pairs = []
       for end_1, end_2 in ((0,1), (2,3)): # A:A, B:B but not A:B, B:A genome pairings [(0,3), (2,1))]
@@ -603,6 +620,7 @@ def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_n
   print(f'Unambiguous read pairs : {n_unambig:,} ({100.0 *  n_unambig/n:.2f}%)')
   print(f'Ambiguous read pairs : {n_ambig:,} ({100.0 *  n_ambig/n:.2f}%)')
   print(f'Hybrid-ambig read pairs : {n_hybrid_ambig:,} ({100.0 * n_hybrid_ambig /n:.2f}%)')
+  print(f'Singular chromo read pairs : {n_singular:,} ({100.0 * n_singular /n:.2f}%)')
   
   print(f'Unmappable end : {n_unmapped:,} ({100.0 *  n_unmapped/n:.2f}%)')
   print(f'Missing mapping : {n_hybrid_end_missing:,} ({100.0 *  n_hybrid_end_missing/n:.2f}%)')
@@ -905,7 +923,7 @@ def map_reads(fastq_file, genome_index, align_exe, num_cpu, ambig, qual_scheme, 
   return sam_file_path
 
 
-def map_hybrid_reads(fastq_paths, genome_index1, genome_index2, chromo_name_files,
+def map_hybrid_reads(fastq_paths, genome_index1, genome_index2, chromo_name_files, singular_chromos=None,
                      num_cpu=1, out_file=None, align_exe=None, samtools_exe=None, qual_scheme=None, min_qual=30,
                      adapt_seqs=None, trim_5=0, trim_3=0, max_cis_sep=2000, keep_files=False,
                      ambig=True, read_limit=None, rename_chromos=True):
@@ -993,7 +1011,7 @@ def map_hybrid_reads(fastq_paths, genome_index1, genome_index2, chromo_name_file
         chromo_names[key] = value
 
   info(f'Pairing ambiguously mapped reads')
-  paired_sam_file_name  = pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_names,
+  paired_sam_file_name  = pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_names, singular_chromos,
                                                   file_root, samtools_exe, rename_chromos, ambig=ambig, max_cis_sep=max_cis_sep)
 
   print(f'Wrote {paired_sam_file_name}')
@@ -1036,9 +1054,11 @@ def test_map_hybrid_reads():
   
   chromo_name_files = ['/data1/genome_builds/Mouse_EDL_B6_v2_chr_names.tsv',
                        '/data1/genome_builds/Mouse_EDL_CAST_v2_chr_names.tsv']
-
+  
+  singular_chromos = ('chrX') # Will have no homologous pair; named as in second col of mapping file
+  
   map_hybrid_reads(fastq_paths, genome_index1, genome_index2, chromo_name_files,
-                   num_cpu=16, out_file=None, read_limit=None)
+                   singular_chromos=singular_chromos, num_cpu=16, out_file=None, read_limit=None)
                    
 if __name__ == '__main__':
   
