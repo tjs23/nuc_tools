@@ -6,7 +6,7 @@ from math import ceil, floor
 from collections import defaultdict
 
 import matplotlib
-matplotlib.use('Agg')
+#matplotlib.use('Agg')
 matplotlib.rcParams['axes.linewidth'] = 0.5
 
 from matplotlib import pyplot as plt
@@ -15,7 +15,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.ticker import AutoMinorLocator
 
 PROG_NAME = 'contact_map'
-VERSION = '1.1.1'
+VERSION = '1.1.2'
 DESCRIPTION = 'Chromatin contact (NCC or NPZ format) Hi-C contact map PDF display module'
 DEFAULT_CIS_BIN_KB = 250
 DEFAULT_TRANS_BIN_KB = 500
@@ -592,15 +592,19 @@ def get_single_list_matrix(contact_list, limits_a, limits_b, is_cis, bin_size, a
             matrix[c,d] += f2 * g2 * nobs
     
   else:
-    for p_a, p_b, nobs, ag in contact_list:
-      a = int((p_a-start_a)/bin_size)
-      b = int((p_b-start_b)/bin_size)
- 
-      if ambig_groups[ag] > 1:
-        ambig_matrix[a,b] += nobs
-      else:
-        matrix[a,b] += nobs
-
+    pos_a = contact_list[:,0]
+    pos_b = contact_list[:,1]
+    n_obs = contact_list[:,2]
+    ags = np.array([ambig_groups[ag] for ag in contact_list[:,3]])
+    rng = ((start_a, end_a), (start_b, end_b))
+  
+    idx = (ags == 1).nonzero()[0]
+    if len(idx):
+      matrix, ex, ey = np.histogram2d(pos_a[idx], pos_b[idx], bins=(n,m), range=rng, weights=n_obs[idx])
+    
+    idx = (ags > 1).nonzero()[0]
+    if len(idx):
+      ambig_matrix, ex, ey = np.histogram2d(pos_a[idx], pos_b[idx], bins=(n,m), range=rng, weights=n_obs[idx])
   
   if is_cis:
     matrix += matrix.T
@@ -722,18 +726,27 @@ def get_region_list_matrix(contact_list, region, bin_size, ambig_groups, smooth=
   
   
 def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
+  
+  from nuc_tools import util
     
   n, chromo_offsets, label_pos = _get_chromo_offsets(bin_size, chromos, chromo_limits)
+  
+  util.info('Binning contact lists')
   
   # Fill contact map matrix, last dim is for (un)ambigous
   matrix = np.zeros((n, n), float)
   ambig_matrix = np.zeros((n, n), float)
   
-  ambig_groups = defaultdict(int)
+  ag_max = 0
+  
+  for key in contacts:
+    ag_max = max(ag_max, contacts[key][:,3].max())
+  
+  ambig_counts = np.zeros(ag_max+1, np.uint32)
     
   for key in contacts:
-    for p_a, p_b, nobs, ag in contacts[key]:
-      ambig_groups[ag] += 1
+    counts = np.bincount(contacts[key][:,3]).astype(np.uint32) # int bins from zero up to largest
+    ambig_counts[:len(counts)] += counts
 
   trans_counts = {}
   homolog_groups = set()
@@ -754,12 +767,49 @@ def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
 
       if contact_list is None: # Nothing for this pair: common for single-cell Hi-C
         continue
+        
+      util.info(f' .. {chr_1} - {chr_2} : {len(contact_list):,}', line_return=True)
       
       ni = 0
-      isol = _get_isolated(contact_list)
-      s_a, off_a, size_a = chromo_offsets[chr_a]
-      s_b, off_b, size_b = chromo_offsets[chr_b]
+      isol = _get_isolated(contact_list, ambig_counts, chr_1==chr_2)
+      start_a, off_a, n_a = chromo_offsets[chr_a]
+      start_b, off_b, n_b = chromo_offsets[chr_b]
+            
+      ag_idx = contact_list[:,3]
+      
+      if chr_a != chr_b:
+        if ('.' in chr_a) and ('.' in chr_b) and (chr_a.split('.')[0] == chr_b.split('.')[0]):
+          homolog_groups.update(set(ag_idx))
 
+        else:
+          trans_groups.update(set(ag_idx))
+
+      else:
+        cis_groups.update(set(ag_idx))
+      
+      bin_a = (contact_list[:,0]-start_a)//bin_size
+      bin_b = (contact_list[:,1]-start_b)//bin_size
+      n_obs = contact_list[:,2]
+      
+      idx = (ambig_counts[ag_idx] == 1).nonzero()[0] # Unambig
+
+      
+      hist2d, xe, ye = np.histogram2d(bin_a[idx], bin_b[idx], bins=(n_a, n_b), range=((0, n_a), (0, n_b)), weights=n_obs[idx])
+      
+      matrix[off_a:off_a+n_a,off_b:off_b+n_b] += hist2d
+      matrix[off_b:off_b+n_b,off_a:off_a+n_a] += hist2d.T
+      
+      n_pairs += len(idx)
+
+      idx = (ambig_counts[ag_idx] > 1).nonzero()[0] # Ambig
+      
+      hist2d, xe, ye = np.histogram2d(bin_a[idx], bin_b[idx], bins=(n_a, n_b), range=((0, n_a), (0, n_b)), weights=n_obs[idx])
+      
+      ambig_matrix[off_a:off_a+n_a,off_b:off_b+n_b] += hist2d
+      ambig_matrix[off_b:off_b+n_b,off_a:off_a+n_a] += hist2d.T
+      
+      """
+      
       for p_a, p_b, nobs, ag in contact_list:
         if chr_a != chr_b:
           if ('.' in chr_a) and ('.' in chr_b) and (chr_a.split('.')[0] == chr_b.split('.')[0]):
@@ -775,7 +825,7 @@ def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
         b = off_b + int((p_b-s_b)/bin_size)
   
  
-        if ambig_groups[ag] == 1:
+        if ambig_counts[ag] == 1:
           matrix[a, b] += nobs
           matrix[b, a] += nobs
           n_pairs += 1
@@ -786,22 +836,27 @@ def get_contact_lists_matrix(contacts, bin_size, chromos, chromo_limits):
         else:
           ambig_matrix[a, b] += nobs
           ambig_matrix[b, a] += nobs
+      """
       
-      n_isol += ni
+      n_isol += isol
      
       if chr_a != chr_b:
         s1, e1 = chromo_limits[chr_a]
         s2, e2 = chromo_limits[chr_b]
         trans_counts[(chr_a, chr_b)] = (len(contact_list) - ni)/float((e1-s1) * (e2-s2))
+      
+      
         
-  n_ambig = len([x for x in ambig_groups.values() if x > 1])
+  n_ambig = np.count_nonzero(ambig_counts > 1)
   n_homolog = len(homolog_groups)
   n_trans = len(trans_groups)
   n_cis = len(cis_groups)
-  n_cont = len(ambig_groups)
+  n_cont = len(ambig_counts)
   counts = (n_cont, n_cis, n_trans, n_homolog, n_ambig, n_pairs, n_isol)
   
-  return counts, matrix, ambig_matrix, label_pos, chromo_offsets, trans_counts, ambig_groups
+  ambig_counts = dict(zip(range(ag_max+1), ambig_counts))
+  
+  return counts, matrix, ambig_matrix, label_pos, chromo_offsets, trans_counts, ambig_counts
 
 
 def _get_tick_delta(n_bins, bin_size_units, max_ticks=10):
@@ -984,8 +1039,77 @@ def _get_mito_fraction(contacts, bin_size, min_sep=1e2, sep_range=(10**6.5, 10**
   return frac, score_cat
 
 
-def _get_isolated(positions, threshold=int(2e6)):
+def _get_isolated(contacts, ambig_counts, is_cis, threshold=int(2e6)):
+  
+  from nuc_tools import util
+  
+  from scipy import spatial
+  
+  ags = contacts[:,3]
+  agc = ambig_counts[ags]
+  
+  unambig = contacts[(agc == 1).nonzero()]
 
+  if len(unambig) < 2:
+    return len(unambig)
+  
+  pos_a = unambig[:,0]
+  pos_b = unambig[:,1]
+  n_obs = unambig[:,3]
+ 
+  max_a = pos_a.max()
+  max_b = pos_b.max()
+
+  min_a = pos_a.min()
+  min_b = pos_b.min()
+  
+  if is_cis:
+    min_a = min_b = min(min_a, min_b)
+    max_a = max_b = max(max_a, max_b)
+  
+  size_a = max_a-min_a
+  size_b = max_b-min_b
+  
+  n_a = int(size_a // threshold) + 1
+  n_b = int(size_b // threshold) + 1
+  
+  rng = ((min_a, max_a), (min_b, max_b))
+  hist2d, xe, ye = np.histogram2d(pos_a, pos_b, bins=(n_a, n_b), range=rng)
+  
+  if is_cis:
+    hist2d += hist2d.T
+  
+  bins_a = (pos_a-min_a) // threshold
+  bins_b = (pos_b-min_b) // threshold
+  
+  counts = hist2d[(bins_a,bins_b)] # for each unambig contact
+  
+  sing_idx = (counts == 1).nonzero()[0]
+  singular = unambig[sing_idx]
+  
+  closest_nonself = spatial.distance_matrix(singular, unambig, p=1).argsort(axis=1)[:,1]
+  
+  isol_idx = sing_idx[closest_nonself > threshold]
+  
+  return len(isol_idx)
+  
+  """
+  ""
+  
+  rows, cols = (hist2d == 1).nonzero()
+  
+  
+  
+  
+  bins_a = pos_a // threshold
+  bins_b = pos_b // threshold
+  
+  
+  bin_counts = np.zeros((max_a, max_b), 'uint32')
+  bin_counts[(bins_a, bins_b)] += 1
+  
+  
+  
   isolated = set()
   bin_offsets = ((-1,-1), (-1,0), (-1,1), (0,-1), (0,1), (1,-1), (1,0), (1,1))
 
@@ -1021,7 +1145,7 @@ def _get_isolated(positions, threshold=int(2e6)):
         isolated.add((pA, pB))
 
   return isolated
-
+  """
 
 def _is_detailed_data(data_track, step_size):
   
@@ -1800,7 +1924,7 @@ def _get_vmax(matrix):
       
                    
 def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=500.0,
-                no_separate_cis=False, separate_trans=False, show_chromos=None,
+                no_ambig=False, no_separate_cis=False, separate_trans=False, show_chromos=None,
                 region_dict=None, use_corr=False, use_norm=False, is_single_cell=False,
                 screen_gfx=False, black_bg=False, min_contig_size=None, chromo_grid=False,
                 diag_width=None, data_tracks=None, gff_feats=None,
@@ -1851,10 +1975,12 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
   else:
     util.info('Making PDF contact map for {}'.format(in_msg))
   
+  load_ambig = not no_ambig
+  
   if io.is_ncc(in_path):
     file_bin_size = None
     util.info('Loading NCC format contact data')
-    chromosomes, chromo_limits, contacts = ncc.load_file(in_path)
+    chromosomes, chromo_limits, contacts = ncc.load_file(in_path, ambig=load_ambig)
     
   else:
     smooth = False
@@ -1867,7 +1993,7 @@ def contact_map(in_paths, out_path, bin_size=None, bin_size2=250.0, bin_size3=50
   
     if io.is_ncc(in_path2):
       file_bin_size2 = None
-      chromosomes2, chromo_limits2, contacts2 = ncc.load_file(in_path2)
+      chromosomes2, chromo_limits2, contacts2 = ncc.load_file(in_path2, ambig=load_ambig)
  
     else:
       smooth = False
@@ -2581,6 +2707,9 @@ def main(argv=None):
                          help='Do not display separate contact maps for individual chromosomes (intra-chromosomal contacts). ' \
                               'Only the overall whole-genome map will be displayed (unless -t option also used).')
 
+  arg_parse.add_argument('-na', '--no-ambig', default=False, action='store_true', dest="na",
+                         help='Do not load any positionally (or homologous chromosome) ambigous mappings from NCC format files. The option is ignored for binned NPZ format data.')
+
   arg_parse.add_argument('-t', '--trans', default=False, action='store_true', dest="t",
                          help='Display separate contact maps for all trans (inter-chromosomal) pairs. ' \
                               'By default the overall whole-genome and intra-chromosome maps are generated.')
@@ -2650,6 +2779,7 @@ def main(argv=None):
   min_contig_size = args['m']
   black_bg = args['bbg']
   no_sep_cis = args['nc']
+  no_ambig  = args['na']
   sep_trans = args['t']
   chromos = args['chr']
   use_corr = args['corr']
@@ -2753,7 +2883,7 @@ def main(argv=None):
     region_dict = {}
       
   contact_map(in_paths, out_path, bin_size, bin_size2, bin_size3,
-              no_sep_cis, sep_trans, chromos, region_dict,
+              no_ambig, no_sep_cis, sep_trans, chromos, region_dict,
               use_corr, use_norm, is_single, screen_gfx, black_bg,
               min_contig_size, chromo_grid, diag_width, data_tracks,
               gff_feats, smooth, cmap=cmap)

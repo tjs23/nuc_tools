@@ -8,7 +8,7 @@ from collections import defaultdict
 
 # #   Nuc Formats  # # 
 
-def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=np.uint32, n_max=None):
+def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=np.uint32, n_max=None, ambig=False):
   """Load chromosome and contact data from NCC format file, as output from NucProcess"""
   
   from core import nuc_io as io
@@ -28,6 +28,8 @@ def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=np.uint32, n
     n = 0
     ambig_group = 0
     
+    key_counts = {}
+    
     for line in file_obj:
       chr_a, f_start_a, f_end_a, start_a, end_a, strand_a, \
       chr_b, f_start_b, f_end_b, start_b, end_b, strand_b, \
@@ -35,11 +37,16 @@ def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=np.uint32, n
       
       try:
         ambig_rows, is_active = ambig_code.split('.')
+        
+        if ambig_rows != '0':
+          ambig_group += 1 # Count even if inactive; keep consistent group numbering
+      
       except ValueError as err:
         ambig_rows, is_active = '1', '1'
+        ambig_group = int(pair_id)
       
-      if ambig_rows != '0':
-        ambig_group += 1 # Count even if inactive; keep consistent group numbering
+      if not ambig and (ambig_rows != '1'):
+        continue
       
       if (chr_a != chr_b) and not trans:
         continue
@@ -59,7 +66,18 @@ def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=np.uint32, n
         pos_a, pos_b = pos_b, pos_a
 
       key = (chr_a, chr_b)
-      contact_dict[key].append((pos_a, pos_b, num_obs, int(pair_id)))
+      
+      if key not in key_counts:
+        contact_dict[key] = np.empty((64, 4), dtype)
+        key_counts[key] = 0
+      
+      contact_dict[key][key_counts[key]] = (pos_a, pos_b, num_obs, ambig_group)
+      key_counts[key] += 1
+      
+      if key_counts[key] >= len(contact_dict[key]):
+        n_add = min(len(contact_dict[key]), 10000000) # Double initially
+        contact_dict[key] = np.concatenate([contact_dict[key], np.empty((n_add, 4), dtype)], axis=0)
+            
       n += 1
       
       if n % 100000 == 0:
@@ -76,9 +94,9 @@ def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=np.uint32, n
     
   for key in keys:
     chr_a, chr_b = key
-    contacts = np.array(contact_dict[key], dtype=dtype)
-    del contact_dict[key]   
-    contact_dict_out[key] = contacts
+
+    contact_dict[key] =  contact_dict[key][:key_counts[key]] # Truncate unused allocation
+    contacts = contact_dict[key]
       
     seq_pos_a = contacts[:,0]
     seq_pos_b = contacts[:,1]
@@ -99,8 +117,6 @@ def load_file(file_path, pair_key=True, trans=True, offset=0, dtype=np.uint32, n
       chromo_limits[chr_b] = [min(prev_min, min_b), max(prev_max, max_b)]
     else:
       chromo_limits[chr_b] = [min_b, max_b]
-  
-  contact_dict = contact_dict_out
 
   if not pair_key:
     pairs = sorted(contact_dict)
