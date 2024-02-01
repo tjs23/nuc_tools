@@ -8,31 +8,28 @@ from nuc_tools import io, util
 from formats import sam, bed, gff
 from collections import defaultdict
 from matplotlib.backends.backend_pdf import PdfPages
-
-""" - Plot size distribs at anchors:  - as 2D frag length and anchor sep
-      # For MNase 0.6 and 1.5 (comb)
-      # Skip v. small contigs
-      # Load anchor positions, per contig
-      # For each MNase read, get contig, get size
-      #   For each anchor on same contig
-      #     Store size, anchor sep (closest point; min of ends), spearated by strand
-"""
+from numba import njit, int64, float64, int32, prange
 
 def _load_data_points(data_files):
 
   track_data_dicts = {}
   use_middle = {}
   
-  for label, file_path, file_format, feature, is_middle in data_files:
+  for label, file_path, feature, is_middle in data_files:
     util.info('Loading {}'.format(file_path))
     use_middle[label] = is_middle
-  
-    if file_format == 'BED':
+    _, file_ext = os.path.splitext(file_path)
+    file_ext = file_ext.lower()
+    
+    if file_ext in ('.bed',):
       track_data_dicts[label] = bed.load_data_track(file_path)
  
-    elif file_format == 'GFF':
+    elif file_ext in ('.gff','.gtf','.gff3'):
       track_data_dicts[label] = list(gff.load_data_track(file_path, [feature]).values())[0]
-  
+    
+    else:
+      print(f'File extension "{file_ext}" not known; use .bed or .gff')
+      
   out_dicts = {}
 
   for label in track_data_dicts:
@@ -69,12 +66,9 @@ def _load_data_points(data_files):
  
         out_dicts[label+'_start'][chromo] = starts
         out_dicts[label+'_end'][chromo] = ends
-
   
   return out_dicts
 
-
-from numba import njit, int64, float64, int32, prange
 
 @njit(int64[:,:](int64[:,:], int64[:,:], int64[:], int64, int64, int64, int64))
 def _add_to_map(regions, data_map, data_points, mid_col, n, min_size, bin_size):
@@ -119,8 +113,7 @@ def _add_to_map(regions, data_map, data_points, mid_col, n, min_size, bin_size):
       
       else:
         for i in range(j,k):
-          data_map[row,i] += 1
- 
+          data_map[row,i] += 1 
       
   return data_map
   
@@ -226,7 +219,7 @@ def plot_bam_anchor_sep_size(save_file_root, bam_path, anchor_dicts, min_size=13
   for label, anchor_map in anchor_maps.items():
     anchor_maps[label] = anchor_map.astype(float)/anchor_count_dict[label] 
   
-  anchor_max = max([anchor_map.max() for anchor_map in anchor_maps.values()])
+  anchor_max = np.median([anchor_map.max() for anchor_map in anchor_maps.values()])
   
   for label, anchor_map in anchor_maps.items():
     
@@ -255,6 +248,7 @@ def plot_bam_anchor_sep_size(save_file_root, bam_path, anchor_dicts, min_size=13
     cbar.set_label(f'Read density {bin_size} bp bins (counts/anchor)', fontsize=8)
     
     pdf.savefig(dpi=300)
+    plt.close(fig)
     
   print(f'Saved PDF {pdf_path}')
   pdf.close()
@@ -262,64 +256,74 @@ def plot_bam_anchor_sep_size(save_file_root, bam_path, anchor_dicts, min_size=13
 
 
 if __name__ == '__main__':
-  #data_files = (('DVNP', '/data/dino_hi-c/ChIP-seq_peaks/DVNP-HiC2_summits.bed', 'BED', None, True),
-  #              ('H2A', '/data/dino_hi-c/ChIP-seq_peaks/H2A-HiC2_summits.bed', 'BED', None, True),
-  #              
-  #              )
   
-  #anchor_dicts = _load_data_points(data_files)
+  # Plot paramaters
+  # - max mol size/sparation, max separation from anchor point, pixel bin size (bp)
+  plotkw = {'max_size':800, 'max_sep':2000, 'bin_size':2}
+  
+  # The data_files defines regions on which to anchor molecule size analysis
+  # - requires: text label, file path, file format (BED or GFF), GFF feature (if relevant), whether to use region middle as acnchor 
+  
+  # These lists are for anchor points, e.g. based on gene/intron/exon region classes
+  bed_paths = ('/data/dino_hi-c/HEM_FLYE_4_unique_cds_v2_intergenic.bed',
+               '/data/dino_hi-c/HEM_FLYE_4_unique_cds_v2_tiny_gene.bed',
+               '/data/dino_hi-c/HEM_FLYE_4_unique_cds_v2_short_gene.bed',
+               '/data/dino_hi-c/HEM_FLYE_4_unique_cds_v2_short_intron.bed',
+               '/data/dino_hi-c/HEM_FLYE_4_unique_cds_v2_short_first_exon.bed',
+               '/data/dino_hi-c/HEM_FLYE_4_unique_cds_v2_short_midd_exon.bed',
+               '/data/dino_hi-c/HEM_FLYE_4_unique_cds_v2_short_last_exon.bed',
+               '/data/dino_hi-c/HEM_FLYE_4_unique_cds_v2_intron.bed',
+               '/data/dino_hi-c/HEM_FLYE_4_unique_cds_v2_long_gene.bed',
+               '/data/dino_hi-c/HEM_FLYE_4_unique_cds_v2_first_exon.bed',
+               '/data/dino_hi-c/HEM_FLYE_4_unique_cds_v2_midd_exon.bed',
+               '/data/dino_hi-c/HEM_FLYE_4_unique_cds_v2_last_exon.bed',
+               )
+  
+  # Label based on file name
+  data_labels = [x.split('_v2_')[1][:-4] for x in bed_paths]
+  
+  nbed = len(bed_paths)
+  gff_features = [None] * nbed
+  
+  # Use region middle only for 'intron' and 'intergenic'
+  use_middle = [True if 'int' in x else False for x in data_labels]
 
-  data_files = (('Trinity_ssRNA_gene', '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity.gff3', 'GFF', 'gene', False),
-                ('Trinity_ssRNA_exon', '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity.gff3', 'GFF', 'exon', False),
-                ('Trin_Norm_exon_1st',  '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_first-exon.bed',       'BED', None, True),
-                ('Trin_Norm_exon_mid',  '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_mid-exon.bed',         'BED', None, True),
-                ('Trin_Norm_exon_last', '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_last-exon.bed',        'BED', None, True),
-                ('Trin_Norm_intron',    '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_introns.bed',          'BED', None, True),
-                ('Trin_Norm_intergenic','/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_intergenic.bed',       'BED', None, True),
-                ('Trin_Norm_gene',      '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_long-gene.bed',        'BED', None, False),
-                ('Trin_Tiny_gene',      '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_short-gene.bed',       'BED', None, False),
-                ('Trin_Tiny_intron',    '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_short-intron.bed',     'BED', None, True),
-                ('Trin_Tiny_exon_1st',  '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_short-first-exon.bed', 'BED', None, True),
-                ('Trin_Tiny_exon_mid',  '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_short-mid-exon.bed',   'BED', None, True),
-                ('Trin_Tiny_exon_last', '/data/dino_hi-c/hem_flye_4_ssRNA_Trinity_short-last-exon.bed',  'BED', None, True),
+  # data files to anchor dicts
+  data_files = zip(data_labels, bed_paths, gff_features, use_middle)
+  anchor_dicts = _load_data_points(data_files)
+  
+  # BAM files to analyse in terms of mol size and anchor separation
+  bam_paths = ('/data/dino_hi-c/Data_tracks_read_align_BAM/ChIP-seq2/SLX-17946_waller_hem_H2A-HiC2_sf.bam',
+               '/data/dino_hi-c/Data_tracks_read_align_BAM/ChIP-seq2/SLX-17946_waller_hem_DVNP-HiC2_sf.bam',
+               '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-15_sf.bam',
+               '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-06_sf.bam',
+               '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-02_sf.bam',
+               )
+  
+  # Where to save plots, for each BAM  file
+  out_plot_roots = ('/data/dino_hi-c/H2A',
+                    '/data/dino_hi-c/DVNP',
+                    '/data/dino_hi-c/MNase15',
+                    '/data/dino_hi-c/MNase06',
+                    '/data/dino_hi-c/MNase02')
+  
+  for plot_out, bam_path in zip(out_plot_roots, bam_paths):
+    plot_bam_anchor_sep_size(plot_out, bam_path, anchor_dicts, **plotkw)   
+  
+  # This list of for anchor points from ChIP-seq
+  data_files = (('DVNP', '/data/dino_hi-c/ChIP-seq_peaks/DVNP-HiC2_summits.bed', None, True),
+                ('H2A',  '/data/dino_hi-c/ChIP-seq_peaks/H2A-HiC2_summits.bed',  None, True),
                 )
   
   anchor_dicts = _load_data_points(data_files)
- 
-  bam_path = '/data/dino_hi-c/Data_tracks_read_align_BAM/ChIP-seq2/SLX-17946_waller_hem_H2A-HiC2_sf.bam'
-  plot_bam_anchor_sep_size('/data/dino_hi-c/H2A', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
-
-  bam_path = '/data/dino_hi-c/Data_tracks_read_align_BAM/ChIP-seq2/SLX-17946_waller_hem_DVNP-HiC2_sf.bam'
-  plot_bam_anchor_sep_size('/data/dino_hi-c/DVNP', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
- 
-  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-15_sf.bam'
-  plot_bam_anchor_sep_size('/data/dino_hi-c/MNase15', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
- 
-  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-06_sf.bam'
-  plot_bam_anchor_sep_size('/data/dino_hi-c/MNase06', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
- 
-  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-02_sf.bam'
-  plot_bam_anchor_sep_size('/data/dino_hi-c/MNase02', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
-
-  data_files = (('DVNP', '/data/dino_hi-c/ChIP-seq_peaks/DVNP-HiC2_summits.bed', 'BED', None, True),
-                ('H2A', '/data/dino_hi-c/ChIP-seq_peaks/H2A-HiC2_summits.bed', 'BED', None, True),
-                )
   
-  anchor_dicts = _load_data_points(data_files)
+  # Same BAM paths to analyse
  
-  bam_path = '/data/dino_hi-c/Data_tracks_read_align_BAM/ChIP-seq2/SLX-17946_waller_hem_H2A-HiC2_sf.bam'
-  plot_bam_anchor_sep_size('/data/dino_hi-c/H2A_ChIP_peaks', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
-
-  bam_path = '/data/dino_hi-c/Data_tracks_read_align_BAM/ChIP-seq2/SLX-17946_waller_hem_DVNP-HiC2_sf.bam'
-  plot_bam_anchor_sep_size('/data/dino_hi-c/DVNP_ChIP_peaks', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
- 
-  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-15_sf.bam'
-  plot_bam_anchor_sep_size('/data/dino_hi-c/MNase15_ChIP_peaks', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
- 
-  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-06_sf.bam'
-  plot_bam_anchor_sep_size('/data/dino_hi-c/MNase06_ChIP_peaks', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
- 
-  bam_path = '/data/dino_hi-c/SLX-17948_waller_hem_Mnase-02_sf.bam'
-  plot_bam_anchor_sep_size('/data/dino_hi-c/MNase02_ChIP_peaks', bam_path, anchor_dicts, max_size=800, max_sep=2000, bin_size=2)   
-  """
-  """
+  out_plot_roots = ('/data/dino_hi-c/H2A_ChIP_peaks',
+                    '/data/dino_hi-c/DVNP_ChIP_peaks',
+                    '/data/dino_hi-c/MNase15_ChIP_peaks',
+                    '/data/dino_hi-c/MNase06_ChIP_peaks',
+                    '/data/dino_hi-c/MNase02_ChIP_peaks')
+   
+  for plot_out, bam_path in zip(out_plot_roots, bam_paths):
+    plot_bam_anchor_sep_size(plot_out, bam_path, anchor_dicts, **plotkw)   
