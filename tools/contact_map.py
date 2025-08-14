@@ -1223,7 +1223,8 @@ def plot_contact_matrix(matrix, bin_size, title, scale_label, chromo_labels=None
   if log:
     norm = LogNorm(vmin=v_min)
     v_min = None # No need for further clipping
-
+    v_max = None
+    
   else:
     norm = None
     if v_max is None:
