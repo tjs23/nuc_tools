@@ -219,7 +219,7 @@ def check_exe(file_name):
   
   if not os.path.exists(file_name):
     if not locate_exe(file_name):
-      critical('Could not locate command exacutable "%s" in system $PATH' % file_name)
+      util.critical('Could not locate command exacutable "%s" in system $PATH' % file_name)
  
 
 def locate_exe(file_name):
@@ -287,15 +287,10 @@ def open_file(file_path, mode=None, buffer_size=FILE_BUFFER_SIZE, gzip_exts=('.g
         except OSError:
           file_obj = BufferedReader(gzip.open(file_path, mode or 'rb'), buffer_size)
     
-    if sys.version_info.major > 2:
-      file_obj = io.TextIOWrapper(file_obj, encoding="utf-8")
+    file_obj = io.TextIOWrapper(file_obj, encoding="utf-8")
  
   else:
-    if sys.version_info.major > 2:
-      file_obj = open(file_path, mode or 'rU', buffer_size, encoding='utf-8')
-      
-    else:
-      file_obj = open(file_path, mode or 'rU', buffer_size)
+    file_obj = open(file_path, mode or 'rU', buffer_size, encoding='utf-8')
   
   return file_obj
  
