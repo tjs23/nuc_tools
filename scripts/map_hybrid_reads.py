@@ -13,7 +13,10 @@ from subprocess import Popen, PIPE, call
 
 import numpy as np
 
-VERSION = '0.1.1'
+PROG_NAME = 'map_hybrid_reads'
+DESCRIPTION = 'Map DNA read data from hybrid samples containing two genotypes. Mapping is done separately to the genomic sequences and certain classes of ambiguity are resolved post mapping.'
+VERSION = '0.1.2'
+
 SESSION_KEY = ''.join(np.random.choice(tuple(string.ascii_letters), 8))
 TEMP_EXT = '_temp_%s' % (SESSION_KEY)
 READ_BUFFER = 2**16
@@ -201,10 +204,6 @@ def clip_reads(fastq_file, file_root, qual_scheme, min_qual,
   
   in_file_obj = open_file_r(fastq_file, complete=not bool(max_reads_in))
   
-  #junct_seq = 'CTGTCTCTTATACACATCT'
-  #junc_len =len(junct_seq)
-  #n_jclip = 0
-  
   n_reads = 0
   n_qclip = 0
   n_short = 0
@@ -229,12 +228,6 @@ def clip_reads(fastq_file, file_root, qual_scheme, min_qual,
     line2 = readline()[trim_5:end]
     line3 = readline()
     line4 = readline()[trim_5:end]   
-   
-    #if junct_seq in line2:
-    #  n_jclip += 1
-    #  i = line2.index(junct_seq)
-    #  line2 = line2[:i] + line2[i+junc_len:]
-    #  line4 = line4[:i] + line4[i+junc_len:]
     
     for adapt_seq, min_adapt, alen in adapt_list:
     
@@ -313,13 +306,8 @@ def clip_reads(fastq_file, file_root, qual_scheme, min_qual,
         f'Too short: {n_short:,} ({100.0 * n_short/n:.2f}%)\n' \
         f'Mean read length: {mean_len:.2f}')
   
-  
-  # f'Tn5 ME: {n_jclip:,} ({100.0 * n_jclip/n:.2f}%)\n' \
-    
   if adapt_seqs:
     print(f"3' adapter {n_adapt:,} ({100.0 * n_adapt/n:.2f}%)")
-
-   
 
   move(clipped_file_temp, clipped_file)
 
@@ -327,7 +315,7 @@ def clip_reads(fastq_file, file_root, qual_scheme, min_qual,
 
 
 def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_names, singular_chromos,
-                            file_root, samtools_exe, rename_chromos=True, ambig=True, max_cis_sep=2000):
+                            file_root, samtools_exe, rename_chromos=True, ambig_out=False, max_cis_sep=2000):
   
   singular_chromos = set(singular_chromos or [])
   
@@ -402,7 +390,7 @@ def pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_n
   close_second_best = 2 * BOWTIE_MAX_AMBIG_SCORE_TOL - 1
   
   # Go through same files and pair based on matching id
-  # Write out any multi-position mapings
+  # Write out any multi-position mappings
 
   # Skip to end of headers
 
@@ -840,7 +828,7 @@ def get_fastq_qual_scheme(file_path):
   return scheme
 
 
-def map_reads(fastq_file, genome_index, align_exe, num_cpu, ambig, qual_scheme, job):
+def map_reads(fastq_file, genome_index, align_exe, num_cpu, qual_scheme, exons_file, introns_file, job):
 
   sam_file_path = tag_file_name(fastq_file, 'map%d' % job, '.sam')
   sam_file_path_temp = sam_file_path + TEMP_EXT
@@ -855,7 +843,6 @@ def map_reads(fastq_file, genome_index, align_exe, num_cpu, ambig, qual_scheme, 
   patt_4 = re.compile('(\d+) \(.+\) aligned >1 times')
   
   cmd_args = [align_exe,
-              '-D', '20', '-R', '3', '-N', '0',  '-L', '20',  '-i', 'S,1,0.5', # similar to very-sensitive
               '-x', genome_index,
               '-k', '2',
               '--reorder',
@@ -864,7 +851,12 @@ def map_reads(fastq_file, genome_index, align_exe, num_cpu, ambig, qual_scheme, 
               '-U', fastq_file,
               '--np', '0', # Penalty for N's
                '-S', sam_file_path_temp]
-
+  
+  if exons_file and introns_file: # Hisat2
+    cmd_args += ['--ss', introns_file, '--exon', exons_file]
+  else: # Bowtie2
+    cmd_args += ['-D', '20', '-R', '3', '-N', '0',  '-L', '20',  '-i', 'S,1,0.5',] # similar to very-sensitive
+  
   if qual_scheme == 'phred33':
     cmd_args += ['--phred33']
 
@@ -924,16 +916,19 @@ def map_reads(fastq_file, genome_index, align_exe, num_cpu, ambig, qual_scheme, 
 
 
 def map_hybrid_reads(fastq_paths, genome_index1, genome_index2, chromo_name_files, singular_chromos=None,
-                     num_cpu=1, out_file=None, align_exe=None, samtools_exe=None, qual_scheme=None, min_qual=30,
-                     adapt_seqs=None, trim_5=0, trim_3=0, max_cis_sep=2000, keep_files=False,
-                     ambig=True, read_limit=None, rename_chromos=True):
- 
+                     num_cpu=1, ss_file=None, exon_file=None, out_file=None,  read_limit=None, align_exe=None,
+                     samtools_exe=None, qual_scheme=None, min_qual=30, adapt_seqs=None,
+                     trim_5=0, trim_3=0, max_cis_sep=2000, keep_files=False,
+                     ambig_out=False, rename_chromos=True):
+  
+  aligner_name = 'hisat2' if (ss_file and exon_file) else 'bowtie2'
+  
   if not align_exe:
     try: # Python version >= 3.3
-      align_exe = which('bowtie2')
+      align_exe = which(aligner_name)
 
     except AttributeError:
-      cmd_args = ['which', 'bowtie2']
+      cmd_args = ['which', aligner_name]
       proc = Popen(cmd_args, stdin=PIPE, stdout=PIPE)
       align_exe, std_err_data = proc.communicate()
       align_exe = align_exe.strip()
@@ -976,7 +971,7 @@ def map_hybrid_reads(fastq_paths, genome_index1, genome_index2, chromo_name_file
     merged_path = merge_file_names(file_paths[0], file_paths[1])
     file_root = os.path.splitext(merged_path)[0]
 
-  intermed_dir = file_root + '_nuc_processing_files'
+  intermed_dir = file_root + '_map_hybrid_reads_files'
   intermed_file_root = os.path.join(intermed_dir, os.path.basename(file_root))
   if not os.path.exists(intermed_dir):
     os.mkdir(intermed_dir)
@@ -990,12 +985,12 @@ def map_hybrid_reads(fastq_paths, genome_index1, genome_index2, chromo_name_file
                              min_qual, read_limit, adapt_seqs, trim_5, trim_3, is_second=True)
 
   info(f'Mapping FASTQ reads to first genome reference : {genome_index1} ...')
-  sam_file1 = map_reads(clipped_file1, genome_index1, align_exe, num_cpu, ambig, qual_scheme, 1)
-  sam_file2 = map_reads(clipped_file2, genome_index1, align_exe, num_cpu, ambig, qual_scheme, 2)
+  sam_file1 = map_reads(clipped_file1, genome_index1, align_exe, num_cpu, qual_scheme, ss_file, exon_file, 1)
+  sam_file2 = map_reads(clipped_file2, genome_index1, align_exe, num_cpu, qual_scheme, ss_file, exon_file, 2)
 
   info(f'Mapping FASTQ reads to second genome reference : {genome_index2} ...')
-  sam_file3 = map_reads(clipped_file1, genome_index2, align_exe, num_cpu, ambig, qual_scheme, 3)
-  sam_file4 = map_reads(clipped_file2, genome_index2, align_exe, num_cpu, ambig, qual_scheme, 4)
+  sam_file3 = map_reads(clipped_file1, genome_index2, align_exe, num_cpu, qual_scheme, ss_file, exon_file, 3)
+  sam_file4 = map_reads(clipped_file2, genome_index2, align_exe, num_cpu, qual_scheme, ss_file, exon_file, 4)
   
   #if not keep_files:
   #  for file_path in (clipped_file1, clipped_file2):
@@ -1012,7 +1007,7 @@ def map_hybrid_reads(fastq_paths, genome_index1, genome_index2, chromo_name_file
 
   info(f'Pairing ambiguously mapped reads')
   paired_sam_file_name  = pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_names, singular_chromos,
-                                                  file_root, samtools_exe, rename_chromos, ambig=ambig, max_cis_sep=max_cis_sep)
+                                                  file_root, samtools_exe, rename_chromos, ambig_out=ambig_out, max_cis_sep=max_cis_sep)
 
   print(f'Wrote {paired_sam_file_name}')
   
@@ -1039,7 +1034,7 @@ def test_pair_mapped_hybrid_seqs():
         chromo_names[key] = value
 
   paired_sam_file_name = pair_mapped_hybrid_seqs(sam_file1, sam_file2, sam_file3, sam_file4, chromo_names,
-                                                 file_root, ambig=True, max_cis_sep=20000)
+                                                 file_root, max_cis_sep=20000)
 
   print(paired_sam_file_name)
 
@@ -1055,13 +1050,117 @@ def test_map_hybrid_reads():
   chromo_name_files = ['/data1/genome_builds/Mouse_EDL_B6_v2_chr_names.tsv',
                        '/data1/genome_builds/Mouse_EDL_CAST_v2_chr_names.tsv']
   
-  singular_chromos = ('chrX') # Will have no homologous pair; named as in second col of mapping file
+  singular_chromos = ('chrX',) # Will have no homologous pair; named as in second col of mapping file
   
   map_hybrid_reads(fastq_paths, genome_index1, genome_index2, chromo_name_files,
-                   singular_chromos=singular_chromos, num_cpu=16, out_file=None, read_limit=None)
-                   
+                   singular_chromos, None, None, num_cpu=16, out_file=None, read_limit=None)
+ 
+ 
+def main(argv=None):
+  
+  from argparse import ArgumentParser
+
+  if argv is None:
+    argv = sys.argv[1:]
+  
+  epilog = 'For further help email tstevens@mrc-lmb.cam.ac.uk or wb104@cam.ac.uk'
+  arg_parse = ArgumentParser(prog='nuc_tools ' + PROG_NAME, description=DESCRIPTION,
+                             epilog=epilog, prefix_chars='-', add_help=True)
+                             
+  arg_parse.add_argument(nargs=2, metavar='FASTQ_FILE', dest='i',
+                         help='Input paired-read FASTQ files to process. Accepts wildcards' \
+                              ' that match paired files. Exactly two files paths must be inputs.')
+                             
+    
+  arg_parse.add_argument('-g1', '--gnome-index-1', metavar='GENOME_FILE1', dest='g1',
+                         help='Location of first genome index files to map sequence reads to, ommiting' \
+                              ' any file extensions like ".1.b2", ".ht2" etc. Genome indices may be' \
+                              ' built using bowtie2-build or hisat2-build, for genomeic or transcriptomic data respectively')
+
+  arg_parse.add_argument('-g2', '--gnome-index-2', default=None, metavar='GENOME_FILE2', dest='g2',
+                         help='Location of second genome index files to map sequence reads to, ommiting' \
+                              ' any file extensions like ".1.b2", ".ht2" etc.')
+
+  arg_parse.add_argument('-cn1', '--chromo-names-1', default=None, metavar='CHROM_NAME_FILE', dest='cn1',
+                         help='Location of a file containing chromosome names for the genome build:' \
+                              ' tab-separated lines mapping sequence/contig names (as appear at the' \
+                              ' start of genome FASTA headers) to desired (human readable) chromosome' \
+                              ' names. The naming file may be built automatically from NCBI' \
+                              ' genome FASTA files using the "nuc_sequence_names" program from nuc_processing')  
+
+  arg_parse.add_argument('-cn2', '--chromo-names-2', default=None, metavar='CHROM_NAME_FILE_2', dest='cn2',
+                         help='Location of a file containing chromosome names for a second' \
+                              ' hybrid genome build.')  
+
+  arg_parse.add_argument('-ss', '--splice-sites', default=None, metavar='SPLICE_SITE_PATH', dest='ss',
+                         help='Optional location of a file containing intron splice sites, as used by HISAT2. If specified, an exon "-ex" file must also be provided. ' \
+                         ' If this option is used the read data is assumed to derive from RNA transcripts' \
+                         ' and HISAT2 will be used for alignment rather than plain Bowtie2.' \
+                         ' See https://daehwankimlab.github.io/hisat2/manual/#hisat2-build-options-ss')  
+
+  arg_parse.add_argument('-ex', '--exon-positions', default=None, metavar='EXONS_PATH', dest='ex',
+                         help='Optional location of a file containing exon locations, as used by HISAT2. If specified, a splice site "-ss" file must also be provided. ' \
+                         ' If this option is used the read data is assumed to derive from RNA transcripts' \
+                         ' and HISAT2 will be used for alignment rather than plain Bowtie2.' \
+                         ' See https://daehwankimlab.github.io/hisat2/manual/#hisat2-build-options-exon')  
+
+  arg_parse.add_argument('-s', '--singular-chromos', metavar='CHROMOSOMES', nargs='+', default=None, dest='s',
+                         help='Optional list of names for chromosomes that are known to be single-copy, and so are not part of' \
+                              ' an homologous chromosome pair. Typical use is for chrX, chrY') 
+                         
+  arg_parse.add_argument('-n', '--num-cpu', default=1, metavar='CPU_COUNT', dest='n',
+                         type=int, help='Number of CPU cores to use in parallel for the mapping stage')
+
+  arg_parse.add_argument('-lim', '--limit-reads', default=0, metavar='MAX_READS', dest='lim',
+                         type=int, help='Limit the number of input reads considered: useful for' \
+                         ' quick testing prior to a long, full run')
+                         
+  arg_parse.add_argument('-o', '--out-contact-file', metavar='NCC_FILE', dest='o', default=None,
+                         help='Optional output name/path for output paired SAM file, without any file extension. Else, output will be named after the input FASTQ files.')
+
+  arg_parse.add_argument('-exe', '--aligner-path', metavar='ALIGNER_EXE_FILE', dest='exe', default=None,
+                         help='Path to a specific Bowtie2 (genomic reads) or HISAT2 (transcriptomic reads) sequence aligner executable; will be searched' \
+                              ' for if not specified.')
+
+  arg_parse.add_argument('-st', '--samtools-path', metavar='SAMTOOLS_EXE_FILE', dest='st', default=None,
+                         help='Path a specific samtools executable; will be searched for if not specified.')
+
+  
+  args = vars(arg_parse.parse_args(argv))
+
+  fastq_paths  = args['i'] 
+  
+  genome_index1 = args['g1']
+  genome_index2 = args['g2']
+  
+  cn1 = args['cn1']
+  cn2 = args['cn2']
+
+  ss_path = args['ss']
+  exon_path = args['ex']
+    
+  singular = args['s']
+  num_cpu = args['n']    
+  read_limit = args['lim'] or None    
+  out_file = args['o']
+  exe = args['exe']
+  samtools = args['st']
+  
+  if ss_path and not exon_path:
+    msg = f'An intron splice site file "{ss_path}" is specified but no exon file.'
+    fatal(msg)
+
+  if exon_path and not ss_path:
+    msg = f'An exon locations file "{exon_path}" is specified but no splice site file.'
+    fatal(msg)
+
+  if exon_path and ss_path:
+    info('Splice site and exon ofiles are provided. HISAT2 will be used for alignment')
+  
+  map_hybrid_reads(fastq_paths, genome_index1, genome_index2, [cn1, cn2], 
+                   singular, ss_path, exon_path, num_cpu, out_file, read_limit, exe, samtools)
+
 if __name__ == '__main__':
   
-  # test_pair_mapped_hybrid_seqs()
-
- test_map_hybrid_reads()
+  main()
+  
